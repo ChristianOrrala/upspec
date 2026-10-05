@@ -1,0 +1,14 @@
+{
+  "name": "upspec",
+  "version": "0.1.0",
+  "description": "Stack-neutral skills for a specification-first workflow with use cases: requirements, entity model, use case specifications, review, implementation, tests, change handling, coverage audit, recovery of existing systems and scaling to several teams.",
+  "author": {"name": "Christian Orrala", "url": "https://github.com/ChristianOrrala"},
+  "keywords": [
+    "spec-driven-development",
+    "use-cases",
+    "requirements",
+    "traceability",
+    "upspec"
+  ],
+  "license": "MIT"
+}

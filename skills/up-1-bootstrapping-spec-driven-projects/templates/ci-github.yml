@@ -1,0 +1,26 @@
+name: Specifications
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  specifications:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Lint the specifications
+        run: python3 tools/specs/spec_lint.py
+
+      - name: Spec-first guard
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s' "$PR_BODY" > "$RUNNER_TEMP/pull-request-body.txt"
+          python3 tools/specs/spec_first_guard.py --base "origin/$BASE_REF" --message-file "$RUNNER_TEMP/pull-request-body.txt" --mode block
