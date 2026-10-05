@@ -13,6 +13,8 @@ Code [n]/[total] · Tests [n]/[total] · Spec: `docs/use_cases/UC-XXX-<name>.md`
 | Post-F-1 | [text] | [file:line] | — | Partial ([what is missing]) |
 | NFR-XXX | [title] | — | — | n/a ([reason]) |
 
+**Change log:** [#N, ... — the recovery change log entries in change on this use case; omit the line when there are none]
+
 ### Gaps
 
 1. **[Unit]: [what is missing].** [Where it belongs.] Close with `[skill] UC-XXX`.

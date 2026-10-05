@@ -14,6 +14,13 @@ State comes from the files, never from memory:
     Specs lines name. The step for the current work comes before the others; a use
     case in progress that the current work does not name, and an ability whose
     status disagrees with its use cases, are listed.
+  - the alignment backlog of a recovery (docs/recovery/change-log.md): entries decided
+    later or in change are open; aligned closes only when the shared closure check
+    finds no errors in its audit reports, otherwise it stays open with warnings;
+    dropped is closed and undecided is counted. An entry in change whose use cases
+    are all Tested or Done gets a hint that its audit report can close it. With the
+    A-files, a later entry without an AHEAD item, an AHEAD item that does not exist and
+    a done ability with open entries are warned. The count never changes the next step.
 
 The decision rows are tried top to bottom; the first that matches is the next
 step. Every use case also gets its own next step, so work on another use case
@@ -46,6 +53,8 @@ SOURCE_SUFFIXES = (".py", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".java",
 CODE_COUNT_CAP = 50
 # A use case in these Status values has been built and is waiting for tests or for the business: work in progress.
 IN_PROGRESS = ("Implemented", "Tested")
+# Status values at which a use case can be audited for alignment: the hint names the report that would close it.
+READY = ("Tested", "Done")
 
 # Status -> (step code, who or which skill acts, what happens)
 PER_STATUS = {
@@ -80,6 +89,46 @@ def recovered_ids(docs):
                 if match:
                     ids.add(match.group(1))
     return ids
+
+
+def alignment_view(root, docs, use_cases):
+    """The alignment backlog of a recovery, or None when its change log has no entry."""
+    if not docs or not docs.recovery_dir:
+        return None
+    entries = model.parse_change_log(os.path.join(docs.recovery_dir, "change-log.md"))
+    if not entries:
+        return None
+    status = {u["id"]: u["status"] for u in use_cases}
+    counts = {"later": 0, "in_change": 0, "aligned": 0, "dropped": 0, "undecided": 0}
+    open_entries, ready, warnings = [], [], []
+    for entry in entries:
+        state = entry["state"]
+        errors = [message for severity, _, message in model.closure_problems(root, entry) if severity == "error"]
+        warnings.extend("change log #%d is aligned, but %s; it stays open" % (entry["number"], message)
+                        for message in errors)
+        if state in counts and not errors:
+            counts[state] += 1
+        if state not in ("later", "in_change") and not errors:
+            continue
+        record = entry["paths"][0] if state == "in_change" and entry["paths"] else None
+        named = model.RE_UC_ID.search(os.path.basename(record)) if record else None
+        ids = unique(([named.group(0)] if named else []) + entry["use_cases"])
+        open_entries.append({"number": entry["number"], "state": state, "use_cases": ids, "record": record, "ahead": entry["ahead"]})
+        if state == "in_change" and ids and all(status.get(uc) in READY for uc in ids):
+            ready.append("change log #%d: %s; its audit report closes it (aligned: <report>)"
+                         % (entry["number"], ", ".join("%s is %s" % (uc, status[uc]) for uc in ids)))
+    return dict(counts, open=len(open_entries), entries=open_entries, ready=ready, warnings=warnings,
+                ahead_items=unique([item for e in open_entries for item in e["ahead"]]), abilities=[])
+
+
+def alignment_line(alignment):
+    text = ("Alignment: %(open)d open (%(later)d later, %(in_change)d in change), %(aligned)d aligned, "
+            "%(dropped)d dropped, %(undecided)d undecided" % alignment)
+    if alignment["ahead_items"]:
+        text += "; AHEAD %s" % ", ".join(alignment["ahead_items"])
+    if alignment["abilities"]:
+        text += "; abilities %s" % ", ".join(alignment["abilities"])
+    return text
 
 
 def count_code(root, docs_dir):
@@ -121,7 +170,7 @@ def focus_of(tracking):
     return [], None
 
 
-def tracking_view(root, use_cases):
+def tracking_view(root, use_cases, alignment=None):
     """What the A-files add to the state, or None when the project does not use them."""
     tracking = model.read_tracking(root)
     if tracking is None:
@@ -142,6 +191,23 @@ def tracking_view(root, use_cases):
             ahead = ["%s is %s" % (u["id"], u["status"]) for u in named if u["status"] in ("Implemented", "Tested", "Done")]
             if ahead:
                 warnings.append("%s is planned, but %s" % (ability, ", ".join(ahead)))
+    if alignment:
+        open_on = {}
+        for item in alignment["entries"]:
+            for uc_id in item["use_cases"]:
+                open_on.setdefault(uc_id, []).append(item["number"])
+        alignment["abilities"] = sorted({ab for uc_id in open_on for ab in named_by.get(uc_id, [])})
+        for ability, entry in sorted(tracking["abilities"].items()):
+            left = ["#%d on %s" % (n, uc_id) for uc_id in entry["specs"] for n in open_on.get(uc_id, [])]
+            if entry["status"] == "done" and left:
+                warnings.append("%s is done, but change log %s %s still open" % (ability, ", ".join(left), "is" if len(left) == 1 else "are"))
+        if not tracking["ahead_home"]:
+            for item in alignment["entries"]:
+                if item["state"] == "later" and not item["ahead"]:
+                    warnings.append("change log #%d is later and names no AHEAD item: draft its item (the hand-off at the end of the baseline review)" % item["number"])
+                for ahead in item["ahead"]:
+                    if ahead not in tracking["items"]:
+                        warnings.append("change log #%d names %s, which AHEAD.md does not list" % (item["number"], ahead))
     if not tracking["abilities_home"]:
         unnamed = [u["id"] for u in use_cases if u["id"] not in named_by and u["status"] != "Obsolete"]
         if unnamed:
@@ -230,7 +296,8 @@ def collect(docs_dir):
     state["journey_test_cases"] = len(docs.test_case_files()) if docs else 0
     state["code_files"] = count_code(root, docs_dir)
     state["code_files_capped"] = state["code_files"] >= CODE_COUNT_CAP
-    state["tracking"] = tracking_view(root, use_cases)
+    state["alignment"] = alignment_view(root, docs, use_cases)
+    state["tracking"] = tracking_view(root, use_cases, state["alignment"])
     return state
 
 
@@ -332,6 +399,15 @@ def print_text(state):
     print("  reason: %s" % nxt["reason"])
     if nxt["what"]:
         print("  what:   %s" % nxt["what"])
+
+    alignment = state.get("alignment")
+    if alignment and any(alignment[key] for key in ("open", "aligned", "dropped", "undecided")):
+        print()
+        print(alignment_line(alignment))
+        for warning in alignment["warnings"]:
+            print("  warning: %s" % warning)
+        for hint in alignment["ready"]:
+            print("  ready: %s" % hint)
 
     tracking = state.get("tracking")
     if tracking:

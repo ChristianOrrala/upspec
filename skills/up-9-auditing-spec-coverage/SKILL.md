@@ -135,7 +135,7 @@ is not and the code loses it. Name both. Recommend neither. Ask.
    covered ones included, then gaps, drift and the Status the evidence
    justifies. Save it as `docs/reviews/<UC-XXX>-audit-<n>.md` (n one higher
    than the last audit of that use case), also when told to change nothing
-   (skip it only when the user asks for no file), and say where it is. The reply still carries the verdict, the gaps and the
+   (skip it only when the user asks for no file), and say where it is. When `docs/recovery/change-log.md` has entries `in change` on this use case, list them under the matrix on a line `**Change log:** #N, ...`: a report without gaps is what closes them, and whoever acts on it writes `aligned: <this report>`; you close nothing. The reply still carries the verdict, the gaps and the
    drift, each gap with what exists and what is missing (`A2: code at
    booking.py:47, no test`); the file is the record. Then stop.
 

@@ -2,7 +2,7 @@
 
 Stack-neutral skills for specification-first development with use cases.
 
-**Status: 0.1.0, the first release.** All fourteen skills are built. Their scripts are tested against fixture
+**Status: 0.2.0.** All fourteen skills are built. Their scripts are tested against fixture
 projects, and the skills are evaluated against sessions without them.
 
 The full guide (installing, concepts, workflows, the checks, troubleshooting) is

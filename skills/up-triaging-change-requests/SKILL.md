@@ -165,7 +165,7 @@ exception to the rule.
 7. Write the change record from [templates/change-record.md](templates/change-record.md), with the
    differences from today when the behavior already exists, and save it as
    `docs/change-records/UC-XXX-<kebab-name>.md`: the review, the
-   implementation and its gate read it there, and the pull request links it.
+   implementation and its gate read it there, and the pull request links it. When the change starts from an entry of a recovery change log, the Report names it (`change log #3`), the entry's Decision becomes `in change: <this record's path>`, and its Use case column gains the change record's use case when it is not already there.
    Every decision the owner made goes into its decisions table with the
    element that carries it; when the specification is written, each decision
    has that element, and every flow and rule the change adds is mapped in the

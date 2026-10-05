@@ -7,8 +7,14 @@ The records live in DIR/recovery/: the ledger (ledger.md), the suspect list
 is required.
 
 ERROR  a ledger row with an unknown State; an evidence location whose file does
-       not exist.
-WARN   a recovered use case, flow or rule without a ledger row; a row naming a
+       not exist; a dropped change log entry without its reason; an entry in
+       change whose change record does not exist; an aligned entry whose audit
+       report does not exist, or whose reports between them do not name every
+       use case of the entry.
+WARN   a claim not built (kind Claimed but not built) without the old document's
+       line; an entry in change with no use case, or whose record's file name
+       names none; an aligned entry whose report still shows a gap;
+       a recovered use case, flow or rule without a ledger row; a row naming a
        flow or rule the specification does not have; a row without evidence; an
        evidence line beyond the end of its file; a suspect or discarded row
        without a note; a suspect row that names no entry of the suspect list; a
@@ -24,6 +30,11 @@ INFO   an entity of the model without a ledger row; a use case of the diagram
 
 States: recovered (the code does this and it reads as intended), verified (a
 second reader checked the claim against its evidence), suspect, discarded.
+
+The change log is also the alignment backlog. Decision later (or later: <the
+decision>) is open work; in change: <change record path> means a change took
+it up; aligned: <audit report>[; <audit report>] closes it, written by whoever
+acts on the audit; dropped: <reason> closes it without work.
 
 After the findings it prints the counts of the recovery (use cases, Status,
 ledger rows, suspects, change log entries). Quote these counts; do not write
@@ -60,8 +71,8 @@ SUSPECT_ID = re.compile(r"\bS-\d{2,3}\b")
 # "UC-003 is Draft", "specified as Draft", "Status: Reviewed": a Status copied into a record.
 STATUS_CLAIM = re.compile(r"\b(?:Status:?|is|are|as|stays|remains|marked|now)\s+[*`]{0,2}(Draft|Reviewed|Approved|Implemented|Tested|Done)\b")
 RECORDS = ("suspects.md", "change-log.md", "baseline-review.md")
-# Words that fill the Decision column of a change log while nothing is decided yet.
-UNDECIDED = re.compile(r"^(?:$|\[|-$|—$|(?:open|pending|undecided|tbd|to decide)\b)", re.IGNORECASE)
+# Words that fill the Decision column of a change log while nothing is decided yet (shared with the router).
+UNDECIDED = model.RE_UNDECIDED
 
 
 def line_count(path):
@@ -182,6 +193,32 @@ def check_suspects(report, path, root):
     return set(ids), (counts["decide"], counts["tidy"])
 
 
+def check_backlog_entry(report, path, entry, root):
+    """The alignment backlog's rules for one change log entry."""
+    element, line, state = "#%d" % entry["number"], entry["line"], entry["state"]
+    if state == "dropped" and not entry["detail"]:
+        report.error(path, line, "REASON_MISSING", element, "a dropped entry keeps its reason: dropped: <why>")
+    if state == "in_change":
+        record = entry["paths"][0] if entry["paths"] else ""
+        if not os.path.isfile(os.path.join(root, record)):
+            report.error(path, line, "CHANGE_RECORD_MISSING", element,
+                         "%s does not exist under %s; in change names the change record's path" % (record or "the record", root))
+        if not entry["use_cases"]:
+            report.warn(path, line, "USE_CASE_MISSING", element, "write the use case the change creates or changes into the Use case column")
+        named = model.RE_UC_ID.search(os.path.basename(record)) if record else None
+        if named and named.group(0) not in entry["use_cases"]:
+            report.warn(path, line, "USE_CASE_MISSING", element,
+                        "write the change record's use case %s into the Use case column" % named.group(0))
+        if record and not named:
+            report.warn(path, line, "RECORD_UNNAMED", element, "a change record is named after its use case: docs/change-records/UC-XXX-<name>.md")
+    for severity, code, message in model.closure_problems(root, entry):
+        emit = report.error if severity == "error" else report.warn
+        emit(path, line, code, element, message)
+    if model.RE_CLAIM_KIND.match(entry["kind"]):
+        if not check_evidence(report, path, line, element, entry["evidence"], root):
+            report.warn(path, line, "EVIDENCE_EMPTY", element, "a claim not built cites the old document's line, path:line")
+
+
 def check(docs, ledger_path, root, report):
     """Returns the counts for the summary, or None when the ledger has no table."""
     lines = model.read_lines(ledger_path)
@@ -256,6 +293,7 @@ def check(docs, ledger_path, root, report):
                             "the lifecycle needs a row citing where the code writes each state; a state nothing writes is a suspect")
 
     open_entries = entries = 0
+    backlog = {"later": 0, "in_change": 0, "aligned": 0, "dropped": 0}
     change_dir = os.path.join(record_dir, "change-records")
     extra = sorted(os.path.join("change-records", n) for n in os.listdir(change_dir) if n.endswith(".md")) if os.path.isdir(change_dir) else []
     for name in list(RECORDS) + extra:
@@ -267,20 +305,22 @@ def check(docs, ledger_path, root, report):
         for number, text in model.outside_fences(record):
             check_citations(report, path, number, text, known)
         if name == "change-log.md":
-            for _, row in table_rows(record, "#"):
-                if row.get("#", "").strip().isdigit():
-                    entries += 1
-                    # Decided means someone decided: options written into the Decision column are not a decision.
-                    decided_by = row.get("Decided by")
-                    open_entries += bool(UNDECIDED.match(row.get("Decision", "").strip().strip("*_"))
-                                         or (decided_by is not None and UNDECIDED.match(decided_by.strip().strip("*_"))))
+            for entry in model.parse_change_log(path):
+                entries += 1
+                # Decided means someone decided: options written into the Decision column are not a decision.
+                decided_by = entry["decided_by"]
+                open_entries += bool(entry["state"] == "undecided"
+                                     or (decided_by is not None and UNDECIDED.match(decided_by.strip().strip("*_"))))
+                if entry["state"] in backlog:
+                    backlog[entry["state"]] += 1
+                check_backlog_entry(report, path, entry, root)
 
     statuses = {}
     for uc in specs:
         statuses[uc.status] = statuses.get(uc.status, 0) + 1
     return {"map": len(diagram.use_cases) if diagram else 0, "specified": len(spec_ids), "statuses": statuses,
             "rows": sum(states.values()), "states": states, "suspects": suspect_counts if suspect_ids is not None else None,
-            "entries": entries, "open": open_entries}
+            "entries": entries, "open": open_entries, "backlog": backlog}
 
 
 def print_summary(counts):
@@ -290,6 +330,8 @@ def print_summary(counts):
     if counts["suspects"] is not None:
         print("Suspects: %d to decide, %d to tidy" % counts["suspects"])
     print("Change log: %d entries, %d without a decision" % (counts["entries"], counts["open"]))
+    if any(counts["backlog"].values()):
+        print("Backlog: %(later)d later, %(in_change)d in change, %(aligned)d aligned, %(dropped)d dropped" % counts["backlog"])
 
 
 def main(argv):

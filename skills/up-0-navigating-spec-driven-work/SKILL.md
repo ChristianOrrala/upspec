@@ -154,7 +154,7 @@ through `up-1-bootstrapping-spec-driven-projects`. Until then apply the full cha
    propose a Status the evidence does not carry.
    With the A-files, say first what blocks the work or waits on the owner,
    name the current work, and give each mismatch and warning as something the
-   owner resolves in `ACTIVE.md` or `ABILITIES.md`; you change neither.
+   owner resolves in `ACTIVE.md` or `ABILITIES.md`; you change neither. When a recovery left an alignment backlog, give its count line, its `ready` hints and its warnings; the count never changes the next step.
 6. If a slice is in flight on the same use case, say to finish it first.
 
 ## Validation

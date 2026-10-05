@@ -458,6 +458,119 @@ def read_tracking(root):
     return tracking
 
 
+# The Decision values of a recovery change log that make it the alignment backlog. Case, emphasis
+# and code marks around them do not matter; text after the colon is the detail.
+RE_DECISION = re.compile(r"^[*_`]*(later|in change|aligned|dropped)(?=[*_`\s:]|$)[*_`]*\s*:?\s*(.*)$", re.IGNORECASE)
+# Words that fill a Decision or Decided by cell while nothing is decided yet (a template placeholder too).
+RE_UNDECIDED = re.compile(r"^(?:$|\[|-$|—$|(?:open|pending|undecided|tbd|to decide)\b)", re.IGNORECASE)
+# The change log kind for behavior an old specification claims and the code never implemented.
+RE_CLAIM_KIND = re.compile(r"^claimed but not built$", re.IGNORECASE)
+
+
+def _cell(text):
+    """A table cell without the emphasis or code marks around it."""
+    return (text or "").strip().strip("*_`").strip()
+
+
+def decision_of(text):
+    """(state, detail) of a change log Decision cell: later, in_change, aligned or dropped with the
+    text after the colon; undecided while nothing is decided; settled for any other decision."""
+    cell = _cell(text)
+    match = RE_DECISION.match(cell)
+    if match:
+        word, detail = match.group(1).lower(), _cell(match.group(2))
+        if word == "in change":
+            link = RE_LINK.search(detail)
+            return "in_change", (link.group(1) if link else detail.strip("`"))
+        return word, detail
+    if RE_UNDECIDED.match(cell):
+        return "undecided", cell
+    return "settled", cell
+
+
+def _decision_paths(state, detail):
+    """The record of an entry in change, the audit reports of an aligned one, else []."""
+    if state == "in_change":
+        return [detail] if detail else []
+    if state != "aligned":
+        return []
+    return [link or part.strip().strip("`") for part in detail.split(";") if part.strip()
+            for link in [(RE_LINK.search(part) or [None, None])[1]]]
+
+
+def parse_change_log(path):
+    """Entries of a recovery change log in file order, [] when there is none. Each entry:
+    number, line, kind, use_cases, evidence, decision, decided_by (None without the column),
+    state and detail (from decision_of), paths (record or reports), ahead (AH ids, [] without the column)."""
+    if not path or not os.path.isfile(path):
+        return []
+    entries = []
+    for table in read_tables(read_lines(path)):
+        if not table["header"] or table["header"][0].strip() != "#":
+            continue
+        for line, row, _ in table["rows"]:
+            number = row.get("#", "").strip()
+            if not number.isdigit():
+                continue
+            decision = row.get("Decision", "")
+            state, detail = decision_of(decision)
+            entries.append({"number": int(number), "line": line, "kind": _cell(row.get("Kind", "")),
+                            "use_cases": RE_UC_ID.findall(row.get("Use case", "")), "evidence": row.get("Evidence", ""),
+                            "decision": decision.strip(), "decided_by": row.get("Decided by"),
+                            "state": state, "detail": detail, "paths": _decision_paths(state, detail),
+                            "ahead": RE_AH_ID.findall(row.get("Ahead", ""))})
+    return entries
+
+
+# An audit names the recovery entries it can close on a Change log line; label emphasis is optional.
+RE_AUDIT_CHANGE_LOG = re.compile(r"^[*_]*Change log[*_]*:[*_]*(.*)$", re.IGNORECASE)
+# Entry citations are whole numbers after #, rather than use case identifiers or prose on other lines.
+RE_CHANGE_LOG_NUMBER = re.compile(r"#(\d+)")
+
+
+# The audit's clean verdicts may include explanations, as in n/a (no UI).
+CLEAN_VERDICTS = ("covered", "not applicable", "n/a")
+
+
+def closure_problems(root, entry):
+    """Shared closure check: (severity, code, message) findings for an aligned entry."""
+    if entry["state"] != "aligned":
+        return []
+    problems, named = [], set()
+    for target in entry["paths"]:
+        full = os.path.join(root, target)
+        if not os.path.isfile(full):
+            problems.append(("error", "AUDIT_REPORT_MISSING", "%s does not exist under %s" % (target, root)))
+            continue
+        lines = read_lines(full)
+        matrices = [table for table in read_tables(lines)
+                    if table["header"] and table["header"][0] == "Unit"
+                    and "Verdict" in table["header"] and table["rows"]]
+        if not matrices:
+            problems.append(("error", "AUDIT_REPORT_INVALID", "%s is not an audit report: no verdict matrix" % target))
+            continue
+        reported_entries = {int(number) for _, text in outside_fences(lines)
+                            for match in [RE_AUDIT_CHANGE_LOG.match(text)] if match
+                            for number in RE_CHANGE_LOG_NUMBER.findall(match.group(1))}
+        if entry["number"] not in reported_entries:
+            problems.append(("error", "AUDIT_REPORT_STALE",
+                             "%s does not list change log #%s: it was not written for this change"
+                             % (target, entry["number"])))
+        head = next((text for _, text in outside_fences(lines) if text.startswith("#")), "")
+        named.update(RE_UC_ID.findall(os.path.basename(target)) + RE_UC_ID.findall(head))
+        gaps = [row.get("Unit", "?").strip() for table in matrices for _, row, _ in table["rows"]
+                if not row.get("Verdict", "").strip().lower().startswith(CLEAN_VERDICTS)]
+        if gaps:
+            problems.append(("warning", "AUDIT_GAPS",
+                             "%s still shows gaps (%s); say why they do not concern this entry" % (target, ", ".join(gaps))))
+    missing = [uc for uc in entry["use_cases"] if uc not in named]
+    if not entry["paths"] or missing or not entry["use_cases"]:
+        problems.append(("error", "ALIGNED_INCOMPLETE",
+                         "aligned names an audit report for every use case of the entry; missing: %s"
+                         % (", ".join(missing) or "the use case or the report")))
+    return problems
+
+
 # --- locating the artifacts -------------------------------------------------
 
 class Docs:

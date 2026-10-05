@@ -251,7 +251,7 @@ written by hand is wrong after the next edit.
    reader checked become `verified`; a row you corrected yourself, in a round or
    in the systematic pass, stays `recovered` until a later sample checks it. Stop at the eighth round
    whatever its result, and report how many errors the last sample found.
-10. **Prepare the baseline review**: [references/baseline-review.md](references/baseline-review.md).
+10. **Prepare the baseline review** and, after it, the hand-off of the backlog: [references/baseline-review.md](references/baseline-review.md).
 11. **Summarize honestly**, with the counts the ledger check printed: what you
     could not classify, where the main scenario was hard to recover, the
     verification rounds and what they corrected, the suspects to decide, and
@@ -269,8 +269,8 @@ it: what the system does, and what it was supposed to do. The review turns the
 drafts into the baseline. From then on, every feature, change and bug goes
 specification-first through it.
 
-What the review cannot settle becomes the first entries of the change log
-([templates/change-log.md](templates/change-log.md)). Nothing is quietly fixed on the way.
+What the review cannot settle becomes the first entries of the change log ([templates/change-log.md](templates/change-log.md)); what the owner
+leaves for later is the alignment backlog, shrunk beside new work, never a phase before it. Nothing is quietly fixed on the way.
 
 ## Before the first change
 

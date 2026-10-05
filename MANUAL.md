@@ -1,6 +1,6 @@
 # upspec: User Manual
 
-Version 0.1.0
+Version 0.2.0
 
 This manual explains how to install the `upspec` skills, how the work
 they support is organized, and how to carry a piece of work from an idea, a
@@ -334,7 +334,7 @@ coding agent with the skills.
    `**Status:** Approved` yourself.
 9. **Implement and test.** "Implement UC-001 with its tests." See 7.4.
 10. **Audit.** "Is UC-001 fully tested?" The audit suggests whether Tested is
-    justified.
+    justified. The report lists the recovery change log entries in change on the use case; a report without gaps is what closes them.
 
 ### 7.2 Bringing an existing codebase under specifications
 
@@ -354,6 +354,19 @@ coding agent with the skills.
    specifications to Reviewed. Approved stays yours to write.
 6. **First change.** From here every change goes through triage (7.3). Today's
    behavior is pinned by tests before the first change.
+
+**The alignment backlog.** What the owner decides to fix later stays in the
+change log as `later` (or `later: <the decision>`), beside claims old
+documents make that the code never built (kind `Claimed but not built`). A
+change that takes one up writes `in change: <record>`; the coverage audit's
+report closes it as `aligned: <report>` only when each cited report lists
+the entry on its `Change log` line; a dropped one keeps its reason.
+With the A-files, recovery drafts one AHEAD item per use case and writes
+them on your yes. The router prints `Alignment: N open (...)`, a `ready`
+hint when an entry's use cases are Tested or Done and only the audit's
+report is missing, and a warning when an ability is done while its use
+cases still have open entries. The backlog never blocks new work.
+The router keeps an aligned entry open, with a warning, while its reports fail the shared closure check.
 
 ### 7.3 Changing behavior the system already has
 
@@ -559,7 +572,7 @@ verdict is `caught`, `not caught` (the test does not guard the rule) or
 | `check_recovery_ledger.py` (recovery) | The recovery records against the specifications and the code | `check_recovery_ledger.py --strict` |
 | `sample_claims.py` (recovery) | A random sample of recovered claims for a second reader | `sample_claims.py --count 10` |
 | `spec_core_metrics.py` (splitting) | Size of the specification set and where it could be cut | `spec_core_metrics.py` |
-| `workflow_state.py` (`up-0`) | The repository's state and the first step that applies | `workflow_state.py` |
+| `workflow_state.py` (`up-0`) | The repository's state and the first step that applies, the alignment count of a recovery and its hints | `workflow_state.py` |
 | `scaffold_docs.py` (`up-1`) | The setup plan; writes only with `--apply`, never overwrites | `scaffold_docs.py --profile solo` |
 
 ### Agent hooks (optional)
@@ -686,7 +699,7 @@ whether workspace hooks run.
 
 ## 14. Known limits
 
-- **First release.** Version 0.1.0. Tested on three small real projects, all
+- **Early release.** Version 0.2.0. Tested on three small real projects, all
   in Python, with a stand-in owner, plus fixture projects.
 - **Other stacks.** The skills carry no framework code, but only Python
   projects have run them end to end; the TypeScript fixture is read as text.

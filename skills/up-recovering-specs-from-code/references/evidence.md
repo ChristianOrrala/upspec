@@ -53,8 +53,10 @@ Spec Kit's `specs/`, Kiro's `.kiro/specs/`, OpenSpec's `openspec/` and loose
 specification documents are evidence of the same rank as a product document:
 they say what someone meant the system to do, not what it does. Read them
 beside the code. Each recovered use case cites the document it drew on in
-the ledger, as it cites code. Where a document and the code disagree, list
-the conflict for the owner. The old documents stay where they are until the
+the ledger, as it cites code. Where a document and the code disagree, list the conflict for the owner;
+where a document promises behavior the code does not have at all, it is a
+change log entry of kind `Claimed but not built`, citing the document's
+line. The old documents stay where they are until the
 baseline review is done and the owner says yes; then `scripts/relink.py`
 moves them to `docs/recovery/sources/` (for example
 `--move specs docs/recovery/sources/specs`), rewriting the ledger's citations

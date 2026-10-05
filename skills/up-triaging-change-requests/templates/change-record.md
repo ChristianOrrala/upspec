@@ -1,6 +1,6 @@
 ## Change record: [short title]
 
-**Report:** [who reported what, in one or two sentences]
+**Report:** [who reported what, in one or two sentences; or the recovery change log entry it starts from, "change log #3"]
 **Element:** [UC-XXX step N | UC-XXX A1 | UC-XXX BR-00N | no use case covers it]
 
 ### Classification
