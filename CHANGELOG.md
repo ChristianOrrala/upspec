@@ -2,6 +2,12 @@
 
 All notable changes to upspec. Versions follow semantic versioning.
 
+## 0.2.1
+
+- The README is rewritten: what the skills do and why, install steps for
+  Claude Code, Codex and other agents, a quick start, and the skills grouped
+  into the chain and the side entries.
+
 ## 0.2.0
 
 - Recovery: the change log is the alignment backlog. A new kind, Claimed but
