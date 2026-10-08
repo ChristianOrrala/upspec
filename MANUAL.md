@@ -1,6 +1,6 @@
 # upspec: User Manual
 
-Version 1.0.1
+Version 1.0.2
 
 This manual explains how to install the `upspec` skills, how the work
 they support is organized, and how to carry a piece of work from an idea, a
@@ -418,9 +418,11 @@ coding agent with the skills.
 1. **Ask for recovery.** The agent maps actors, entry points, entities and use
    cases from the code, keeping an evidence ledger: every claim points at the
    line that decides it.
-2. **Choose the depth.** A short baseline specification for every use case, or
-   full specifications for the use cases about to change. The agent
-   recommends one from the system's size.
+2. **Choose the depth.** Four choices: full specifications only for the use
+   cases about to change; a short baseline for every use case; a baseline for
+   every use case and full ones where change is coming; or full for all. The
+   agent says what each costs to review and recommends one from the system's
+   size; full for all is yours to choose at any size.
 3. **Suspects, not corrections.** Behavior that looks wrong is recorded as
    suspect (`S-012`) and named in the text. Nothing is fixed during recovery.
 4. **Verification pass.** A second reader checks a random sample of claims
@@ -862,7 +864,7 @@ whether workspace hooks run.
 
 ## 14. Known limits
 
-- **Early release.** Version 1.0.1. Tested on three small real projects, all
+- **Early release.** Version 1.0.2. Tested on three small real projects, all
   in Python, with a stand-in owner, plus fixture projects.
 - **Other stacks.** The skills carry no framework code, but only Python
   projects have run them end to end; the TypeScript fixture is read as text.

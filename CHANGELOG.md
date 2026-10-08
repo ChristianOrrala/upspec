@@ -2,6 +2,15 @@
 
 All notable changes to upspec. Versions follow semantic versioning.
 
+## 1.0.2
+
+- Recovery offers four depths after the map: full only where change is
+  coming, a baseline for every use case, a baseline for every use case with
+  full ones where change is coming, or full for all. Each says what it costs
+  to review; the recommendation still follows the size of the map.
+
+**How to migrate:** Update the plugin. Nothing in a project changes.
+
 ## 1.0.1
 
 - The migration skill recognizes the installed checks copied from 1.0.0,

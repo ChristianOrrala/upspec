@@ -4,7 +4,7 @@ description: >-
   Recovers the specifications of an existing system from its code and running behavior: actors from
   authorization, a use case map from server, front-end and hosted-service entry points grouped by user
   goal, an entity model from the schema in the project's own words, and use case specifications at the
-  depth the owner chooses (a short baseline for every use case, or full ones where change is coming),
+  depth the owner chooses (baseline or full, for every use case or where change is coming),
   written at business level with implementation detail kept out by check. Keeps an evidence ledger and
   a list of suspect behavior instead of correcting anything, prepares the two-role baseline review
   (what the system does versus what it was meant to do) and the first change log, and pins current
@@ -35,29 +35,39 @@ Shared paths, identifiers and Status values: [references/conventions.md](referen
 | `docs/entity_model.md` | First | Every entity, from the schema, in business nouns |
 | `docs/recovery/ledger.md` | Throughout | Every recovered element with the code it came from |
 | `docs/recovery/suspects.md` | Throughout | Behavior that looks unintended, each to decide or to tidy |
-| `docs/use_cases/UC-XXX-*.md` | After the owner chooses the depth | Baseline specifications for all, or full ones where change is coming |
+| `docs/use_cases/UC-XXX-*.md` | After the owner chooses the depth | Baseline or full specifications, as the chosen depth says |
 | `docs/recovery/baseline-review.md` | After the specifications | Sittings and questions |
 | `docs/recovery/change-log.md` | After the baseline review | What the review could not settle |
 
 ## Depth: ask after the map
 
 The map and the entity model are cheap, come first and cover the whole system.
-Then ask the owner how deep the specifications go, and recommend by size:
+Then ask the owner how deep the specifications go. Offer four choices and
+say what each costs to review:
+
+| Choice | What the use cases get | Review before anyone relies on them |
+|---|---|---|
+| Full only where change is coming | The changing ones full; the rest stay named on the map, and the first change to one starts by recovering it | The least: only the changing ones |
+| Baseline for all | A baseline each | A baseline review of every use case |
+| Baseline for all, full where change is coming | A baseline each, and the changing ones full | The baseline review, plus every flow and boundary example of the changing ones |
+| Full for all | Full each | The most: every flow and boundary example of every use case |
+
+Recommend by size:
 
 | The map has | Recommend | Because |
 |---|---|---|
-| About 30 use cases or fewer | A baseline specification for every use case | Small enough to write and review; the next change finds a specification waiting |
-| More | Specifications only for the use cases about to change | Review is the limit; a specification nobody reviews goes stale |
+| About 30 use cases or fewer | Baseline for all; with named upcoming changes, baseline for all and full where change is coming | Small enough to write and review; the next change finds a specification waiting |
+| More | Full only where change is coming | Review is the limit; a specification nobody reviews goes stale |
 
-Say what the other choice gives up. Map only: the first change to an
-unspecified use case starts by recovering it, and until then the map is the
-only documentation. Baseline for all: every draft needs the baseline review
-before anyone can rely on it, and until then it is a Draft and says so.
+Full for all is the owner's choice at any size: take it when asked, after
+saying its cost, and above about 30 use cases say that review is the limit.
+Whatever the depth, every specification is a Draft until its baseline review,
+and says so.
 
 | Depth | Content |
 |---|---|
 | Baseline | The main scenario; an alternative flow for every outcome the actor can tell apart; every business rule the code enforces, in business words, with examples for the limits the business set; suspects marked where they apply |
-| Full, for a use case about to change | The baseline, plus every flow a test must cover and boundary examples on every quantified rule |
+| Full | The baseline, plus every flow a test must cover and boundary examples on every quantified rule |
 
 Neither depth has a line target: write what the use case holds. At either
 depth, timeouts, retry counts, budgets, internal state names and screen
@@ -189,8 +199,9 @@ markers. Status changes need no regeneration.
    never edit between the overview markers. Record entry points in the ledger.
 4. **Entity model** as its own careful pass, from the schema first, then from
    the code that reads it. Use `up-3-modeling-domain-entities` conventions.
-5. **Ask the depth and which use cases are about to change.** Recommend by the
-   table above and wait for the answer.
+5. **Ask the depth and which use cases are about to change.** Offer the four
+   choices with their review cost, recommend by the table above and wait for
+   the answer.
 6. **Specifications** at the chosen depth, from
    [templates/use-case.md](templates/use-case.md), the format of
    `up-5-writing-use-case-specs`: preconditions from guards on entry, the main
