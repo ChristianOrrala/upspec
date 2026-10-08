@@ -46,6 +46,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spec_model as model  # noqa: E402  (local module, same folder)
+import use_case_map
 import validate_use_case  # noqa: E402  (local module, same folder)
 
 BASELINE_NAME = ".spec-lint-baseline.json"
@@ -98,14 +99,12 @@ class Project:
         self.docs = model.Docs(docs_dir)
         self.report = report
         self.requirements, self.use_cases, self.test_cases = [], [], []
-        self.diagram = self.entities = None
+        self.entities = None
         docs = self.docs
         for path, note in docs.notes:
             report.info(path, 0, "SPELLING", "-", note)
         if docs.requirements:
             self.requirements, _ = self._read(docs.requirements, model.parse_requirements, ([], []))
-        if docs.diagram:
-            self.diagram = self._read(docs.diagram, model.parse_diagram, None)
         if docs.entity_model:
             self.entities = self._read(docs.entity_model, model.parse_entity_model, None)
         for path in docs.use_case_files():
@@ -165,23 +164,13 @@ def lint(project):
         elif tc.id:
             seen_tc[tc.id] = tc.path
 
-    # diagram against specifications
     by_id = {uc.id: uc for uc in project.use_cases if uc.id}
-    if project.diagram:
-        for line, uc_id in project.diagram.duplicates:
-            report.error(docs.diagram, line, "DUPLICATE_ID", uc_id, "identifier is declared twice in the diagram")
-        for uc in project.use_cases:
-            if not uc.id:
-                continue
-            if uc.id not in project.diagram.use_cases:
-                if uc.status != "Obsolete":
-                    report.error(uc.path, uc.fields["Use Case ID"][1], "SPEC_NOT_IN_DIAGRAM", uc.id, "the use case is not in the diagram")
-            elif uc.name != project.diagram.use_cases[uc.id][0]:
-                report.warn(uc.path, uc.fields.get("Use Case Name", ("", 0))[1], "NAME_MISMATCH", uc.id,
-                            "specification says '%s', the diagram says '%s'" % (uc.name, project.diagram.use_cases[uc.id][0]))
-        for uc_id, (name, _, line) in sorted(project.diagram.use_cases.items()):
-            if uc_id not in by_id:
-                report.info(docs.diagram, line, "SPEC_PENDING", uc_id, "'%s' has no specification yet" % name)
+    for path, line, code, message in model.format_findings(docs):
+        report.error(path, line, code, "-", message)
+    overview_problem = use_case_map.stale_reason(docs)
+    if overview_problem:
+        report.error(docs.overview or os.path.join(docs.root, "use_cases.md"), 1,
+                     "STALE_OVERVIEW", "-", overview_problem)
 
     # references
     known_reqs = {r.id for r in project.requirements}
@@ -208,20 +197,15 @@ def lint(project):
         element = tc.id or os.path.basename(tc.path)
         if tc.field("Status") and tc.field("Status").split("|")[0].strip() not in model.TC_STATUSES:
             report.error(tc.path, tc.fields["Status"][1], "STATUS_INVALID", element, "Status must be one of %s" % ", ".join(model.TC_STATUSES))
-        for line, row in tc.flow_rows:
-            cell = row.get("Use Case", "")
-            match = model.RE_UC_ID.search(cell)
-            if not match:
-                continue
-            used_by_tc.add(match.group(0))
-            if match.group(0) not in by_id:
-                report.error(tc.path, line, "DANGLING_REF", element, "step links %s, which has no specification" % match.group(0))
-            link = re.search(r"\]\(([^)]+)\)", cell)
-            if link and not os.path.exists(os.path.join(os.path.dirname(tc.path), link.group(1))):
-                report.error(tc.path, line, "DANGLING_REF", element, "link target %s does not exist" % link.group(1))
-        process = re.search(r"\]\(([^)]+)\)", tc.field("Process"))
-        if process and not os.path.exists(os.path.join(os.path.dirname(tc.path), process.group(1))):
-            report.error(tc.path, tc.fields["Process"][1], "DANGLING_REF", element, "process model %s does not exist" % process.group(1))
+        for uid in tc.use_case_ids():
+            used_by_tc.add(uid)
+            if uid not in by_id:
+                report.error(tc.path, tc.field_line("use_cases"), "DANGLING_REF", element,
+                             "journey includes %s, which has no specification" % uid)
+        process = tc.field("Process")
+        if process and not os.path.exists(os.path.join(os.path.dirname(tc.path), process)):
+            report.error(tc.path, tc.field_line("Process"), "DANGLING_REF", element,
+                         "process model %s does not exist" % process)
     if project.test_cases:
         for uc in project.use_cases:
             if uc.id and uc.id not in used_by_tc and uc.status != "Obsolete":
@@ -230,7 +214,7 @@ def lint(project):
     # requirement coverage and status
     linking = project.linking()
     if project.requirements and project.use_cases:
-        pending = bool(project.diagram) and any(i not in by_id for i in project.diagram.use_cases)
+        pending = any(uc.is_stub for uc in project.use_cases)
         for req in project.requirements:
             if req.status in model.REQ_SCOPE:
                 continue
@@ -305,15 +289,15 @@ def trace(project):
         wanted = derived_status(ucs)
         status = req.status + (" (use cases: %s)" % wanted if wanted and wanted != req.status and req.status in model.REQ_PROGRESS else "")
         if not ucs:
-            rows.append([req.id, req.title, status, "—", "—", "—"])
+            rows.append([req.id, req.title or req.need, status, "—", "—", "—"])
         for uc in ucs:
-            rows.append([req.id, req.title, status, "%s %s (%s)" % (uc.id, uc.name, uc.status),
+            rows.append([req.id, req.title or req.need, status, "%s %s (%s)" % (uc.id, uc.name, uc.status),
                          ", ".join(r.id for r in uc.rules) or "—", ", ".join(tcs_of.get(uc.id, [])) or "—"])
     for uc in project.use_cases:
         if not uc.requirement_ids:
             rows.append(["—", "—", "—", "%s %s (%s)" % (uc.id, uc.name, uc.status),
                          ", ".join(r.id for r in uc.rules) or "—", ", ".join(tcs_of.get(uc.id, [])) or "—"])
-    journeys = [[tc.id or "?", tc.title or "", tc.field("Status"), re.sub(r"\[([^\]]+)\]\([^)]*\).*", r"\1", tc.field("Process")) or "—",
+    journeys = [[tc.id or "?", tc.title or "", tc.field("Status"), tc.field("Process") or "—",
                  ", ".join(tc.use_case_ids()) or "—"] for tc in project.test_cases]
     return rows, journeys
 
@@ -343,6 +327,10 @@ def main(argv):
     if not os.path.isdir(args.docs):
         print("no such folder: %s" % args.docs, file=sys.stderr)
         return 2
+    docs = model.Docs(args.docs)
+    stop = model.stop_if_old(docs)
+    if stop:
+        return stop
     report = model.Reporter(os.getcwd())
     project = Project(args.docs, report)
 

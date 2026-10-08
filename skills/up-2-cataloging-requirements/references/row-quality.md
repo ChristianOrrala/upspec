@@ -8,7 +8,7 @@ goes to the ledger; it does not stay as it is.
 | Check | Fails | Passes |
 |---|---|---|
 | Measurable | "Search is fast." | "Search returns the first page within 2 seconds for 95 percent of requests at 100 concurrent users." |
-| Singular | "As a clerk, I want to import and export customers so that ..." | Two rows, one for import, one for export |
+| Singular | "Role: clerk; Need: import and export customers" | Two rows, one for import, one for export |
 | Unambiguous | "The interface is user-friendly." | "A first-time customer completes a booking without help in a moderated test with 5 participants." |
 | Testable | "The system is reliable." | "The service is available 99.5 percent of each calendar month between 07:00 and 20:00." |
 | Unique | Two rows with the same identifier | Each identifier once |
@@ -31,7 +31,7 @@ only together with a ledger, and reports it.
 - The goal is something the role does with the system, in the role's words.
   "Create loan record" is the developer's phrase; "borrow a book" is the
   member's.
-- The benefit is the reason, not a restatement of the goal.
+- Need is a short verb phrase, such as "borrow a book"; the role has its own cell.
 - No screens, no buttons, no data fields. Those belong to the use case or to
   nothing at all.
 - A statement of the form "the system must ..." with no role is usually a
@@ -39,6 +39,11 @@ only together with a ledger, and reports it.
   case. Decide which.
 
 ## Non-functional rows
+
+NFR and C rows use Statement and follow an EARS pattern from the conventions.
+For example: `When a customer searches, the system shall return the first
+page within 2 seconds for 95 percent of requests at 100 concurrent users`.
+The number, unit and condition remain part of the NFR statement.
 
 | Category | A threshold looks like | Usual verification |
 |---|---|---|
@@ -54,7 +59,7 @@ A row that cannot be checked by any method in the last column is not finished.
 Say so in the ledger.
 
 A non-functional requirement is written once, here. Use cases link it by
-identifier on their Requirements line and never repeat its text.
+identifier on their `requirements` list and never repeat its text.
 
 ## Constraint rows
 
@@ -84,7 +89,7 @@ the regulation. Ask for the source; do not cite one from memory.
 - Read first. Change only the rows the change touches.
 - A dropped requirement keeps its row and identifier with Status `Rejected`
   (out of scope for good) or `Deferred` (later). Then list the use cases whose
-  Requirements line names it; they need attention.
+  `requirements` list names it; they need attention.
 - A changed requirement keeps its identifier. If the change is so large that
   the old intent is gone, reject the old row and add a new one.
 - Progress Status is derived: Verified when every linking use case is Tested or

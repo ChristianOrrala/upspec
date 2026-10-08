@@ -230,6 +230,10 @@ def main(argv):
     parser.add_argument("--assign", help="file with a proposed assignment to check")
     args = parser.parse_args(argv)
     args.docs = args.docs or model.docs_default()
+    docs_model = model.Docs(args.docs)
+    stop = model.stop_if_old(docs_model)
+    if stop:
+        return stop
     if not os.path.isdir(args.docs):
         print("no such folder: %s" % args.docs, file=sys.stderr)
         return 2

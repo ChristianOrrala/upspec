@@ -77,10 +77,8 @@ def short(text):
 
 
 def typed(row):
-    """An attribute with its type, as the reader checks it: 'id (String 36, Primary Key)'."""
-    kind = " ".join(v for v in (row.get("Data Type", "").strip(), row.get("Length/Precision", "").strip()) if v and v != "-")
-    key = ", Primary Key" if "primary key" in row.get("Validation Rules", "").lower() else ""
-    return "%s (%s%s)" % (row.get("Attribute", "?"), kind or "no type", key)
+    """An attribute with its business type, as the reader checks it."""
+    return "%s (%s)" % (row.get("Attribute", "?"), row.get("Type", "").strip() or "no type")
 
 
 def claims(docs):
@@ -99,7 +97,7 @@ def claims(docs):
     entity_claims = []
     if docs.entity_model:
         for name, entity in model.parse_entity_model(docs.entity_model).entities.items():
-            required = [typed(row) for _, row, _ in entity.attributes if REQUIRED.search(row.get("Validation Rules", ""))]
+            required = [typed(row) for _, row, _ in entity.attributes if row.get("Type", "") == "Identifier" or REQUIRED.search(row.get("Rules", ""))]
             if required:
                 entity_claims.append({"element": "ENTITY %s required" % name, "claim": short("Always present, with these types: %s" % ", ".join(required))})
             if entity.lifecycle:
@@ -143,6 +141,10 @@ def main(argv):
     parser.add_argument("--format", choices=("md", "json"), default="md")
     args = parser.parse_args(argv)
     args.docs = args.docs or model.docs_default()
+    docs_model = model.Docs(args.docs)
+    stop = model.stop_if_old(docs_model)
+    if stop:
+        return stop
     if not os.path.isdir(args.docs):
         print("no such folder: %s" % args.docs, file=sys.stderr)
         return 2

@@ -117,6 +117,9 @@ def main(argv):
     parser.add_argument("--format", choices=("text", "json"), default="text")
     args = parser.parse_args(argv)
     args.docs = args.docs or model.docs_default()
+    stop = model.stop_if_old(model.Docs(args.docs))
+    if stop is not None:
+        return stop
 
     if not UNIT.match(args.unit):
         print('unit must look like "UC-012 BR-001" or "UC-012 A1"', file=sys.stderr)

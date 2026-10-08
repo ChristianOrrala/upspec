@@ -2,14 +2,14 @@
 name: up-2-cataloging-requirements
 description: >-
   Turns a vision, workshop transcripts, notes or an interview into a requirements catalog
-  (docs/requirements.md) with functional requirements as user stories (FR), measurable non-functional
-  requirements (NFR) with a verification method, and constraints (C) under stable identifiers, and
-  returns a conflict ledger of contradictions, duplicates and open decisions for the human review
-  gate. Runs an elicitation interview when there is no workshop material. Use when the user asks to
-  gather, write, extract, classify or update requirements, user stories, NFRs or constraints for a
-  spec-driven or use-case-driven project, adds, defers or drops a requirement in the catalog, or hands
-  over meeting notes to consolidate. Not for the detailed behavior of one feature (that is a use case
-  specification) and not for brainstorming a design.
+  (docs/requirements.md) with functional requirements as role and need (FR), measurable
+  non-functional requirements (NFR) with a verification method, and constraints (C) under stable
+  identifiers, and returns a conflict ledger of contradictions, duplicates and open decisions for
+  the human review gate. Runs an elicitation interview when there is no workshop material. Use
+  when the user asks to gather, write, extract, classify or update requirements, user stories,
+  NFRs or constraints for a spec-driven or use-case-driven project, adds, defers or drops a
+  requirement in the catalog, or hands over meeting notes to consolidate. Not for the detailed
+  behavior of one feature (that is a use case specification) and not for brainstorming a design.
 ---
 
 # Cataloging requirements
@@ -41,11 +41,9 @@ personal data of real people out of the catalog.
 
 Use [templates/requirements.md](templates/requirements.md). Keep the column names; other tools parse them.
 
-**Functional requirements** are user stories, always in this form:
-
-```text
-As a <role>, I want <goal> so that <benefit>.
-```
+**Functional requirements** use `ID | Role | Need | Priority | Status`.
+Role names the specific actor; Need is a short verb phrase of what that role
+must be able to do.
 
 One capability per row. The role is a role a real person or system plays, never
 "user" when the material distinguishes roles. A row that is disputed keeps the
@@ -55,7 +53,7 @@ form; the dispute goes into the ledger.
 
 | Column | Rule |
 |---|---|
-| Requirement | States a threshold: a number with a unit and the condition it holds under |
+| Statement | An EARS statement with a threshold: number, unit and condition |
 | Category | Performance, Scalability, Availability, Security, Usability, Maintainability, Portability |
 | Verification | How the threshold will be checked: Unit test, Integration test, Load test, Static rule, Monitor, Inspection |
 
@@ -75,7 +73,12 @@ A row never leaves the Verification column open.
 
 **Constraints** are boundaries imposed from outside: technology, budget,
 deadline, law, operations. A regulatory constraint names its source down to the
-article or section in the Source column.
+article or section in the Source column. NFR and C tables use `Statement`.
+Each statement follows one EARS pattern: `The <system> shall …`,
+`When <trigger>, the <system> shall …`, `While <state>, …`,
+`If <condition>, then the <system> shall …`, or `Where <feature is present>, …`.
+`NEED_FORM` reports a missing Role or Need, or a statement outside these forms.
+`OLD_FORMAT` (exit 5) calls for `up-migrating-spec-formats`.
 
 More examples of weak and repaired rows: [references/row-quality.md](references/row-quality.md).
 
@@ -174,17 +177,17 @@ Tom: And we have to delete customer data after two years, the regulation says so
 Catalog rows:
 
 ```markdown
-| ID | Title | User Story | Priority | Status |
-|----|-------|------------|----------|--------|
-| FR-001 | Book Repair | As a customer, I want to book a repair for my bike so that the workshop expects it on a day that suits me. | High | Open |
+| ID | Role | Need | Priority | Status |
+|---|---|---|---|---|
+| FR-001 | customer | book a repair for my bike | High | Open |
 
-| ID | Title | Requirement | Category | Verification | Priority | Status |
+| ID | Title | Statement | Category | Verification | Priority | Status |
 |----|-------|-------------|----------|--------------|----------|--------|
-| NFR-001 | Booking Response Time | A booking is confirmed within <to be decided> seconds. | Performance | Load test | High | Open |
+| NFR-001 | Booking Response Time | When a customer books a repair, the system shall confirm it within <to be decided> seconds at 50 concurrent customers. | Performance | Load test | High | Open |
 
-| ID | Title | Constraint | Category | Source | Priority | Status |
+| ID | Title | Statement | Category | Source | Priority | Status |
 |----|-------|------------|----------|--------|----------|--------|
-| C-001 | Contact Data Retention | Customer contact data is erased two years after the customer's last repair. | Regulatory | <to be decided> | High | Open |
+| C-001 | Contact Data Retention | The system shall erase customer contact data two years after the customer's last repair. | Regulatory | <to be decided> | High | Open |
 ```
 
 Ledger:

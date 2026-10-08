@@ -1,15 +1,12 @@
 ---
 name: up-3-modeling-domain-entities
 description: >-
-  Creates or updates the entity model (docs/entity_model.md) of a spec-driven project: a Mermaid
-  erDiagram showing entities and relationships only, plus one attribute table per entity with business
-  types, validation rules, lifecycle states and the words to avoid, so that it serves as the project's
-  vocabulary. Checks that every noun used by requirements and use case specifications exists in the
-  model and lists the use cases affected by a model change. Use when the user asks for an entity
-  model, domain model, data model or glossary for a spec-driven or use-case-driven project, adds or
-  changes an entity or attribute, says the specifications use two words for one thing or asks to fix
-  the vocabulary, or when a specification uses a noun the model lacks. Not for draw.io drawings,
-  database migrations or ORM code.
+  Creates or updates docs/entity_model.md: a Mermaid erDiagram of entities and relationships,
+  attribute tables with business meanings, types and rules, lifecycle states and avoided words.
+  Checks specification nouns and lists use cases affected by a model change. Use when the user
+  asks for an entity, domain or data model or glossary, changes an entity or attribute, asks to
+  resolve conflicting vocabulary, or a specification names a missing concept. Not for database
+  migrations or ORM code.
 ---
 
 # Modeling domain entities
@@ -52,12 +49,12 @@ CUSTOMER ||--o{ BIKE : "owns"
 1. One sentence that says what the entity *is* and tells it apart from its
    neighbors. Not what it contains.
 2. Optional `**Not:**` line: the words that must not be used for this concept.
-3. The attribute table, five columns in this order:
-   `Attribute | Description | Data Type | Length/Precision | Validation Rules`.
+3. The attribute table, four columns in this order:
+   `Attribute | Meaning | Type | Rules`.
 4. For an entity with a state: a `**Lifecycle:**` line.
 5. Optional `**Constraints:**` line for rules that span attributes.
 
-Types and validation phrases are a closed vocabulary:
+Types use a closed business vocabulary; rules express business constraints:
 [references/types-and-rules.md](references/types-and-rules.md).
 
 ## Vocabulary guard
@@ -83,7 +80,7 @@ allowed moves between them:
 ```
 
 Chains are separated by semicolons. Every state must be one of the attribute's
-`Values:`. This line earns its place: each move that is *not* listed is a
+`Choice of …` type. This line earns its place: each move that is *not* listed is a
 candidate business rule and a candidate alternative flow for the use cases that
 touch the entity ("a Declined work order cannot be approved"). Say so in your
 hand-off; do not write the rules here.
@@ -93,7 +90,7 @@ hand-off; do not write the rules here.
 | Tempting | Why not | Where it goes |
 |---|---|---|
 | `VARCHAR(255)`, `bigint`, `uuid` | Storage, not business | Types from the vocabulary; the migration chooses storage |
-| Join tables, audit columns, technical keys beyond `id` | Mechanism | The implementation |
+| Join tables, audit columns, primary keys, sequences and foreign keys | Mechanism | The implementation |
 | Behavior ("is created when the customer books") | Belongs to a use case | The use case specification |
 | A limit that belongs to one behavior ("at most 8 per day") | A business rule | The use case that enforces it |
 | A second copy of an attribute list in prose | Two copies drift | Nowhere |
@@ -137,7 +134,9 @@ old name to `**Not:**` and list every file that uses it.
 
 ## Validation
 
-The check must exit 0. Then read the model once as a stakeholder would:
+The check must exit 0. `ENTITY_TYPE` refuses an unknown business type;
+`REFERENCE_NO_RELATIONSHIP` refuses a reference without a diagram relationship.
+`OLD_FORMAT` (exit 5) calls for `up-migrating-spec-formats`. Then read the model once as a stakeholder would:
 
 - Could a business person confirm every description without knowing the system?
 - Does each noun in the requirements resolve to exactly one entity, attribute
@@ -157,12 +156,12 @@ One repair of one bike, from booking to collection.
 
 **Not:** job, ticket
 
-| Attribute | Description | Data Type | Length/Precision | Validation Rules |
-|-----------|-------------|-----------|------------------|------------------|
-| id | Work order number | Long | 19 | Primary Key, Sequence |
-| bike_id | Bike under repair | Long | 19 | Not Null, Foreign Key (BIKE.id) |
-| status | Where the repair stands | String | 20 | Not Null, Values: Booked, Diagnosed, Approved, Declined, Completed, Collected, Cancelled |
-| estimate_amount | Estimated cost | Decimal | 10,2 | Optional, Min: 0.01, Max: 99999.99 |
+| Attribute | Meaning | Type | Rules |
+|---|---|---|---|
+| reference | Work order number | Identifier | Unique, never reused |
+| bike | Bike under repair | Reference to BIKE | Required |
+| status | Where the repair stands | Choice of Booked, Diagnosed, Approved, Declined, Completed, Collected, Cancelled | Required |
+| estimate_amount | Estimated cost | Money | Optional, Min: 0.01, Max: 99999.99 |
 
 **Lifecycle:** Booked → Diagnosed → Approved → Completed → Collected; Diagnosed → Declined; Booked → Cancelled
 ```

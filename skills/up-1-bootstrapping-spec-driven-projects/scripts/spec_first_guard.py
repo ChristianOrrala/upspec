@@ -43,7 +43,7 @@ SOURCE_SUFFIXES = (".py", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".java",
                    ".ex", ".exs", ".dart", ".groovy")
 TEST_FOLDERS = {"test", "tests", "__tests__", "spec", "specs", "e2e", "testing", "fixtures"}
 TEST_NAME = re.compile(r"(^test_.*|.*_test|.*[.-](test|spec)|.*Tests?|.*IT)\.[A-Za-z0-9]+$")
-SPEC_FILES = ("requirements.md", "requirements_catalog.md", "entity_model.md", "entity-model.md", "use_cases.puml", "use-cases.puml")
+SPEC_FILES = ("requirements.md", "requirements_catalog.md", "entity_model.md", "entity-model.md", "use_cases.md")
 SPEC_FOLDERS = ("use_cases", "use-cases", "usecases", "test_cases", "test-cases", "processes")
 DECLARATION = re.compile(r"^\s*(?:[-*>]\s*)?no behaviou?r change\s*:\s*(.*)$", re.IGNORECASE)
 COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -96,6 +96,10 @@ def main(argv):
     parser.add_argument("--mode", choices=("warn", "block"), default="warn")
     args = parser.parse_args(argv)
     args.docs = args.docs or model.docs_default()
+    docs_model = model.Docs(args.docs)
+    stop = model.stop_if_old(docs_model)
+    if stop:
+        return stop
     if args.staged and args.base:
         print("--staged and --base exclude each other", file=sys.stderr)
         return 2

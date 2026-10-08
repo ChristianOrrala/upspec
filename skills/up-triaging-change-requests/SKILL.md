@@ -118,6 +118,10 @@ business nouns; it lists what refers to them:
 Report the list. A change that touches three use cases is three
 specification changes, each reviewed.
 
+After adding a use case or changing its id, name, actors or goal, run
+`python3 scripts/use_case_map.py --docs DIR`. Never edit between the overview
+markers. Status changes need no regeneration.
+
 ## Specification first, always
 
 For outcomes 2, 4, 5 and 6 the specification changes before any code:
@@ -153,7 +157,7 @@ exception to the rule.
 ## Workflow
 
 1. Restate the report as an element of a use case.
-2. Read that use case, the rows on its Requirements line, and the entities it
+2. Read that use case, the rows on its `requirements` list, and the entities it
    names. If no specification describes the behavior, check whether the system
    already has it; if so, follow the section above before classifying.
 3. Classify with the sign-off test. State the outcome and why.
@@ -192,8 +196,9 @@ Before handing over:
 
 Report: "A member borrowed a sixth book."
 
-Specification, `UC-002 BR-005`: *A member may have at most 5 open loans.
-Examples: 4 open loans: allowed. 5 open loans: refused.*
+Specification, `UC-002 BR-005`: *A member may have at most 5 open loans.*
+Its Examples table has input `open loans before borrowing` and result rows
+`4 → allowed`, `5 → refused`.
 
 - Element: `UC-002 BR-005`, flow A2.
 - Sign-off test: nobody wants six. The specification is clear and right.

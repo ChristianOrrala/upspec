@@ -5,25 +5,29 @@ defect that recurs in it.
 
 ## Contents
 
-- Overview fields
+- Front matter fields
 - Preconditions
 - Main Success Scenario and Alternative Flows
 - Postconditions
 - Business Rules
 - What is deliberately not a field
 
-## Overview fields
+## Front matter fields
+
+All keys below are required except `secondary_actors`. Values use the subset
+in the conventions; no nested or multiline YAML. `requirements` and
+`secondary_actors` are inline lists.
 
 | Field | Rule | Becomes | Recurring defect |
 |---|---|---|---|
-| Use Case ID | `UC-` and three digits, from the diagram | The identifier in file name, tests and code markers | Reusing the number of a removed use case |
-| Use Case Name | The goal as a short verb phrase, verbatim from the diagram | The file name, lowercased with hyphens | Paraphrasing the diagram's name |
-| Primary Actor | The role that pursues the goal. Several, comma-separated, only when each can start it alone for the same goal by the same scenario | Who may reach this behavior; which role tests act as | "System"; "Clerk or Manager"; two roles with different goals (that is two use cases) |
-| Secondary Actors | Roles and external systems the system calls upon. Omit the line when none | Things to integrate, not to build | Leaving out a system a step talks to: an agent may build it |
-| Goal | One sentence: the outcome and why | The sentence that disambiguates everything below | An action instead of an outcome ("Assign task"); "use the system" |
-| Trigger | The event that starts it: a request, a point in time, another system's message | The entry point | A state ("User is signed in"): that is a precondition. Test: *when does this happen?* An event has a moment |
-| Status | `Draft` when you write it | The gate for implementation | Setting `Approved` yourself |
-| Requirements | One link to the catalog whose text lists the ids: at least one `FR`, plus every `NFR` and `C` that applies | The only requirement rows the implementer reads | Omitting an NFR or constraint that applies: the implementer never sees it |
+| `id` | `UC-` and three digits, from the diagram | The identifier in file name, tests and code markers | Reusing the number of a removed use case |
+| `name` | The goal as a short verb phrase, verbatim from the diagram | The file name, lowercased with hyphens | Paraphrasing the diagram's name |
+| `primary_actor` | The role that pursues the goal. Several, comma-separated, only when each can start it alone for the same goal by the same scenario | Who may reach this behavior; which role tests act as | "System"; "Clerk or Manager"; two roles with different goals (that is two use cases) |
+| `secondary_actors` | Roles and external systems the system calls upon. Omit the key when none | Things to integrate, not to build | Leaving out a system a step talks to: an agent may build it |
+| `goal` | One sentence: the outcome and why | The sentence that disambiguates everything below | An action instead of an outcome ("Assign task"); "use the system" |
+| `trigger` | The event that starts it: a request, a point in time, another system's message | The entry point | A state ("User is signed in"): that is a precondition. Test: *when does this happen?* An event has a moment |
+| `status` | `Draft` when you write it | The gate for implementation | Setting `Approved` yourself |
+| `requirements` | An inline list of catalog identifiers: at least one `FR`, plus every `NFR` and `C` that applies | The only requirement rows the implementer reads | Omitting an NFR or constraint that applies: the implementer never sees it |
 
 ## Preconditions
 
@@ -74,12 +78,12 @@ end of every test.
 | Cited from the step or trigger that applies it | A rule nobody cites is not enforced anywhere |
 | Cited from elsewhere as `UC-002 BR-004`, never copied | Copies drift |
 | One decision per rule | Smaller rules give smaller changes later |
-| Boundary examples for quantities and dates | Inclusive or exclusive is otherwise a guess |
+| Examples table under every rule, blank line before it, inputs then `result` | Fill each cell; quantified boundaries need rows on both sides |
 | Stated so that a test can decide pass or fail | "Handles large volumes" cannot be tested |
 
 A rule that applies to every use case of the project (for example how every
 status change is recorded) is a requirement in the catalog, linked on the
-Requirements line. It is not copied into each file.
+`requirements` list. It is not copied into each file.
 
 ## What is deliberately not a field
 

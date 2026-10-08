@@ -72,30 +72,33 @@ it to the nearest use case.
 
 | In the path | In the document |
 |---|---|
-| Activity | An action row linked to its use case |
-| An activity visited twice (loop) | Two action rows |
-| A decision | Nothing of its own. The test data of an earlier row, or a precondition, must force it. Say which in the row's description or the precondition |
-| Start and end events | The journey's goal and its final validation |
+| Activity | A When step preceded by its `# UC-XXX` comment |
+| An activity visited twice (loop) | Two action steps |
+| A decision | Nothing of its own. Quoted test data in an earlier step, or a Given step, must force it |
+| Start and end events | The journey's goal and closing Then steps |
 | Lanes of the path's activities | Roles |
-| The path in words | The `**Process:**` line |
+| The model | The front matter `process` path |
+| The path in words | A body description used to identify the journey on a rerun |
 
-The `**Process:**` line identifies the path on the next run:
+The `process` key links the model; the body description identifies its path:
 
 ```text
-**Process:** [order.bpmn](../processes/order.bpmn) — Order received → Create Order → Stock available? no → Cancel Order → Order cancelled
+process: ../processes/order.bpmn
+
+Path: Order received → Create Order → Stock available? no → Cancel Order → Order cancelled
 ```
 
-Add verification rows between actions exactly as in a hand-written journey.
+Add Then assertions between actions exactly as in a hand-written journey.
 
 **Forcing a decision.** "Stock available? no" needs a product without stock.
 That is a precondition with a literal value and a seed source, or test data in
-an earlier row. A decision nothing forces makes the journey unreachable.
+an earlier Gherkin step. A decision nothing forces makes the journey unreachable.
 
 Name the file after the path's outcome: `TC-002-order-cancelled.md`.
 
 ## Running it again
 
-Before assigning numbers, find the journeys whose `**Process:**` line links
+Before assigning numbers, find the journeys whose front matter `process` key links
 the same model.
 
 | Situation | Do |

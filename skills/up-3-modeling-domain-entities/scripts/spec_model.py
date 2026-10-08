@@ -1,6 +1,6 @@
 """Shared reader for specification files of a spec-driven project.
 
-Parses the requirements catalog, the entity model, the use case diagram, use
+Parses the requirements catalog, the entity model, use
 case specifications and journey test cases into plain objects, and gives every
 script one way to report findings. Every skill that ships scripts carries an
 identical copy of this module.
@@ -10,6 +10,7 @@ All files are read as data. Nothing here writes to a project.
 Requires Python 3.9+, standard library only.
 """
 import difflib
+import glob
 import os
 import re
 import subprocess
@@ -24,7 +25,41 @@ REQ_SCOPE = ("Deferred", "Rejected")
 # Position of a use case Status in the lifecycle; Obsolete is outside it.
 STATUS_RANK = {name: rank for rank, name in enumerate(UC_STATUSES[:-1])}
 
-DATA_TYPES = ("Long", "String", "Integer", "Decimal", "Boolean", "Date", "DateTime")
+FIELD_KEYS = {"Use Case ID": "id", "Use Case Name": "name", "Primary Actor": "primary_actor",
+              "Secondary Actors": "secondary_actors", "Goal": "goal", "Trigger": "trigger",
+              "Status": "status", "Requirements": "requirements",
+              "ID": "id", "Priority": "priority", "Process": "process"}
+UC_REQUIRED_KEYS = ("id", "name", "primary_actor", "goal", "trigger", "status", "requirements")
+TC_REQUIRED_KEYS = ("id", "goal", "priority", "status", "use_cases")
+RECORD_REQUIRED_SECTIONS = ("Context", "Decision", "Specification change", "Consequences")
+RECORD_OPTIONAL_SECTIONS = ("Sources of new behavior", "Assumptions", "Reproduction", "Urgent path")
+RECORD_OUTCOMES = ("1", "2", "3", "4", "5", "6", "7", "migration")
+STUB_TEXT = "Not written yet."
+ENTITY_TYPES = ("Text", "Number", "Money", "Date", "Date and time", "Yes/No", "Identifier")
+RE_REFERENCE = re.compile(r"^Reference to ([A-Z][A-Z0-9_]*)$")
+RE_CHOICE = re.compile(r"^Choice of \S.*$")
+# EARS: an optional While/Where clause, then an optional When clause or If ... then, then a subject and
+# 'shall' with a non-empty response. Clauses may hold commas (the lazy match backtracks to the comma
+# that ends the clause); the response's subject may be any noun phrase, not only 'the system'.
+RE_EARS = re.compile(r"^(?:(?:while|where)\s+.+?,\s*)?(?:when\s+.+?,\s*|if\s+.+?,\s*then\s+)?"
+                     r"(?!(?:when|while|where|if|then)\b)[^,\s][^,]*?\s+shall\s+\S", re.IGNORECASE)
+RE_GHERKIN_STEP = re.compile(r"^\s*(Given|When|Then|And|But)\s+(\S.*?)\s*$")
+# A comment line that starts with use case ids annotates the next step: "# UC-001", "# UC-001, UC-002",
+# "# UC-001 Book Repair". Any other comment line is ignored.
+RE_GHERKIN_ANNOTATION = re.compile(r"^\s*#\s*(UC-\d{3}(?:\s*,\s*UC-\d{3})*)\b")
+
+
+def entity_type_ok(text):
+    text = text.strip()
+    return text in ENTITY_TYPES or bool(RE_REFERENCE.match(text)) or bool(RE_CHOICE.match(text))
+
+
+def ears_ok(text):
+    return bool(RE_EARS.match(text.strip()))
+
+
+def _as_text(value):
+    return ", ".join(value) if isinstance(value, list) else (value or "")
 
 # Words that mark a decision nobody made. Matched as whole words, case-insensitive.
 WEAK_WORDS = (
@@ -132,8 +167,135 @@ class Reporter:
 
 def read_lines(path):
     """Return the lines of a text file, or raise OSError with the path in the message."""
-    with open(path, encoding="utf-8") as handle:
-        return handle.read().split("\n")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return handle.read().split("\n")
+    except (OSError, UnicodeDecodeError) as exc:
+        exc.spec_path = path
+        raise
+
+
+OLD_FORMAT_EXIT = 5
+
+RE_FM_KEY = re.compile(r"^([a-z][a-z0-9_]*):(?:[ \t]+(.*?))?[ \t]*$")
+FM_REFUSED_START = {"&": "an anchor", "*": "an alias", "!": "a tag", "|": "a multi-line value",
+                    ">": "a multi-line value", "{": "a mapping"}
+
+
+def _fm_comment(raw):
+    """Strip a ' #' comment. A quote counts only where a value or a list item starts, so an apostrophe
+    inside a plain value (customer's bike) never hides a comment."""
+    quote, at_start = None, True
+    for index, char in enumerate(raw):
+        if quote:
+            if char == quote:
+                quote, at_start = None, False
+            continue
+        if char in "\"'" and at_start:
+            quote = char
+        elif char == "#" and (index == 0 or raw[index - 1] in " \t"):
+            return raw[:index].rstrip()
+        at_start = char in "[," or (char in " \t" and at_start)
+    return raw
+
+
+def _fm_scalar(raw):
+    """(value, problem). A quoted string loses its quotes; a plain one is kept as written."""
+    raw = raw.strip()
+    if raw and raw[:1] in "\"'":
+        quote = raw[0]
+        if len(raw) < 2 or raw[-1] != quote or quote in raw[1:-1]:
+            return None, "a quote that does not wrap the whole value (no escapes in the subset)"
+        return raw[1:-1], None
+    if raw[:1] in FM_REFUSED_START:
+        return None, "%s is outside the subset" % FM_REFUSED_START[raw[0]]
+    if raw and (raw[:1] in "[]" or "]" in raw):
+        return None, "a nested list is outside the subset"
+    if re.search(r":[ \t]", raw) or raw.endswith(":"):
+        return None, "a plain value with ': ' in it; quote it"
+    return raw, None
+
+
+def _fm_value(raw):
+    if raw.startswith("["):
+        if not raw.endswith("]"):
+            return None, "a list must open and close on one line"
+        if not raw[1:-1].strip():
+            return [], None
+        items, current, quote, at_start = [], "", None, True
+        for char in raw[1:-1]:
+            if quote:
+                if char == quote:
+                    quote = None
+            elif char in "\"'" and at_start:
+                quote = char
+            elif char in "[]":
+                return None, "a nested list is outside the subset"
+            elif char == ",":
+                items.append(current)
+                current, at_start = "", True
+                continue
+            current += char
+            at_start = at_start and char in " \t"
+        items.append(current)
+        values = []
+        for item in items:
+            if not item.strip():
+                return None, "an empty list item is outside the subset"
+            value, problem = _fm_scalar(item)
+            if problem:
+                return None, problem
+            values.append(value)
+        return values, None
+    return _fm_scalar(raw) if raw else ("", None)
+
+
+def read_front_matter(lines):
+    """Read the front matter subset of the current formats.
+
+    Returns (data, body_start, problems): data maps key -> (value, line), value a string or a list of
+    strings; body_start is the 0-based index of the first line after the closing '---' (0 when there is
+    no front matter); problems lists (line, message). The subset: 'key: value', 'key: [a, b]', quoted
+    strings, '#' comments. Nesting, anchors, tags and multi-line values are refused, never guessed.
+    """
+    clean = [line.rstrip("\r") for line in lines]
+    if clean:
+        clean[0] = clean[0].lstrip("﻿")
+    if not clean or clean[0].strip() != "---":
+        return {}, 0, []
+    data, problems = {}, []
+    for index in range(1, len(clean)):
+        number, text = index + 1, clean[index]
+        stripped = text.strip()
+        if stripped == "---":
+            return data, index + 1, problems
+        if not stripped or stripped.startswith("#"):
+            continue
+        if text[:1] in " \t":
+            problems.append((number, "an indented line: nested or continued values are outside the subset"))
+            continue
+        match = RE_FM_KEY.match(text)
+        if not match:
+            problems.append((number, "not a 'key: value' line"))
+            continue
+        key, raw = match.group(1), _fm_comment(match.group(2) or "")
+        if key in data:
+            problems.append((number, "key '%s' appears twice" % key))
+            continue
+        value, problem = _fm_value(raw)
+        if problem:
+            problems.append((number, problem))
+            continue
+        data[key] = (value, number)
+    problems.append((1, "front matter is not closed with '---'"))
+    return data, 0, problems
+
+LIST_KEYS = ("secondary_actors", "requirements", "use_cases")
+
+
+def shape_problems(meta):
+    return [(line, "key '%s' must hold %s" % (key, "a list" if key in LIST_KEYS else "a scalar"))
+            for key, (value, line) in meta.items() if isinstance(value, list) != (key in LIST_KEYS)]
 
 
 def outside_fences(lines):
@@ -154,8 +316,13 @@ def table_cells(line):
     return [cell.strip() for cell in text[1:-1].split("|")]
 
 
+def table_separator(cells):
+    """Every column needs a Markdown separator; empty cells are invalid."""
+    return bool(cells) and all(re.fullmatch(r":?-{2,}:?", c) for c in cells)
+
+
 def read_tables(lines):
-    """Return Markdown tables as dicts: {'line', 'header', 'rows': [(line, {column: cell}, cell count)]}."""
+    """Return Markdown tables as dicts: {'line', 'header', 'separator', 'rows': [(line, {column: cell}, cell count)]}."""
     tables, current = [], None
     for number, line in outside_fences(lines):
         cells = table_cells(line)
@@ -163,9 +330,10 @@ def read_tables(lines):
             current = None
             continue
         if current is None:
-            current = {"line": number, "header": cells, "rows": []}
+            current = {"line": number, "header": cells, "separator": None, "rows": []}
             tables.append(current)
-        elif all(re.fullmatch(r":?-{2,}:?", c) for c in cells if c) and not current["rows"]:
+        elif number == current["line"] + 1 and table_separator(cells):
+            current["separator"] = (number, cells)
             continue    # separator row
         else:
             padded = cells + [""] * (len(current["header"]) - len(cells))
@@ -397,10 +565,10 @@ def _use_case_of(root, link):
     path = os.path.normpath(os.path.join(root, link.split("#", 1)[0]))
     if not os.path.isfile(path):
         return None
-    for line in _optional_lines(os.path.dirname(path), os.path.basename(path))[:20]:
-        match = re.match(r"^\*\*Use Case ID:\*\*\s*(UC-\d{3})", line)
-        if match:
-            return match.group(1)
+    meta, _, _ = read_front_matter(_optional_lines(os.path.dirname(path), os.path.basename(path)))
+    value = meta.get("id", ("", 0))[0]
+    if isinstance(value, str) and RE_UC_ID.fullmatch(value):
+        return value
     match = RE_UC_ID.search(os.path.basename(path))
     return match.group(0) if match else None
 
@@ -582,7 +750,7 @@ class Docs:
         self.vision = self._first("vision.md")
         self.requirements = self._first("requirements.md", "requirements_catalog.md")
         self.entity_model = self._first("entity_model.md", "entity-model.md")
-        self.diagram = self._first("use_cases.puml", "use-cases.puml")
+        self.overview = self._first("use_cases.md")
         self.use_case_dir = self._first("use_cases", "use-cases", "usecases", want_dir=True)
         self.test_case_dir = self._first("test_cases", "test-cases", want_dir=True)
         self.process_dir = self._first("processes", want_dir=True)
@@ -605,6 +773,9 @@ class Docs:
     def test_case_files(self):
         return _matching(self.test_case_dir, r"^TC-\d{3}.*\.md$")
 
+    def change_record_files(self):
+        return sorted(glob.glob(os.path.join(self.root, "**", "change-records", "*.md"), recursive=True))
+
     def process_files(self):
         return _matching(self.process_dir, r".*\.bpmn$")
 
@@ -625,7 +796,10 @@ class Requirement:
         self.line = line
         self.column_count = column_count
         self.title = row.get("Title", "")
-        self.text = row.get("User Story") or row.get("Requirement") or row.get("Constraint") or row.get("Description", "")
+        self.role = row.get("Role", "")
+        self.need = row.get("Need", "")
+        self.statement = row.get("Statement", "")
+        self.text = self.need or self.statement
         self.status = row.get("Status", "")
         self.priority = row.get("Priority", "")
 
@@ -654,6 +828,8 @@ class Entity:
         self.avoid = []            # words that must not be used for this concept
         self.attributes = []       # (line, row dict)
         self.header = []
+        self.header_line = line
+        self.separator = None
         self.lifecycle = None      # (line, text)
         self.constraints = []      # (line, text)
 
@@ -729,7 +905,10 @@ def parse_entity_model(path):
                 if table is None:
                     table = cells
                     entity.header = cells
-                elif not all(re.fullmatch(r":?-{2,}:?", c) for c in cells if c):
+                    entity.header_line = number
+                elif number == entity.header_line + 1 and table_separator(cells):
+                    entity.separator = (number, cells)
+                else:
                     entity.attributes.append((number, dict(zip(table, cells + [""] * (len(table) - len(cells)))), len(cells)))
                 continue
             field = RE_FIELD.match(stripped)
@@ -742,57 +921,6 @@ def parse_entity_model(path):
             elif stripped and not entity.description and table is None and not stripped.startswith("**"):
                 entity.description = stripped
     return model
-
-
-# --- use case diagram -------------------------------------------------------
-
-class Diagram:
-    def __init__(self):
-        self.system = None
-        self.actors = {}       # alias -> (name, line)
-        self.use_cases = {}    # id -> (name, alias, line)
-        self.aliases = {}      # alias -> id
-        self.links = []        # (line, left alias, right alias, arrow)
-        self.bad_labels = []   # (line, text) use case declarations without the id-and-name label
-        self.duplicates = []   # (line, id) of a second declaration of the same use case id
-        self.has_start = self.has_end = False
-
-
-def parse_diagram(path):
-    lines = read_lines(path)
-    diagram = Diagram()
-    for number, line in enumerate(lines, 1):
-        stripped = line.strip()
-        if stripped.startswith("@startuml"):
-            diagram.has_start = True
-        elif stripped.startswith("@enduml"):
-            diagram.has_end = True
-        actor = re.match(r'^actor\s+"?([^"]+?)"?\s+as\s+(\w+)\s*$', stripped) or re.match(r'^actor\s+(\w+)\s*$', stripped)
-        if actor:
-            alias = actor.group(2) if actor.lastindex == 2 else actor.group(1)
-            diagram.actors[alias] = (actor.group(1), number)
-            continue
-        box = re.match(r'^(?:rectangle|package)\s+"?([^"{]+?)"?\s*\{', stripped)
-        if box:
-            diagram.system = box.group(1).strip()
-            continue
-        use_case = re.match(r'^usecase\s+"([^"]*)"\s+as\s+(\w+)', stripped)
-        if use_case:
-            label = use_case.group(1)
-            match = re.match(r"^(UC-\d+)\\n(.+)$", label)
-            if match:
-                if match.group(1) in diagram.use_cases:
-                    diagram.duplicates.append((number, match.group(1)))
-                    continue
-                diagram.use_cases[match.group(1)] = (match.group(2).strip(), use_case.group(2), number)
-                diagram.aliases[use_case.group(2)] = match.group(1)
-            else:
-                diagram.bad_labels.append((number, label))
-            continue
-        link = re.match(r"^(\w+)\s+([.<|o*-]+>?|<?[.|-]+)\s+(\w+)(?:\s*:.*)?$", stripped)
-        if link and ("-" in link.group(2) or "." in link.group(2)):
-            diagram.links.append((number, link.group(1), link.group(3), link.group(2)))
-    return diagram
 
 
 # --- use case specification -------------------------------------------------
@@ -823,9 +951,11 @@ class Rule:
     def __init__(self, rid, name, line):
         self.id, self.name, self.line = rid, name, line
         self.body = []               # (line, text)
+        self.examples = None
+        self.examples_blank_before = False
 
     def text(self):
-        return " ".join(text.strip() for _, text in self.body if text.strip())
+        return " ".join(text.strip() for _, text in self.body if text.strip() and table_cells(text) is None)
 
     @property
     def retired(self):
@@ -837,7 +967,9 @@ class UseCase:
         self.path = path
         self.title = None
         self.title_line = 0
-        self.fields = {}             # label -> (value, line)
+        self.meta = {}
+        self.front_matter_problems = []
+        self.is_stub = False
         self.section_lines = {}      # section title -> heading line
         self.preconditions = []      # (line, text)
         self.steps = []
@@ -851,7 +983,15 @@ class UseCase:
         self.line_count = 0
 
     def field(self, label):
-        return self.fields.get(label, ("", 0))[0]
+        return _as_text(self.meta.get(FIELD_KEYS.get(label, label), ("", 0))[0])
+
+    def field_line(self, label):
+        return self.meta.get(FIELD_KEYS.get(label, label), ("", 0))[1]
+
+    @property
+    def fields(self):
+        return {label: (self.field(label), self.field_line(label))
+                for label in FIELD_KEYS if FIELD_KEYS[label] in self.meta}
 
     @property
     def id(self):
@@ -864,18 +1004,33 @@ class UseCase:
 
     @property
     def status(self):
-        return self.field("Status").split("|")[0].strip()
+        return self.field("Status").strip()
 
     @property
     def requirement_ids(self):
         return RE_REQ_ID.findall(split_external(self.field("Requirements"))[0])
 
     @property
+    def goal(self):
+        return self.field("Goal")
+
+    @property
+    def trigger(self):
+        return self.field("Trigger")
+
+    @property
+    def primary_actors(self):
+        value = self.meta.get("primary_actor", ("", 0))[0]
+        return [actor.strip() for actor in value.split(",") if actor.strip()] if isinstance(value, str) else []
+
+    @property
+    def secondary_actors(self):
+        value = self.meta.get("secondary_actors", ([], 0))[0]
+        return value if isinstance(value, list) else []
+
+    @property
     def actors(self):
-        names = []
-        for label in ("Primary Actor", "Secondary Actors"):
-            names += [a.strip() for a in self.field(label).split(",") if a.strip()]
-        return names
+        return self.primary_actors + self.secondary_actors
 
     def all_step_texts(self):
         """Every step of the main scenario and of the flows: (line, text, where)."""
@@ -892,14 +1047,16 @@ def parse_use_case(path):
 def parse_use_case_lines(lines, path):
     """Parse a use case from lines already in memory, for example an older revision from git."""
     uc = UseCase(path)
+    uc.meta, start, uc.front_matter_problems = read_front_matter(lines)
+    uc.front_matter_problems += shape_problems(uc.meta)
     uc.line_count = len(lines[:-1] if lines and lines[-1] == "" else lines)
     section = sub = None
     flow = rule = None
-    for number, line in enumerate(lines, 1):
+    for number, line in enumerate(lines[start:], start + 1):
         stripped = line.strip()
         if line.startswith("# "):
             if uc.title is None:
-                uc.title = re.sub(r"^Use Case:\s*", "", line[2:].strip())
+                uc.title = line[2:].strip()
                 uc.title_line = number
             continue
         if line.startswith("## "):
@@ -923,9 +1080,7 @@ def parse_use_case_lines(lines, path):
         field = RE_FIELD.match(stripped)
         numbered = RE_NUMBERED.match(line)
         bullet = RE_BULLET.match(line)
-        if section == "Overview" and field:
-            uc.fields[field.group(1)] = (field.group(2), number)
-        elif section == "Preconditions" and bullet:
+        if section == "Preconditions" and bullet:
             uc.preconditions.append((number, bullet.group(1)))
         elif section == "Main Success Scenario" and numbered:
             uc.steps.append(Step(int(numbered.group(1)), numbered.group(2), number))
@@ -954,6 +1109,15 @@ def parse_use_case_lines(lines, path):
             target.append((number, bullet.group(1)))
         elif section == "Business Rules" and rule is not None:
             rule.body.append((number, line))
+            cells = table_cells(line)
+            if cells is not None:
+                if rule.examples is None:
+                    rule.examples = {"line": number, "header": cells, "separator": None, "rows": []}
+                    rule.examples_blank_before = number > 1 and not lines[number - 2].strip()
+                elif number == rule.examples["line"] + 1 and table_separator(cells):
+                    rule.examples["separator"] = (number, cells)
+                else:
+                    rule.examples["rows"].append((number, cells))
     cited = uc.all_step_texts() + [(flow.trigger_line, flow.trigger, flow.label) for flow in uc.flows]
     for line_no, text, where in cited:
         local, external = split_external(text)
@@ -962,6 +1126,7 @@ def parse_use_case_lines(lines, path):
             uc.citations.append((line_no, cite.group(1), cite.group(2), where))
     value, line_no = uc.fields.get("Requirements", ("", 0))
     uc.external += [(line_no, context, identifier, rule_id, "Requirements") for context, identifier, rule_id in split_external(value)[1]]
+    uc.is_stub = any(l.strip() == STUB_TEXT for l in lines[start:]) and "Main Success Scenario" not in uc.section_lines
     return uc
 
 
@@ -971,21 +1136,37 @@ def load_use_cases(docs):
 
 # --- journey test case ------------------------------------------------------
 
+class Scenario:
+    def __init__(self, name, line):
+        self.name, self.line = name, line
+        self.steps = []  # (line, keyword, text, annotated use case ids)
+        self.problems = []
+
+
 class TestCase:
     def __init__(self, path):
         self.path = path
         self.title = None
-        self.fields = {}
+        self.meta = {}
+        self.front_matter_problems = []
         self.section_lines = {}
         self.roles = []
         self.preconditions = []
-        self.flow_header = []
-        self.flow_rows = []          # (line, row dict)
-        self.validations = []        # (line, text)
         self.postconditions = []
+        self.scenarios = []
+        self.gherkin_blocks = 0
+        self.gherkin_problems = []
 
     def field(self, label):
-        return self.fields.get(label, ("", 0))[0]
+        return _as_text(self.meta.get(FIELD_KEYS.get(label, label), ("", 0))[0])
+
+    def field_line(self, label):
+        return self.meta.get(FIELD_KEYS.get(label, label), ("", 0))[1]
+
+    @property
+    def fields(self):
+        return {label: (self.field(label), self.field_line(label))
+                for label in FIELD_KEYS if FIELD_KEYS[label] in self.meta}
 
     @property
     def id(self):
@@ -993,46 +1174,64 @@ class TestCase:
         return match.group(0) if match else None
 
     def use_case_ids(self):
-        ids = []
-        for _, row in self.flow_rows:
-            match = RE_UC_ID.search(row.get("Use Case", ""))   # link text and link target both carry the id
-            if match:
-                ids.append(match.group(0))
-        return ids
+        value = self.meta.get("use_cases", ([], 0))[0]
+        return value if isinstance(value, list) else []
 
 
 def parse_test_case(path):
     lines = read_lines(path)
     tc = TestCase(path)
-    section = None
-    for number, line in enumerate(lines, 1):
+    tc.meta, start, tc.front_matter_problems = read_front_matter(lines)
+    tc.front_matter_problems += shape_problems(tc.meta)
+    section = fence = scenario = None
+    gherkin = False
+    annotations = []
+    for number, line in enumerate(lines[start:], start + 1):
         stripped = line.strip()
-        if line.startswith("# ") and tc.title is None:
-            tc.title = re.sub(r"^Test Case:\s*", "", line[2:].strip())
+        opening = re.match(r"^\s*(`{3,}|~{3,})(.*)$", line)
+        if fence:
+            if re.fullmatch(re.escape(fence[0]) + r"{%d,}\s*" % len(fence), stripped):
+                fence, gherkin, annotations = None, False, []
+                continue
+            if not gherkin:
+                continue
+            if stripped.startswith("Scenario:"):
+                scenario = Scenario(stripped[len("Scenario:"):].strip(), number)
+                tc.scenarios.append(scenario)
+                annotations = []
+            elif stripped.startswith("#"):
+                match = RE_GHERKIN_ANNOTATION.match(line)
+                if match:
+                    annotations += RE_UC_ID.findall(match.group(1))
+            elif stripped:
+                step = RE_GHERKIN_STEP.match(line)
+                if step and scenario:
+                    scenario.steps.append((number, step.group(1), step.group(2), annotations))
+                    annotations = []
+                else:
+                    message = "'%s' is not a Given, When, Then, And or But step" % stripped
+                    (scenario.problems if scenario else tc.gherkin_problems).append((number, message))
             continue
-        if line.startswith("## "):
+        if opening:
+            fence = opening.group(1)
+            gherkin = opening.group(2).strip() == "gherkin"
+            if gherkin:
+                tc.gherkin_blocks += 1
+                scenario = None
+            continue
+        if line.startswith("# ") and tc.title is None:
+            tc.title = line[2:].strip()
+        elif line.startswith("## "):
             section = line[3:].strip()
             tc.section_lines[section] = number
-            continue
-        if not stripped:
-            continue
-        field, bullet, numbered = RE_FIELD.match(stripped), RE_BULLET.match(line), RE_NUMBERED.match(line)
-        cells = table_cells(line)
-        if section == "Overview" and field:
-            tc.fields[field.group(1)] = (field.group(2), number)
-        elif section == "Roles" and bullet:
-            tc.roles.append((number, bullet.group(1)))
-        elif section == "Preconditions" and bullet:
-            tc.preconditions.append((number, bullet.group(1)))
-        elif section == "Flow" and cells is not None:
-            if not tc.flow_header:
-                tc.flow_header = cells
-            elif not all(re.fullmatch(r":?-{2,}:?", c) for c in cells if c):
-                tc.flow_rows.append((number, dict(zip(tc.flow_header, cells + [""] * (len(tc.flow_header) - len(cells))))))
-        elif section == "Validation" and numbered:
-            tc.validations.append((number, numbered.group(2)))
-        elif section == "Postconditions" and bullet:
-            tc.postconditions.append((number, bullet.group(1)))
+        else:
+            bullet = RE_BULLET.match(line)
+            if bullet and section in ("Roles", "Preconditions", "Postconditions"):
+                target = {"Roles": tc.roles, "Preconditions": tc.preconditions,
+                          "Postconditions": tc.postconditions}[section]
+                target.append((number, bullet.group(1)))
+    if fence and gherkin:
+        tc.gherkin_problems.append((len(lines), "gherkin block is not closed"))
     return tc
 
 
@@ -1271,3 +1470,252 @@ def git(args, cwd="."):
     except (OSError, subprocess.TimeoutExpired) as exc:
         return 127, str(exc)
     return done.returncode, done.stdout
+
+
+RE_OLD_UC_FIELD = re.compile(r"^\*\*Use Case ID:\*\*")
+RE_OLD_TC_FIELD = re.compile(r"^\*\*ID:\*\*")
+
+
+def old_formats(docs):
+    """Every file still in an earlier format: [(path, line, what)]. Reads nothing else of the project."""
+    found = []
+    for name in ("use_cases.puml", "use-cases.puml"):
+        path = os.path.join(docs.root, name)
+        if os.path.isfile(path):
+            found.append((path, 1, "PlantUML use case diagram"))
+    for name, convention in (("entity-model.md", "entity_model.md"), ("requirements_catalog.md", "requirements.md")):
+        path = os.path.join(docs.root, name)
+        if os.path.isfile(path):
+            found.append((path, 1, "older file name (the convention is %s)" % convention))
+    for path in docs.use_case_files():
+        hit = next((n for n, line in outside_fences(read_lines(path)) if RE_OLD_UC_FIELD.match(line.strip())), None)
+        if hit:
+            found.append((path, hit, "bold Overview fields instead of front matter"))
+    for path in docs.test_case_files():
+        hit = next((n for n, line in outside_fences(read_lines(path)) if line.strip() == "## Flow"), None)
+        if hit:
+            found.append((path, hit, "journey Flow table"))
+    if docs.entity_model:
+        hit = next((n for n, line in outside_fences(read_lines(docs.entity_model)) if "Length/Precision" in line), None)
+        if hit:
+            found.append((docs.entity_model, hit, "database columns in the entity model"))
+    if docs.requirements:
+        hit = next((n for n, line in outside_fences(read_lines(docs.requirements)) if "User Story" in line), None)
+        if hit:
+            found.append((docs.requirements, hit, "user story column in the requirements"))
+    for path in docs.change_record_files():
+        hit = next((n for n, line in outside_fences(read_lines(path)) if line.strip() == "### Classification"), None)
+        if hit:
+            found.append((path, hit, "the long change record"))
+    return found
+
+
+def stop_if_old(docs, stream=None, report=None):
+    """Return 5 for earlier formats, 1 for unreadable artifacts, or None.
+
+    Recognition errors go to the supplied reporter, or to the same stream as
+    the migration notice. No caller continues parsing after a read error.
+    """
+    stream = sys.stderr if stream is None else stream
+    try:
+        found = old_formats(docs)
+    except (OSError, UnicodeDecodeError) as exc:
+        path = getattr(exc, "spec_path", None) or getattr(exc, "filename", None) or docs.root
+        message = "cannot read specification artifacts for old-format recognition: %s" % exc
+        if report is not None:
+            report.error(path, 0, "UNREADABLE", "-", message)
+        else:
+            stream.write("%s:0: ERROR UNREADABLE: %s\n" % (path, message))
+        return 1
+    if not found:
+        return None
+    for path, line, what in found:
+        stream.write("%s:%d: ERROR OLD_FORMAT: %s\n" % (path, line, what))
+    stream.write("This project uses upspec's earlier formats. Migrate it first: the skill up-migrating-spec-formats "
+                 "(scripts/migrate_formats.py plan).\n")
+    return OLD_FORMAT_EXIT
+
+
+class ChangeRecord:
+    """The metadata and headings of a short change record."""
+
+    def __init__(self, path):
+        self.path = path
+        lines = read_lines(path)
+        self.meta, start, self.front_matter_problems = read_front_matter(lines)
+        self.front_matter_problems += shape_problems(self.meta)
+        self.sections = {title: number + start for title, number, _ in sections(lines[start:], 2)}
+        self.element = _as_text(self.meta.get("element", ("", 0))[0])
+        self.outcome = _as_text(self.meta.get("outcome", ("", 0))[0])
+
+
+def parse_change_record(path):
+    return ChangeRecord(path)
+
+
+def _metadata_findings(path, meta, problems, required):
+    found = []
+    for line, message in problems:
+        found.append((path, line, "FRONT_MATTER", message))
+    for key in required:
+        value, line = meta.get(key, ("", 1))
+        if key not in meta or (isinstance(value, str) and not value.strip()):
+            found.append((path, line, "FRONT_MATTER", "required key '%s' is missing or empty" % key))
+    return found
+
+
+def use_case_format_findings(uc):
+    """Current-format findings for one parsed use case, regardless of its file name."""
+    def add(path, line, code, message):
+        found.append((path, line, code, message))
+
+    found = _metadata_findings(uc.path, uc.meta, uc.front_matter_problems, UC_REQUIRED_KEYS)
+    if uc.is_stub:
+        if uc.status != "Draft":
+            add(uc.path, uc.field_line("Status"), "STUB", "a stub must have status Draft")
+        return found
+    for rule in uc.rules:
+        if rule.retired:
+            continue
+        examples = rule.examples
+        if not examples:
+            add(uc.path, rule.line, "EXAMPLES_FORM", "rule needs an Examples table")
+            continue
+        if not rule.examples_blank_before:
+            add(uc.path, examples["line"], "EXAMPLES_FORM",
+                "the Examples table needs a blank line before it, or it does not render as a table")
+        header = examples["header"]
+        if not examples.get("separator"):
+            add(uc.path, examples["line"], "EXAMPLES_FORM", "the Examples table needs a separator line (|---|---|)")
+        elif len(examples["separator"][1]) != len(header):
+            add(uc.path, examples["separator"][0], "EXAMPLES_FORM", "Examples separator must match column count")
+        if len(header) < 2 or header[-1] != "result":
+            add(uc.path, examples["line"], "EXAMPLES_FORM", "Examples needs input columns followed by result")
+        # Two contrasting rows are the minimum evidence for the two
+        # sides of a boundary required by the method and design 07.
+        if len(examples["rows"]) < 2:
+            add(uc.path, examples["line"], "EXAMPLES_FORM", "Examples needs rows on both sides of the boundary")
+        for line, cells in examples["rows"]:
+            if len(cells) != len(header) or any(not cell.strip() for cell in cells):
+                add(uc.path, line, "EXAMPLES_FORM", "Examples row must fill every column")
+    return found
+
+
+def format_findings(docs, kinds=None):
+    """All current-format errors as (path, line, code, message).
+
+    The vocabulary and structural checks live here so CLI checks, hooks and
+    migration verification report the same errors. Semantic checks stay with
+    their callers. Earlier formats must be refused with stop_if_old first.
+    """
+    selected = set(kinds if kinds is not None else
+                   ("use_case", "journey", "requirements", "entity_model", "record"))
+    found = []
+
+    def add(path, line, code, message):
+        found.append((path, line, code, message))
+
+    def metadata(path, meta, problems, required):
+        found.extend(_metadata_findings(path, meta, problems, required))
+
+    if "use_case" in selected:
+        if docs.overview:
+            meta, _, problems = read_front_matter(read_lines(docs.overview))
+            metadata(docs.overview, meta, problems + shape_problems(meta), ("system",))
+        for uc in load_use_cases(docs):
+            found.extend(use_case_format_findings(uc))
+    if "journey" in selected:
+        for path in docs.test_case_files():
+            tc = parse_test_case(path)
+            metadata(path, tc.meta, tc.front_matter_problems, TC_REQUIRED_KEYS)
+            if tc.gherkin_blocks != 1 or len(tc.scenarios) != 1:
+                add(path, 1, "GHERKIN_FORM", "journey needs exactly one gherkin block and one Scenario")
+            for line, message in tc.gherkin_problems:
+                add(path, line, "GHERKIN_FORM", message)
+            commented = set()
+            for scenario in tc.scenarios:
+                if not scenario.name or not scenario.steps:
+                    add(path, scenario.line, "GHERKIN_FORM", "Scenario needs a name and steps")
+                for line, message in scenario.problems:
+                    add(path, line, "GHERKIN_FORM", message)
+                for line, _, _, ids in scenario.steps:
+                    commented.update(ids)
+                    for uid in ids:
+                        if uid not in tc.use_case_ids():
+                            add(path, line, "GHERKIN_FORM", "comment names unlisted use case %s" % uid)
+            for uid in tc.use_case_ids():
+                if uid not in commented:
+                    add(path, tc.field_line("use_cases"), "GHERKIN_FORM", "listed use case %s is never commented" % uid)
+    if "requirements" in selected and docs.requirements:
+        reqs, tables = parse_requirements(docs.requirements)
+        req_headers = {
+            "FR": ["ID", "Role", "Need", "Priority", "Status"],
+            "NFR": ["ID", "Title", "Statement", "Category", "Verification", "Priority", "Status"],
+            "C": ["ID", "Title", "Statement", "Category", "Source", "Priority", "Status"],
+        }
+        for table in tables:
+            header = table["header"]
+            row_kinds = {row.get(header[0], "").split("-")[0] for _, row, _ in table["rows"]} if header else set()
+            kind = next((k for k in req_headers if k in row_kinds), None)
+            if not kind and (not header or header[0].strip().upper() != "ID"):
+                continue
+            if not table.get("separator"):
+                add(docs.requirements, table["line"], "TABLE_SEPARATOR", "requirements table needs a separator line (|---|---|)")
+            elif len(table["separator"][1]) != len(header):
+                add(docs.requirements, table["separator"][0], "TABLE_COLUMNS", "requirements table separator must match column count")
+            expected_header = req_headers.get(kind)
+            if not expected_header and "Role" in header:
+                expected_header = req_headers["FR"]
+            elif not expected_header and "Source" in header:
+                expected_header = req_headers["C"]
+            elif not expected_header and ("Verification" in header or "Statement" in header):
+                expected_header = req_headers["NFR"]
+            if not expected_header:
+                add(docs.requirements, table["line"], "TABLE_COLUMNS", "unknown requirements table columns")
+            if expected_header:
+                if header != expected_header:
+                    add(docs.requirements, table["line"], "TABLE_COLUMNS",
+                        "table columns must be: %s" % " | ".join(expected_header))
+                for number, row, count in table["rows"]:
+                    if count != len(header):
+                        add(docs.requirements, number, "TABLE_COLUMNS", "requirements table row must have %d columns" % len(header))
+        for req in reqs:
+            if req.kind == "FR" and (not req.role.strip() or not req.need.strip()):
+                add(docs.requirements, req.line, "NEED_FORM", "functional requirement needs Role and Need")
+            elif req.kind in ("NFR", "C") and not ears_ok(req.statement):
+                add(docs.requirements, req.line, "NEED_FORM", "Statement must follow an EARS pattern")
+    if "entity_model" in selected and docs.entity_model:
+        entity_columns = ["Attribute", "Meaning", "Type", "Rules"]
+        entities = parse_entity_model(docs.entity_model)
+        for entity in entities.entities.values():
+            if entity.header:
+                if not entity.separator:
+                    add(docs.entity_model, entity.header_line, "TABLE_SEPARATOR", "entity table needs a separator line (|---|---|)")
+                elif len(entity.separator[1]) != len(entity.header):
+                    add(docs.entity_model, entity.separator[0], "TABLE_COLUMNS", "entity table separator must match column count")
+                if entity.header != entity_columns:
+                    add(docs.entity_model, entity.header_line, "TABLE_COLUMNS",
+                        "table columns must be: %s" % " | ".join(entity_columns))
+                for line, row, count in entity.attributes:
+                    if count != len(entity.header):
+                        add(docs.entity_model, line, "TABLE_COLUMNS", "entity table row must have %d columns" % len(entity.header))
+            for line, row, _ in entity.attributes:
+                text = row.get("Type", "")
+                if not entity_type_ok(text):
+                    add(docs.entity_model, line, "ENTITY_TYPE", "unknown business type '%s'" % text)
+                reference = RE_REFERENCE.fullmatch(text.strip())
+                if reference and not any({left, right} == {entity.name, reference.group(1)}
+                                         for _, left, right, _ in entities.relationships):
+                    add(docs.entity_model, line, "REFERENCE_NO_RELATIONSHIP",
+                        "Reference to %s needs a relationship in the diagram" % reference.group(1))
+    if "record" in selected:
+        for path in docs.change_record_files():
+            record = parse_change_record(path)
+            required = ("outcome", "element") + (("decided_by",) if record.outcome in ("2", "4", "5", "6") else ())
+            metadata(path, record.meta, record.front_matter_problems, required)
+            if record.outcome not in RECORD_OUTCOMES:
+                add(path, record.meta.get("outcome", ("", 1))[1], "RECORD_FORM", "unknown outcome '%s'" % record.outcome)
+            for title in RECORD_REQUIRED_SECTIONS:
+                if title not in record.sections:
+                    add(path, 1, "RECORD_FORM", "required section '%s' is missing" % title)
+    return found

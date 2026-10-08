@@ -5,6 +5,7 @@ and what done looks like. The script's step code is given with each row.
 
 ## Contents
 
+- Before the chain
 - Building the chain (rows 1 to 7)
 - Keeping it consistent (row 8)
 - Per use case (rows 9 to 13)
@@ -12,6 +13,17 @@ and what done looks like. The script's step code is given with each row.
 - Why this order
 - Edge cases
 - Answer format
+
+## Before the chain
+
+`MIGRATE` → `up-migrating-spec-formats` takes precedence over every row.
+Evidence: the shared reader found an earlier artifact format (`OLD_FORMAT`).
+Done: migration verified, installed checks replaced, identifiers and Status
+preserved, and no format finding remains.
+
+For current formats, `FIX_FORMAT` takes precedence over the rows below when
+any format findings exist. Name every affected file and code, and route to
+the skill that writes the first affected artifact.
 
 ## Building the chain (rows 1 to 7)
 
@@ -23,7 +35,7 @@ and what done looks like. The script's step code is given with each row.
 | 4 | `VISION` | `docs/vision.md` missing, or it still holds placeholder text | The owner's knowledge of problem and users | It names the actors, the core nouns and the boundaries |
 | 5 | `REQUIREMENTS` | `docs/requirements.md` missing, not recorded as skipped | The vision; stakeholder input | Catalog with FR, NFR and C rows passes its check |
 | 6 | `ENTITY_MODEL` | `docs/entity_model.md` missing, not recorded as skipped | The catalog (or the vision's core terms) | Model passes its check |
-| 7 | `DIAGRAM` | `docs/use_cases.puml` missing, not recorded as skipped | Catalog and entity model | Every functional requirement is realized by a use case |
+| 7 | `DIAGRAM` | `docs/use_cases.md` missing, not recorded as skipped | Catalog and entity model | Every functional requirement is realized by a use case |
 
 Row 2 needs judgment the script cannot make: whether the code found is
 behavior worth recovering or only a fresh project skeleton. Look at it. A
@@ -43,10 +55,10 @@ next one invents different ones.
 
 | Row | Code | Evidence | The step needs | Done when |
 |---|---|---|---|---|
-| 8 | `FIX` | A specification that is not in the diagram; a name that differs; a Status that is not a Status; an identifier used twice | The lint output | The lint reports no error |
+| 8 | `FIX_FORMAT` | Format findings in specification files | The format findings | Repaired using the skill that writes the artifact |
 
-Broken traceability comes before any further work on use cases: every later
-step reads these links.
+After formats are repaired, `FIX` handles identifier and Status mismatches
+before any further work on use cases: every later step reads these links.
 
 ## Per use case (rows 9 to 13)
 
@@ -55,8 +67,8 @@ step reads these links.
 | 9 | `TEST` | `Implemented` | Specification; the code of the slice | Every flow and rule of the slice has a named, passing test; the coverage audit is complete: `Tested` |
 | 10 | `IMPLEMENT` | `Approved` | Specification, entity model, linked requirements | Code merged with rule markers; invention list answered: `Implemented` |
 | 11 | `APPROVE` | `Reviewed` | The specification and its review report in front of a person | A named person signs off: `Approved` |
-| 12 | `REVIEW` | `Draft` | The specification; a reviewer that did not write it | Validator clean; review verdict ready: `Reviewed` |
-| 13 | `SPECIFY` | In the diagram, no file | Diagram, entity model, linked requirements | A file with Status `Draft` that passes the validator |
+| 12 | `REVIEW` | Written `Draft`, not a stub | The specification; a reviewer that did not write it | Validator clean; review verdict ready: `Reviewed` |
+| 13 | `WRITE` | Draft stub with body `Not written yet.` | Overview, entity model, linked requirements | A file with Status `Draft` that passes the validator |
 
 A Status is a claim about evidence. If the evidence for the Status found is
 visibly missing (a use case marked `Tested` whose tests do not exist), say so
@@ -96,7 +108,7 @@ next one needs). Independent use cases need no journey; say so and go on.
 | The user wants a later step while an earlier row matches | Name the earlier row and why it comes first. If they decide to proceed anyway, that is their decision: say what the later step will have to guess |
 | Several use cases match the same row | The one the user named; otherwise the lowest identifier. Mention the others |
 | Use cases exist but the entity model does not (solo, nothing recorded as skipped) | Row 6. If the system stores nothing, suggest recording the skip |
-| The docs use older file spellings (`use-cases/`, `entity-model.md`) | They are read as they are; mention the convention once |
+| Earlier artifact formats or retired artifact spellings are detected | `MIGRATE` first; the migration renames them |
 | A use case is `Obsolete` | It has no next step and is not counted |
 | The repository has several bounded contexts | Run the script once per context's docs folder; answer per context |
 | The state contradicts what the user says ("I already reviewed it") | Report what the file says. A review that is not recorded in the Status did not happen for the next person |

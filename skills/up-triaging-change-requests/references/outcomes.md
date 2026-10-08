@@ -46,7 +46,7 @@ wrong text.
 - **Recognize:** the stakeholder reads the element and says "that was never
   right".
 - **Edit:** the specification. Then code and tests follow.
-- **Status:** back to `Reviewed`.
+- **Status reset:** back to `Reviewed`.
 
 ## 3. Test wrong
 
@@ -67,7 +67,7 @@ implementation chose one; the reporter expected the other.
   does not say what is shown.
 - **Edit:** the specification, after the owner chooses the meaning. Add the
   boundary example that would have prevented it.
-- **Status:** back to `Reviewed`.
+- **Status reset:** back to `Reviewed`.
 - **Value:** every later implementation benefits. Say this in the record; it
   is the outcome most worth the time.
 
@@ -80,7 +80,7 @@ something else is wanted: a changed rule, another field, a different flow.
 - **Edit:** the specification. If the intent itself changes, the requirement
   row too (same identifier unless the old intent is gone). If it crosses the
   scope in the vision, the vision's Scope section first, by the owner.
-- **Status:** back to `Reviewed`.
+- **Status reset:** back to `Reviewed`.
 
 ## 6. New use case
 

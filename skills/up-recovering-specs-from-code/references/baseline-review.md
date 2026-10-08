@@ -35,7 +35,7 @@ related ones. Only suspects of kind `decide`, and claims an old document makes t
 
 The plan names sittings by use case id. It holds no counts and no Status
 values: quote the counts the ledger check prints, and let each use case's
-Status line speak for itself.
+`status` field speak for itself.
 
 ## Questions for the one who knows the system
 
@@ -68,7 +68,7 @@ nobody noticed; the noun the business stopped using years ago.
 ## What the review produces
 
 **A baseline.** For each use case the review settled, Status moves from
-`Draft` to `Reviewed`. `Approved` is the owner's to write on the Status line,
+`Draft` to `Reviewed`. `Approved` is the owner's to write on the `status` field,
 never yours, even after the owner says yes in the conversation: list the use
 cases that are ready and leave the line to them. Because the
 code exists and the ledger shows it, `Implemented` is then justified by a

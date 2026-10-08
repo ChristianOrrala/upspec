@@ -49,7 +49,7 @@ steps, flows, postconditions.
 | `changed` step | Change what the step accepts, shows or records; nothing around it |
 | `changed` flow | Change detection, steps or exit as the diff shows |
 | `removed` anything | Remove the behavior it described, and its marker. A removal is invisible unless you look for it: the remaining specification is still satisfied by code that does too much |
-| `changed` Requirements line | Read the newly linked rows; a new `NFR` or `C` is a new limit |
+| `changed` `requirements` list | Read the newly linked rows; a new `NFR` or `C` is a new limit |
 | `changed` actor | Change who may reach the behavior |
 
 Leave everything else alone. No renaming, reformatting, reordering or

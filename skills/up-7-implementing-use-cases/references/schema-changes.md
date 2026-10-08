@@ -29,11 +29,11 @@ procedure runs.
 | Change in the entity model | Class |
 |---|---|
 | New entity; new optional attribute; new attribute with a default | Additive |
-| Wider length; new allowed value | Additive |
-| New `Not Null` attribute without a default on an entity that has data | Needs data |
+| Broader business limit; new allowed value | Additive |
+| New Required attribute without a default on an entity that has data | Needs data |
 | Renamed entity or attribute | Destructive if done in one step |
 | Removed entity or attribute | Destructive |
-| Narrower length or type; removed allowed value; new `Unique` | Destructive: existing data may violate it |
+| Narrower business limit or type; removed allowed value; new `Unique` | Destructive: existing data may violate it |
 
 ## Additive change
 
@@ -82,8 +82,8 @@ Procedure:
 ## Report
 
 ```text
-Entity model change: WORK_ORDER gains priority (String, Values: Low, Normal, High; Not Null)
-Class: needs data (Not Null on an entity with rows)
+Entity model change: WORK_ORDER gains priority (Choice of Low, Normal, High; Required)
+Class: needs data (Required attribute on an entity with existing data)
 Migrations written: expand (nullable column), migrate (existing rows: Normal)
 Applied to: disposable local database, 1,204 rows, 0 nulls after migrate
 Not done: contract (set Not Null). Needs confirmation; separate change.

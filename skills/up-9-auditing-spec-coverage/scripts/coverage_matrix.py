@@ -165,6 +165,10 @@ def main(argv):
     parser.add_argument("--format", choices=("md", "json"), default="md")
     args = parser.parse_args(argv)
     args.docs = args.docs or model.docs_default()
+    docs_model = model.Docs(args.docs)
+    stop = model.stop_if_old(docs_model)
+    if stop:
+        return stop
     if not re.fullmatch(r"UC-\d{3}", args.use_case):
         print("use case identifier must look like UC-001", file=sys.stderr)
         return 2

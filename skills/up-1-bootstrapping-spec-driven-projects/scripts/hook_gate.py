@@ -46,6 +46,7 @@ Requires Python 3.9+, standard library only, and git.
 import argparse
 import datetime
 import hashlib
+import io
 import json
 import os
 import re
@@ -402,7 +403,17 @@ def main(argv):
     try:
         root = repo_root(os.getcwd())
         args.docs = args.docs or docs_folder(root)
-        verdict, text, detail = HANDLERS[args.mode](root, args, payload)
+        sys.path.insert(0, HERE)
+        try:
+            import spec_model as model
+        except ImportError:
+            raise GateError("spec_model.py is missing next to hook_gate.py; copy the scripts with scaffold_docs.py --hooks")
+        warning = io.StringIO()
+        stop = model.stop_if_old(model.Docs(os.path.join(root, args.docs)), stream=warning)
+        if stop:
+            verdict, text, detail = WARN, warning.getvalue().rstrip(), "OLD_FORMAT" if stop == model.OLD_FORMAT_EXIT else "UNREADABLE"
+        else:
+            verdict, text, detail = HANDLERS[args.mode](root, args, payload)
     except GateError as exc:
         verdict, text, detail = FAILED, "hook_gate: %s" % exc, ""
     except Exception as exc:     # a gate must never block by accident

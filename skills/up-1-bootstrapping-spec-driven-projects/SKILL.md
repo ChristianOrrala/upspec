@@ -73,7 +73,7 @@ prints the plan and writes nothing. Show the plan, get a yes, then run it
 again with `--apply`.
 
 For a solo project that leaves an artifact out, add `--skip requirements`,
-`--skip diagram` or `--skip entity-model`; the choice is recorded in the rules
+`--skip overview` or `--skip entity-model`; the choice is recorded in the rules
 block, where the other skills read it.
 
 It never replaces a file. The one change it makes to an existing file is
@@ -249,6 +249,10 @@ Close with a report the owner can check, in this order:
    settings only an administrator can make. If specifications were recovered
    from code and are still Draft, their baseline review comes before the
    vision: name it as the next step.
+
+Installed checks include `scripts/use_case_map.py`: mapping runs it after
+creating stubs or changing their id, name, actors or goal. Status changes
+need no regeneration.
 
 ## Validation
 

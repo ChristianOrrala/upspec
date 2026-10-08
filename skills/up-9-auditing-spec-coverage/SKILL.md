@@ -59,9 +59,9 @@ because it looks covered is worse than one you mark unknown.
 | `Pre-n` | Precondition | Guard or establish it | Set it up explicitly |
 | `Post-S-n` | Success postcondition | Leave that state | Assert it after the flow |
 | `Post-F-n` | Failure postcondition | Leave that state when the flow fails | Assert it in at least one failure test |
-| `NFR-...`, `C-...` | Linked on the Requirements line | Honor the limit in this use case's code | Assert it where a test can observe it |
+| `NFR-...`, `C-...` | Linked on the `requirements` list | Honor the limit in this use case's code | Assert it where a test can observe it |
 
-For a journey test case the units are its flow rows, validations and
+For a journey test case the units are its numbered Gherkin steps, closing Then assertions and
 postconditions.
 
 A unit is `n/a` only when the specification makes it vacuous (a step that is
@@ -111,7 +111,7 @@ is not and the code loses it. Name both. Recommend neither. Ask.
 
 1. Resolve the id; confirm the specification file exists. State what you
    audit: `Auditing UC-001, code and tests.`
-2. Read the specification completely, then the rows on its Requirements line.
+2. Read the specification completely, then the rows on its `requirements` list.
 3. Start from the markers:
 
    ```bash
@@ -147,7 +147,7 @@ is not and the code loses it. Name both. Recommend neither. Ask.
 | The same in both columns, and the suite passes | `Tested` |
 | Anything open | The current Status, with what is missing for the next |
 
-Suggest; do not edit the Status line. `Done` needs a business review you
+Suggest; do not edit the `status` field. `Done` needs a business review you
 cannot give.
 
 On a repeated audit, in the same conversation or with an earlier report in
@@ -175,7 +175,7 @@ The dashboard counts markers. It is a map of where to audit, not an audit.
 - Every unit has a row and a verdict in each requested column.
 - Every `Covered` has a `file:line` you read.
 - Gaps and drift are separate lists; no drift item has a recommended side.
-- No code, test, specification or Status line was changed; the report file is
+- No code, test, specification or `status` field was changed; the report file is
   the only file written.
 
 ## Worked example

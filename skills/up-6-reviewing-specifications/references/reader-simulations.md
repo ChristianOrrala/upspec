@@ -14,7 +14,7 @@ the implementation or the tests wrong, `info` otherwise.
 
 ## Reading 1: the stakeholder
 
-**Read only:** the Overview and the main success scenario. Skim, as a busy
+**Read only:** the front matter and the main success scenario. Skim, as a busy
 person would.
 
 **Answer in two sentences:**
@@ -36,7 +36,7 @@ person would.
 
 ## Reading 2: the engineer
 
-**Read:** the whole file, the rows on its Requirements line, the entities it
+**Read:** the whole file, the rows on its `requirements` list, the entities it
 names.
 
 **Produce the test list.** One line per path: the main scenario, each

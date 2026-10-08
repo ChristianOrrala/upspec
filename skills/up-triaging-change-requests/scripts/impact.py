@@ -147,6 +147,10 @@ def main(argv):
     parser.add_argument("--format", choices=("text", "json"), default="text")
     args = parser.parse_args(argv)
     args.docs = args.docs or model.docs_default()
+    docs_model = model.Docs(args.docs)
+    stop = model.stop_if_old(docs_model)
+    if stop:
+        return stop
     for folder in (args.docs, args.code):
         if not os.path.isdir(folder):
             print("no such folder: %s" % folder, file=sys.stderr)

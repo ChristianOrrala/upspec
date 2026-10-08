@@ -6,6 +6,7 @@ skills parse these names.
 ## Contents
 
 - Files
+- Artifact formats
 - Identifiers
 - Status of a use case
 - Markers
@@ -20,18 +21,18 @@ skills parse these names.
 | `docs/vision.md` | Purpose, users, goals, scope in and out | A human |
 | `docs/requirements.md` | Tables of `FR`, `NFR` and `C` rows | up-2-cataloging-requirements |
 | `docs/entity_model.md` | Mermaid `erDiagram` and one section per entity | up-3-modeling-domain-entities |
-| `docs/use_cases.puml` | PlantUML overview of actors and use cases | up-4-mapping-use-cases |
+| `docs/use_cases.md` | Scope, delivery order and the generated overview | up-4-mapping-use-cases |
 | `docs/use_cases/UC-XXX-<kebab-name>.md` | One use case per file | up-5-writing-use-case-specs |
 | `docs/processes/<name>.bpmn` | Optional business process models | A human |
 | `docs/test_cases/TC-XXX-<kebab-name>.md` | One journey per file | up-writing-journey-test-cases |
 | `docs/recovery/` | Ledger, suspect list, change log and baseline review plan of a system recovered from code | up-recovering-specs-from-code |
-| `docs/change-records/UC-XXX-<kebab-name>.md` | One change record per change: classification, differences from today, impact; the pull request links it | up-triaging-change-requests |
+| `docs/change-records/UC-XXX-<kebab-name>.md` | One short change record per change: Context, Decision, Specification change, Consequences; the pull request links it | up-triaging-change-requests |
 | `docs/reviews/<scope>-review-<n>.md`, `<scope>-audit-<n>.md` | One report per review or audit run; scope is `UC-004`, `TC-001` or `all` | up-6-reviewing-specifications, up-9-auditing-spec-coverage |
 | `CLAUDE.md` or `AGENTS.md` | Guideline file; its rules block records `**Profile:**` (solo or team) and what a solo project `**Skipped:**` | up-1-bootstrapping-spec-driven-projects |
 
 In paths and commands of the skills, `docs/` stands for the specification folder: the one the rules block records as `**Specs folder:**`, else `docs`.
 
-The file name of a use case is its name from the diagram, lowercased, spaces to
+The file name of a use case is its front matter `name`, lowercased, spaces to
 hyphens, nothing paraphrased: *Log In* is `UC-002-log-in.md`.
 
 When `docs/` also feeds a documentation site, the specifications still live
@@ -39,6 +40,67 @@ there: whether the site lists or excludes them is the owner's choice, not a
 reason to move them. A project that keeps them elsewhere records the folder as
 `**Specs folder:** DIR` in the rules block (setup's `--specs-folder`); every
 script reads it, and `--docs DIR` overrides it for one run.
+
+## Artifact formats
+
+Front matter starts at the first line between `---` delimiters. The supported
+subset is top-level `key: value`, inline lists, quoted strings and comments.
+No nesting, anchors or multiline values; `FRONT_MATTER` reports violations.
+
+| Artifact | Required keys | Optional keys |
+|---|---|---|
+| Use case | `id`, `name`, `primary_actor`, `goal`, `trigger`, `status`, `requirements` | `secondary_actors` |
+| Overview | `system` | — |
+| Journey | `id`, `goal`, `priority` (Critical, High, Medium, Low), `status`, `use_cases` | `process` |
+| Change record | `outcome`, `element`; `decided_by` for outcomes 2, 4, 5, 6 | `decided_by` for other outcomes |
+
+A mapped use case starts as a stub: required front matter, `status: Draft`,
+and `Not written yet.` as the body. Past Draft a stub reports `STUB`.
+People write Scope and Delivery order in `docs/use_cases.md`. After adding a
+use case or changing its id, name, actors or goal, run `scripts/use_case_map.py`.
+Never edit between the generated markers. Status changes need no regeneration.
+The actor-goal table and Mermaid use case diagram are generated (Mermaid
+12.0.0 or later draws it); `STALE_OVERVIEW` means regenerate them. Business processes remain BPMN 2.0.
+
+Requirements tables:
+
+- Functional: `ID | Role | Need | Priority | Status`. Need is a short verb
+  phrase of what the role must be able to do.
+- Non-functional: `ID | Title | Statement | Category | Verification | Priority | Status`.
+- Constraints: `ID | Title | Statement | Category | Source | Priority | Status`.
+
+Each Statement follows an EARS pattern: `The <system> shall …`,
+`When <trigger>, the <system> shall …`, `While <state>, …`,
+`If <condition>, then the <system> shall …`, or `Where <feature is present>, …`.
+NFRs keep a numeric threshold, unit and condition. `NEED_FORM` reports a
+missing Role or Need, or a statement outside those patterns.
+
+Entity attributes use `Attribute | Meaning | Type | Rules`. Types are Text,
+Number, Money, Date, Date and time, Yes/No, Identifier, Choice of …, and
+Reference to ENTITY. No storage lengths, keys or sequences. The Mermaid
+`erDiagram` owns relationships; `REFERENCE_NO_RELATIONSHIP` reports a
+reference without one, and `ENTITY_TYPE` an unknown type.
+
+Each business rule has a `### BR-001: Name` heading, a sentence and an Examples
+table, with a blank line before the Examples table. Input columns precede
+`result`, the last column. Keep at least two rows for every active rule.
+Fill every cell and include a row on each side of every stated boundary.
+Otherwise the check reports `EXAMPLES_FORM`.
+
+A journey has exactly one fenced `gherkin` block and one named Scenario.
+Steps use Given, When, Then, And or But, with literal test data in quotes.
+Each use case listed in `use_cases` is named by a comment on its own line,
+`# UC-001` or `# UC-001 Name`, immediately above its first step. Every such
+comment names a listed use case. Closing Then steps verify the end state;
+`GHERKIN_FORM` reports violations. Roles, Preconditions and Postconditions
+remain in the body. `process`, when present, is the relative BPMN path.
+
+Change records have outcomes 1 through 7 or `migration`, and four required
+sections: Context (report and sign-off test), Decision (owner's decisions
+table with each decision's element), Specification change, Consequences
+(differences from today and impact). Sources of new behavior, Assumptions,
+Reproduction and Urgent path appear only when applicable. `RECORD_FORM`
+reports an unknown outcome or missing required section.
 
 ## Identifiers
 
@@ -74,7 +136,7 @@ another bounded context carries its name: `billing/UC-003 BR-002`.
 An agent proposes a move with its evidence. It never sets Approved or Done.
 A step, flow or rule that describes behavior recorded as suspect names it in
 the text: `(S-012)`.
-The Status line is the only place a use case's Status is written; change logs,
+The front matter `status` field is the only place a use case's Status is written; change logs,
 review plans and reports refer to it and never copy it.
 
 Journey test case: `Draft`, `Reviewed`, `Approved`, `Automated`, `Obsolete`.
@@ -95,7 +157,7 @@ UC-005 BR-003: A guest must be at least eighteen years old on the day of arrival
 Tests: the suite carries the use case id in its name (`UC-005` or `UC005`).
 Each test names its flow (`Main`, `A1`, ...) and the rules it covers (`BR-003`)
 in its name, annotation or tag. Journey tests carry the `TC` id and label each
-step with its row number.
+step with its Gherkin step number.
 
 Commits and pull requests name the use case in the subject. A change without a
 behavior change carries the line `No behavior change: UC-012` (or `none` and why).
@@ -122,15 +184,18 @@ identifier, address or account found in the code or its data.
 
 **Language.** Specifications, records and messages are written in the
 project's own language. The structure stays as the template has it, because
-the scripts parse it: section headings, field labels (`**Status:**`,
-`**Trigger:**`), Status values and flow endings (`Use case ends.`,
+the scripts parse it: front matter keys, section headings, table columns,
+Gherkin keywords, flow labels (`**Trigger:**`), Status values and flow endings (`Use case ends.`,
 `Use case continues at step N.`). Everything else follows the project.
 
 ## Script output
 
 `path:line: SEVERITY CODE [element]: message` with `ERROR`, `WARN` or `INFO`.
 Exit 0 clean, 1 on an error (with `--strict` also on a warning), 2 on a usage
-error. Scripts read project files as data and need Python 3.9 or later.
+error. Earlier specification formats stop with `OLD_FORMAT`, exit 5, and
+name `up-migrating-spec-formats`; the router reports `MIGRATE` as its next
+step. `UNREADABLE` reports a file that cannot be read. Scripts read project
+files as data and need Python 3.9 or later.
 
 ## Working with the A-files
 

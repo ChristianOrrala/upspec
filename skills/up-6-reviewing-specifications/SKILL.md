@@ -1,16 +1,13 @@
 ---
 name: up-6-reviewing-specifications
 description: >-
-  Reviews spec-driven artifacts without editing them and reports findings with severity, file, line
-  and element id: a deterministic lint that may block (structure, dangling or duplicate identifiers,
-  unrealized requirements, diagram and file mismatch, copied rules, open flows, mechanism and weak
-  words) and an advisory three-reader review (stakeholder skim, engineer testability,
-  literal-implementer invention list, contradictions across use cases). Ends with a verdict on
-  readiness for Reviewed or Approved and can print the traceability matrix from requirement to use
-  case, rule and journey test case. Use when the user asks to review, lint, check, validate or approve
-  a use case, the requirements or the whole specification set, asks whether a spec is ready, wants
-  contradictions or gaps found, or wants a traceability matrix or a CI quality gate for specs. Not for
-  reviewing code or pull requests.
+  Reviews specification artifacts without editing them. Runs structural lint and an
+  independent three-reader review: stakeholder clarity, engineer testability and the literal
+  implementer's invention list. Reports severity, file, line and element, readiness for
+  Reviewed or Approved, and a traceability matrix. Use when the user asks to review, lint,
+  check, validate or approve specifications, find contradictions or gaps, request a
+  traceability matrix from requirements to use cases, rules and journey tests, or create a
+  specification quality gate. Not for code or pull request review.
 ---
 
 # Reviewing specifications
@@ -60,7 +57,7 @@ without quoting it.
 Read the scope three times, each time as a different reader. Procedure and
 what counts as a finding: [references/reader-simulations.md](references/reader-simulations.md).
 
-1. **Stakeholder.** From the Overview and the main success scenario alone: can
+1. **Stakeholder.** From the front matter and the main success scenario alone: can
    you say what will be delivered and how you would tell on delivery whether
    you got it? Would you sign it without having read the rest?
 2. **Engineer.** Derive the test list. Every path, main and alternative, must
@@ -125,7 +122,7 @@ Skip any Part B point the lint already reported for the same element.
 | Finding about | Fixed by |
 |---|---|
 | Steps, flows, rules, wording, postconditions | `up-5-writing-use-case-specs` |
-| A use case missing from or extra in the diagram; wrong goal level | `up-4-mapping-use-cases` |
+| A stale generated overview or wrong goal level | `up-4-mapping-use-cases` |
 | Requirement rows, coverage, requirement Status | `up-2-cataloging-requirements` |
 | Data that does not match the entity model; vocabulary | `up-3-modeling-domain-entities` |
 | A journey test case | `up-writing-journey-test-cases` |
@@ -206,13 +203,17 @@ python3 <path to this skill>/scripts/spec_lint.py --strict
 the owner asks for it. Part B, if run in a pipeline, posts its report as a
 comment and never fails the build.
 
+An outdated overview is `STALE_OVERVIEW`: route its repair to mapping,
+which regenerates it with `scripts/use_case_map.py`. You edit no specifications
+or generated content. `OLD_FORMAT` (exit 5) routes to `up-migrating-spec-formats`.
+
 ## Validation of your own report
 
 Before sending it:
 
 - Every finding has a file, a line and an element id.
 - The lint output is verbatim and the verdict follows from the rules above.
-- No specification, Status line or lint baseline was changed; the report file
+- No specification, `status` field or lint baseline was changed; the report file
   is the only file written.
 
 ## Worked example

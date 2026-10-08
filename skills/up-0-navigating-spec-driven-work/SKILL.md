@@ -28,6 +28,9 @@ order is the method; a step taken early is a guess that later steps inherit.
 
 Shared paths, identifiers and Status values: [references/conventions.md](references/conventions.md).
 
+`scripts/use_case_map.py --check` checks overview freshness; the mapping skill
+regenerates it. You write no files.
+
 ## Read the state
 
 Scripts read the specification folder the rules block records (`**Specs folder:**`), else `docs`; `--docs DIR` overrides it.
@@ -43,9 +46,9 @@ python3 scripts/workflow_state.py
 The script is in this skill's folder; use the base directory shown when the skill
 was loaded, and do not search the disk for it. It reports the profile
 recorded in the guideline file, which artifacts exist, every use case with
-its Status, disagreements between diagram and files, and the first decision
+its Status, format findings and overview freshness, and the first decision
 row that matches. If Python is unavailable, read the same things by hand: the
-guideline file, the four artifact files, and the Status line of each file in
+guideline file, the four artifact files, and the front matter `status` of each file in
 `docs/use_cases/`.
 
 When the project tracks its work in the A-files (`ACTIVE.md` with a hot
@@ -79,11 +82,14 @@ depend on it, or it becomes the base of something lasting.
 
 ## Decision table
 
-First matching row wins. Evidence and edge cases for each row:
+Earlier formats route to `MIGRATE` first. Current format findings route to
+`FIX_FORMAT` before every row, naming the files, codes and artifact-writing
+skill. Otherwise the first matching row wins. Evidence and edge cases for each row:
 [references/decision-table.md](references/decision-table.md).
 
 | # | Observed | Next step | Skill or actor |
 |---|---|---|---|
+| 0 | Earlier specification formats detected (`OLD_FORMAT`) | `MIGRATE` | `up-migrating-spec-formats` |
 | 1 | No rules block, no vision, no specifications | Set the project up | `up-1-bootstrapping-spec-driven-projects` |
 | 2 | Code exists, no specification of any kind | Recover what the system does | `up-recovering-specs-from-code` |
 | 3 | Use cases recovered from code are still `Draft` | The baseline review | `up-6-reviewing-specifications`, then the owner |
@@ -91,12 +97,12 @@ First matching row wins. Evidence and edge cases for each row:
 | 5 | Requirements catalog missing | Catalog the requirements | `up-2-cataloging-requirements` |
 | 6 | Entity model missing | Model the entities, before any use case | `up-3-modeling-domain-entities` |
 | 7 | Use case diagram missing | Map the use cases | `up-4-mapping-use-cases` |
-| 8 | Diagram and specification files disagree | Repair traceability | `up-6-reviewing-specifications` |
+| 8 | Format findings detected in specification files | `FIX_FORMAT`: repair the format findings | The skill that writes the artifact (e.g. `up-5` for use cases) |
 | 9 | A use case is `Implemented` | Test the built slice, then audit it | `up-8-deriving-use-case-tests`, `up-9-auditing-spec-coverage` |
 | 10 | A use case is `Approved` | Implement it | `up-7-implementing-use-cases` |
 | 11 | A use case is `Reviewed` | A person approves it | A person |
-| 12 | A use case is `Draft` | Validate and review it | `up-6-reviewing-specifications` |
-| 13 | A use case is in the diagram without a specification | Specify it | `up-5-writing-use-case-specs` |
+| 12 | A written use case is `Draft` | Validate and review it | `up-6-reviewing-specifications` |
+| 13 | A mapped use case is a Draft stub (`Not written yet.`) | `WRITE`: specify it | `up-5-writing-use-case-specs` |
 | 14 | A requirement has no use case | Add the use case, or defer the requirement | `up-4-mapping-use-cases` |
 | 15 | Two or more use cases `Tested`, no journey test case | Test the seams | `up-writing-journey-test-cases` |
 | 16 | A use case is `Tested` | The business accepts it | A person |
@@ -142,7 +148,8 @@ through `up-1-bootstrapping-spec-driven-projects`. Until then apply the full cha
 
 1. Run `scripts/workflow_state.py` on `docs/` (read the folder by hand if
    Python is unavailable).
-2. Classify the request: question, throwaway, new behavior, change, bug,
+2. If the script reports `MIGRATE`, name `up-migrating-spec-formats` and
+   stop routing normal work. Otherwise classify the request: question, throwaway, new behavior, change, bug,
    existing system, too large.
 3. Read the rigor profile from the guideline file; ask once if none is
    recorded.

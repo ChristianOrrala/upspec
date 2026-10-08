@@ -1,0 +1,42 @@
+{
+  "scripts": {
+    "finish_change.py": [
+      "5314270232b22c8f37dc5e8b8c8bef147a06f32b5a14256b623d006381f08a91"
+    ],
+    "hook_gate.py": [
+      "0396d870a8c9103bfd0602a245395bd95ddfeb4730ff627400c788116479f9b5"
+    ],
+    "scope_audit.py": [
+      "31c24135ac6fa645db67fb34d8d1b2069684f308600c8d25ae4aefaf7d6a4949"
+    ],
+    "spec_first_guard.py": [
+      "a1123e8f5d5b894b5e8dfb4805e9980d942c89bd0f86ea4a9a44c272cf60c951"
+    ],
+    "spec_lint.py": [
+      "ca0360cec50717125813e8faee2c669f12fb53375a8350d13ed661d714f2f6e4"
+    ],
+    "spec_model.py": [
+      "03fc66e751042ba4f94fd977a5800ed5a92065119c077091eae61870831d75a6",
+      "6b70b2ea14b5815ecdb75a0bf915cbf1a53bdfae4dcb4cea6cf1cdb08430da15"
+    ],
+    "uc_change_list.py": [
+      "32bbf128bf87033c917175098975c7afada8651fee9320b4db31cd36ea5f0eea"
+    ],
+    "unrecorded_changes.py": [
+      "c4a2603673cda3d5da2a5eb79ce2dc2cdafd1fc392723d50c599d5a9fba00237"
+    ],
+    "use_case_map.py": [],
+    "validate_use_case.py": [
+      "0bbd0f6bbc2ee9c2bb08a926f4a2787d3269c7cec29908d8a232688332f6b257"
+    ],
+    "workflow_state.py": [
+      "4ea298302b87fb1f7173813a54cbfc826e5070db7161052e8732c17fb64e2cf1",
+      "90dc0b675ae7db6a5a1b793187bbb683294489f7db344af203e9486b5ab08799"
+    ]
+  },
+  "versions": [
+    "0.1.0",
+    "0.2.0",
+    "0.2.1"
+  ]
+}

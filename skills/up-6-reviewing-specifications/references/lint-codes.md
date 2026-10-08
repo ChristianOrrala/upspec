@@ -8,33 +8,55 @@ docs/use_cases/UC-004-book-room.md:12: ERROR DANGLING_REF [UC-004]: requirement 
 
 `path:line: SEVERITY CODE [element]: message`. Line 0 means the whole file.
 Exit code 0 when clean, 1 on any error (with `--strict` also on any warning),
-2 on a usage error.
+2 on a usage error, 5 on `OLD_FORMAT`.
 
 ## Contents
 
+- Format codes
+- Retired codes
 - Cross-file codes
 - Per-file codes
 - Options
 - The baseline
 
+## Format codes
+
+| Code | Meaning |
+|---|---|
+| `OLD_FORMAT` | Earlier formats detected; stop with exit 5 and use `up-migrating-spec-formats` |
+| `FRONT_MATTER` | Missing or malformed front matter, unsupported YAML or a missing required key |
+| `STALE_OVERVIEW` | The generated overview differs from the use case files; regenerate it |
+| `STUB` | A stub whose `status` is past Draft |
+| `EXAMPLES_FORM` | A rule needs a filled Examples table: a blank line before the Examples table, input columns then final `result`, and rows on both sides of each boundary |
+| `GHERKIN_FORM` | A journey needs one gherkin block, one named Scenario, allowed steps and comments matching its `use_cases` list |
+| `ENTITY_TYPE` | An attribute type is outside the closed business list |
+| `REFERENCE_NO_RELATIONSHIP` | A Reference to ENTITY lacks a relationship in the diagram |
+| `NEED_FORM` | A functional row lacks Role or Need, or a Statement follows no EARS pattern |
+| `RECORD_FORM` | A change record lacks a required section or has an unknown outcome |
+| `UNREADABLE` | A file cannot be read |
+
+## Retired codes
+
+Retired codes: `NO_START_END`, `NO_SYSTEM`, `LABEL_FORM`, `ACTOR_UNCONNECTED`,
+`USE_CASE_UNCONNECTED`, `SPEC_NOT_IN_DIAGRAM`, `NAME_MISMATCH`, `SPEC_PENDING`,
+`FK_NO_RELATIONSHIP`, `STORY_FORM`. The overview is generated from existing
+files; references use business types, and functional rows use Role and Need.
+
 ## Cross-file codes
 
 | Severity | Code | Meaning | Fixed by |
 |---|---|---|---|
-| ERROR | `SPEC_NOT_IN_DIAGRAM` | A specification (not Obsolete) whose use case is not in the diagram | up-4-mapping-use-cases |
 | ERROR | `DUPLICATE_ID` | A use case, journey or requirement identifier used twice | The owning skill |
-| ERROR | `DANGLING_REF` | A requirement id on a Requirements line, a `UC-XXX BR-YYY` citation, a use case link or a process link that points to nothing | The owning skill |
+| ERROR | `DANGLING_REF` | A requirement id on a `requirements` list, a `UC-XXX BR-YYY` citation, a use case link or a process link that points to nothing | The owning skill |
 | ERROR | `STATUS_INVALID` | A Status outside the allowed values | The owning skill |
 | ERROR | `UNREADABLE` | A file that cannot be read | — |
-| WARN | `NAME_MISMATCH` | A specification's name differs from the diagram's | up-4-mapping-use-cases or up-5-writing-use-case-specs |
-| WARN | `FR_UNREALIZED` | A functional requirement in scope that no use case links (INFO while some use cases have no specification yet) | up-5-writing-use-case-specs |
+| WARN | `FR_UNREALIZED` | A functional requirement in scope that no use case links (INFO while some use cases are Draft stubs) | up-5-writing-use-case-specs |
 | WARN | `REQ_STATUS_DRIFT` | A requirement's progress Status differs from what its use cases imply | up-2-cataloging-requirements |
 | WARN | `RULE_COPIED` | The same rule text in two use cases | up-5-writing-use-case-specs: keep one, cite it |
 | WARN | `AVOIDED_WORD` | A word the entity model lists under `Not:` | The owning skill |
 | WARN | `RULE_RETIRED_CITED` | A use case cites a rule another use case has retired | up-5-writing-use-case-specs: cite the rule that replaced it |
 | WARN | `LABEL_MOVED` | A flow or rule name sits under another label than in the last commit (only under git): labels never move | up-5-writing-use-case-specs |
 | WARN | `DEAD_LINK` | A relative link in a specification file, the vision, the catalog, the entity model or a recovery record that leads nowhere | The owning skill |
-| INFO | `SPEC_PENDING` | A use case of the diagram without a specification yet | up-5-writing-use-case-specs |
 | INFO | `UC_UNUSED_BY_TC` | Journey test cases exist, none includes this use case | up-writing-journey-test-cases |
 | INFO | `EXTERNAL_REF` | A citation into another bounded context (`billing/UC-003 BR-002`); it is not checked here | The cross-context review |
 | INFO | `SPELLING` | An older file or folder spelling is in use | — |
@@ -47,7 +69,7 @@ Every use case file is also checked on its own.
 
 | Severity | Code | Meaning |
 |---|---|---|
-| ERROR | `TITLE_MISSING`, `SECTION_MISSING`, `FIELD_MISSING` | The file lacks its title, a required section or a required Overview field |
+| ERROR | `TITLE_MISSING`, `SECTION_MISSING` | The file lacks its title, a required section or required front matter (reported as `FRONT_MATTER`) |
 | ERROR | `ID_FORMAT`, `STATUS_INVALID` | Identifier or Status outside the convention |
 | ERROR | `RULE_UNDEFINED` | A step cites a rule this use case does not define |
 | ERROR | `FLOW_ANCHOR_INVALID`, `CONTINUE_INVALID` | A flow names or continues at a step that does not exist |
@@ -65,7 +87,7 @@ Every use case file is also checked on its own.
 | INFO | `SPEC_SIZE` | More than 250 lines, 12 alternative flows or 15 rules: still reviewable; check the goal level |
 | WARN | `SCREEN_COPY` | An emoji in the text: screen copy, not what the message tells the actor |
 | INFO | `SCREEN_COPY` | A quotation of more than 12 words: quote exact screen words only where a rule depends on them |
-| WARN | `FILE_NAME`, `TRIGGER_MISSING`, `REQUIREMENTS_LINE`, `PRIMARY_ACTOR_SYSTEM` | File name, trigger, requirement link or primary actor outside the convention |
+| WARN | `FILE_NAME`, `TRIGGER_MISSING`, `REQUIREMENTS_LINE`, `PRIMARY_ACTOR_SYSTEM` | File name, trigger, requirement list or primary actor outside the convention |
 | INFO | `UI_DETAIL` | Screen vocabulary in a step |
 | INFO | `RULE_BOUNDARY` | A quantity or date without boundary examples |
 | INFO | `VALIDATION_MULTI` | One validation answered by several flows |

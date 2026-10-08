@@ -13,7 +13,7 @@ The specifications under `docs/` are the source of truth for what this system do
 7. **Do not decide silently.** Where the specification leaves something open, list what you decided with each change (the invention list). If it concerns behavior a user can observe, stop and ask.
 8. **Observable behavior only.** Specifications describe what actors do and what the system answers. Technical choices live in this file or in `docs/decisions/`.
 9. **Identifiers are permanent.** Never reuse or renumber an identifier. Code that enforces a business rule carries `UC-XXX BR-YYY: <rule>` above it; tests carry the use case id and name the flow or rule they cover.
-10. **Status follows evidence.** Change a Status line only when the evidence for that step exists: a clean validator for `Reviewed`, merged code with markers for `Implemented`, passing tests for every flow and rule for `Tested`.
+10. **Status follows evidence.** Change a `status` field only when the evidence for that step exists: a clean validator for `Reviewed`, merged code with markers for `Implemented`, passing tests for every flow and rule for `Tested`.
 
 Where skills for specification-first work are installed, start with the one that matches the task, even when the task looks simple: implementing or synchronizing a use case goes through `up-7-implementing-use-cases` (its finish check runs before the code and before the report), tests through `up-8-deriving-use-case-tests` (its guard check proves each test), a bug report or a change request through `up-triaging-change-requests`, which classifies it against the specification before any code is read.
 

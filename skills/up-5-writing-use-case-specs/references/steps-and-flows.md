@@ -25,7 +25,7 @@ Each rule below removes one way a reader, human or agent, can misread a step.
 | One rule per step | "System validates the user and assigns the task." | Two steps | They fail for different reasons and need different flows and tests |
 
 An optional leading article is fine ("The customer selects ..."). Use the actor
-names from the Overview exactly; "User" when the actor is "Customer" is a
+names from the front matter exactly; "User" when the actor is "Customer" is a
 second name for the same thing.
 
 ## Three kinds of step

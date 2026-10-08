@@ -46,7 +46,7 @@ Report:
 
 - data a use case reads, shows or records that matches no entity or attribute;
 - a rule that implies something the model contradicts (the rule says optional,
-  the model says `Not Null`; the rule lists four states, the model three);
+  the model says `Required`; the rule lists four states, the model three);
 - a state move a flow performs that the entity's lifecycle does not allow;
 - a relationship a flow relies on that the model does not have.
 
@@ -77,8 +77,8 @@ Report:
 - a role or external system that acts in a step or flow but is declared
   neither primary nor secondary (an implementer may build it instead of
   integrating it): warning;
-- an actor in the specification that the diagram does not connect to the use
-  case, or the reverse: info.
+- an actor missing from the front matter despite acting in the scenario: warning.
+  The overview is generated from front matter; stale output is `STALE_OVERVIEW`.
 
 ## 7. Across a journey test case
 

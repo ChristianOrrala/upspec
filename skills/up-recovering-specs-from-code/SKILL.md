@@ -21,18 +21,9 @@ what it was built to do. The output is the set of artifacts a new project
 would have written first: a use case diagram, an entity model, and use case
 specifications.
 
-Two stances decide whether the result is worth anything.
-
-**Recover intent, do not transcribe code.** Write what a requirements engineer
-would have written before the system existed. If a step only makes sense to
-someone who has read the code, rewrite it. This is checked, not hoped for: the
-validator warns about names and figures taken from the implementation and
-about a specification too large to review.
-
-**Recover, do not decide.** You will find behavior nobody intended. Do not
-correct it while writing. Write down what the system does, mark what looks
-wrong, and carry the list to the people who can decide. Discovery and
-decision are different activities with different people in the room.
+Recover intent in business words, with implementation detail in the ledger.
+Write what the system does; carry contested behavior to the owner as suspects.
+Do not correct it while recovering.
 
 Shared paths, identifiers and Status values: [references/conventions.md](references/conventions.md).
 
@@ -40,7 +31,7 @@ Shared paths, identifiers and Status values: [references/conventions.md](referen
 
 | Artifact | When | Content |
 |---|---|---|
-| `docs/use_cases.puml` | First | Every use case of the system, as a named box |
+| `docs/use_cases.md` | First | Scope, delivery order and the generated actor-goal overview |
 | `docs/entity_model.md` | First | Every entity, from the schema, in business nouns |
 | `docs/recovery/ledger.md` | Throughout | Every recovered element with the code it came from |
 | `docs/recovery/suspects.md` | Throughout | Behavior that looks unintended, each to decide or to tidy |
@@ -78,12 +69,9 @@ them (a keyword the actor types, a notice whose wording is the rule), and then
 without emoji or formatting. The validator hints from 250 lines and warns from 500; a use case past the warning
 is two goals or a step of a larger one: say so and propose the split.
 
-A use case box with no specification behind it is not debt: it is an honest
-statement of what has been recovered, and it cannot be mistaken for one that
-was reviewed. When asked to "document everything first", agree with the aim
-and answer with the plan, even before you have read any code: map and model of
-the whole system first; then, from the size you were told, the depth you will
-recommend and what each choice gives up; then the specifications as chosen.
+A Draft stub honestly records a mapped goal whose behavior is not written.
+For "document everything first", propose the whole map and model, then depth
+by size, then the specifications as chosen.
 
 ## Reading the code as evidence
 
@@ -142,10 +130,7 @@ ledger's citations and every link follow them.
 
 ## The ledger and the suspect list
 
-A recovered specification contains no mechanism vocabulary: no routes, no class
-names, no table names. That makes it reviewable by the business and useless
-for tracing back to the code, which is exactly what the baseline review needs.
-The ledger carries that link instead.
+The specification contains business behavior; the ledger links it to code.
 
 [templates/recovery-ledger.md](templates/recovery-ledger.md): one row per recovered use case, flow, rule and
 entity, with the code location it came from and a state:
@@ -183,8 +168,12 @@ condition, the write, the constraint), not the first line of the function
 around it.
 
 Write no counts and no Status values into the records. The ledger check prints
-the counts and the Status line of each use case holds its Status; a number
+the counts and the `status` field of each use case holds its Status; a number
 written by hand is wrong after the next edit.
+
+After adding a use case or changing its id, name, actors or goal, run
+`python3 scripts/use_case_map.py --docs DIR`. Never edit between the overview
+markers. Status changes need no regeneration.
 
 ## Workflow
 
@@ -194,10 +183,10 @@ written by hand is wrong after the next edit.
 2. **Actors** from roles, authentication boundaries, schedules and
    integrations.
 3. **Use case map.** Group entry points by actor goal; aggregate, then split
-   where flows diverge; name in the business's words. Write the diagram in the
-   format of `up-4-mapping-use-cases`: labels `"UC-001\nName"`, and an
-   `extend` arrow points from the extending use case to its base. Record each
-   use case in the ledger with its entry points.
+   where flows diverge; name in the business's words. Create a Draft stub per
+   mapped use case, with required front matter and `Not written yet.` as its
+   body. Write Scope and Delivery order, then run `scripts/use_case_map.py`;
+   never edit between the overview markers. Record entry points in the ledger.
 4. **Entity model** as its own careful pass, from the schema first, then from
    the code that reads it. Use `up-3-modeling-domain-entities` conventions.
 5. **Ask the depth and which use cases are about to change.** Recommend by the
@@ -257,17 +246,14 @@ written by hand is wrong after the next edit.
     verification rounds and what they corrected, the suspects to decide, and
     what to review first.
 
-For a large system (more than a few dozen entry points): list all entry
-points, cluster them by feature, process one cluster at a time, and do the
-data layer once at the end.
+For a large system, cluster entry points by feature; process each cluster
+and do the data layer once at the end.
 
 ## The baseline review
 
-A recovered specification was written by someone reading code. It is the least
-trustworthy document in the process until two kinds of knowledge have checked
-it: what the system does, and what it was supposed to do. The review turns the
-drafts into the baseline. From then on, every feature, change and bug goes
-specification-first through it.
+The baseline review checks both what the system does and what it was meant
+to do. It turns recovered Draft specifications into a baseline; later work
+then enters through triage.
 
 What the review cannot settle becomes the first entries of the change log ([templates/change-log.md](templates/change-log.md)); what the owner
 leaves for later is the alignment backlog, shrunk beside new work, never a phase before it. Nothing is quietly fixed on the way.
@@ -301,8 +287,7 @@ refuses if the customer has open orders. Its handler gives up after 30
 seconds.
 
 - Use cases: `UC-001 Manage Customers` (list, show, create, update: one actor,
-  one shape) and `UC-002 Block Customer` (own actor, own rules). Two use
-  cases: the owner gets the baseline for both.
+  one shape) and `UC-002 Block Customer` (own actor, own rules). Two use cases: baseline for both.
 - `UC-002` rules, in business words: *BR-001 A reason is required.*
   *BR-002 A customer with open orders cannot be blocked.* The 30 seconds are
   not a rule anyone set: ledger note on `UC-002`, not specification text.

@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "upspec",
-  "version": "0.2.1",
+  "version": "1.0.0",
   "description": "Stack-neutral skills for a specification-first workflow with use cases: requirements, entity model, use case specifications, review, implementation, tests, change handling, coverage audit, recovery of existing systems and scaling to several teams.",
   "author": {"name": "Christian Orrala", "url": "https://github.com/ChristianOrrala"},
   "license": "MIT"

@@ -8,7 +8,7 @@ with no difference from today, no source and no pin, and no later check sees it,
 because they all read their list from the record. This script compares the
 specification as it was when the change began with the working tree and lists
 every flow (A1) and rule (BR-001) that was added, changed or removed but that no
-part of the record names: its Element line, or a cell of an Element or Lives in
+part of the record names: its element metadata, or a cell of an Element or Lives in
 column (differences from today, sources, assumptions, owner's decisions).
 
 When the change began: the parent of the commit that added the change record;
@@ -28,7 +28,6 @@ Usage:
 Requires Python 3.9+, standard library only, and git. Reads only; changes nothing.
 """
 import argparse
-import glob
 import json
 import os
 import re
@@ -38,7 +37,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 UNIT = re.compile(r"\b(A\d+|BR-\d{3})\b")
-ELEMENT_LINE = re.compile(r"^\**Element:?\**", re.IGNORECASE)
 
 
 class Undecidable(Exception):
@@ -67,12 +65,11 @@ def units_for(text, uc_id):
     return found
 
 
-def recorded_units(lines, uc_id):
+def recorded_units(path, uc_id):
     """Every flow and rule the record names for this use case."""
     named = set()
-    for line in lines:
-        if ELEMENT_LINE.match(line.strip()):
-            named |= units_for(line, uc_id)
+    named |= units_for(model.parse_change_record(path).element, uc_id)
+    lines = model.read_lines(path)
     for table in model.read_tables(lines):
         header = [h.strip().lower() for h in table["header"]]
         columns = [table["header"][i] for i, h in enumerate(header) if h.startswith("element") or h == "lives in"]
@@ -84,10 +81,10 @@ def recorded_units(lines, uc_id):
     return named
 
 
-def names_use_case(lines, uc_id):
-    if any(ELEMENT_LINE.match(line.strip()) and uc_id in line for line in lines):
+def names_use_case(path, uc_id):
+    if uc_id in model.RE_UC_ID.findall(model.parse_change_record(path).element):
         return True
-    for table in model.read_tables(lines):
+    for table in model.read_tables(model.read_lines(path)):
         if any(h.strip().lower().startswith("element") for h in table["header"]):
             if any(uc_id in " ".join(row.values()) for _, row, _ in table["rows"]):
                 return True
@@ -97,9 +94,9 @@ def names_use_case(lines, uc_id):
 def find_record(docs_dir, uc_id):
     """The newest change record named after the use case or naming it; None when there is none."""
     found = []
-    for path in glob.glob(os.path.join(docs_dir, "**", "change-records", "*.md"), recursive=True):
+    for path in model.Docs(docs_dir).change_record_files():
         name = os.path.basename(path)
-        if name == uc_id + ".md" or name.startswith(uc_id + "-") or names_use_case(model.read_lines(path), uc_id):
+        if name == uc_id + ".md" or name.startswith(uc_id + "-") or names_use_case(path, uc_id):
             found.append(path)
     return max(found, key=lambda path: (os.path.getmtime(path), path)) if found else None
 
@@ -157,7 +154,7 @@ def check(docs_dir, uc_id, record=None, since=None):
         unit = change["element"].split(" ")[0]
         if UNIT.fullmatch(unit):
             changed.append({"unit": unit, "change": change["change"]})
-    recorded = recorded_units(model.read_lines(record), uc_id)
+    recorded = recorded_units(record, uc_id)
     return {"use_case": uc_id, "record": os.path.relpath(record), "since": start,
             "changed": changed, "recorded": sorted(recorded),
             "unrecorded": [c for c in changed if c["unit"] not in recorded]}
@@ -181,6 +178,13 @@ def main(argv):
     if args.record and not os.path.isfile(args.record):
         print("no such file: %s" % args.record, file=sys.stderr)
         return 2
+    docs = model.Docs(args.docs)
+    if args.record:
+        records = docs.change_record_files()
+        docs.change_record_files = lambda: sorted(set(records + [args.record]))
+    stop = model.stop_if_old(docs)
+    if stop is not None:
+        return stop
     try:
         result = check(args.docs, args.use_case, args.record, args.since)
     except Undecidable as exc:
@@ -189,6 +193,9 @@ def main(argv):
     except SystemExit as exc:
         print(str(exc), file=sys.stderr)
         return 2
+    except (OSError, UnicodeDecodeError) as exc:
+        print("%s:0: ERROR UNREADABLE: cannot read: %s" % (args.record or args.docs, exc), file=sys.stderr)
+        return 1
     if args.format == "json":
         print(json.dumps(result, indent=2, ensure_ascii=False))
     else:

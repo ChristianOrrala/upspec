@@ -39,7 +39,7 @@ and derived tests verify it.
 
 | Column | Value | Rule |
 |---|---|---|
-| Linked FR | Identifiers | From the Requirements line |
+| Linked FR | Identifiers | From the `requirements` list |
 | Status | As in the file | Never changed by the dashboard |
 | Code | yes / no | A file outside the docs and test folders carries the use case id |
 | Unit | yes / partial / no | Tests name the main scenario, every flow and every rule; some; none |

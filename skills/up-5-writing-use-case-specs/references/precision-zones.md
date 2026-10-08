@@ -41,7 +41,7 @@ yourself:
 | Belongs to | Refer to it by |
 |---|---|
 | Entity model | The business noun ("the delivery address"). Never list its fields |
-| Requirements catalog | The identifier on the Requirements line. Never repeat "within 2 seconds" in a step |
+| Requirements catalog | The identifier on the `requirements` list. Never repeat "within 2 seconds" in a step |
 | Another use case's rule | `UC-004 BR-002` |
 | A mockup or an interface description | A link |
 

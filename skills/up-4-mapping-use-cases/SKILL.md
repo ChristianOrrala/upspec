@@ -1,27 +1,26 @@
 ---
 name: up-4-mapping-use-cases
 description: >-
-  Finds the use cases a system needs and records them as the use case diagram (docs/use_cases.puml,
-  PlantUML): builds the actor-goal list from the requirements catalog, tests every candidate for
-  user-goal level (one actor, one sitting), aggregates and splits Manage-X use cases, moves multi-role
-  or waiting flows to a business process, checks that every functional requirement is realized and
-  every actor connected, and proposes the delivery order of first slices. Use when the user asks which
-  use cases exist or are missing, whether something is a use case at all or only a step of one, wants
-  a use case diagram or overview, an actor-goal list, to split or merge use cases, to decide scope
-  with an in/out list, or to check requirement-to-use-case coverage. Not for writing the steps of one
-  use case, not for sorting use cases into bounded contexts or teams, and not for draw.io diagrams.
+  Finds the use cases a system needs and records them as the use case overview (docs/use_cases.md:
+  a scope list and delivery order written by people, and an actor-goal table and Mermaid diagram
+  generated from the use case files), creating a stub for each mapped use case. Tests user-goal
+  level, aggregates or splits Manage-X goals, moves multi-role or waiting flows to BPMN, and
+  checks functional requirement coverage. Use when the user asks which use cases exist or are
+  missing, whether a goal is a use case, for a diagram or actor-goal list, to split or merge use
+  cases, to decide scope, or to check requirement coverage. Not for writing one use case's steps,
+  bounded contexts or draw.io.
 ---
 
 # Mapping use cases
 
 Decide which use cases the system has, and record the decision as
-`docs/use_cases.puml`. The diagram is the table of contents of the
+`docs/use_cases.md`. The diagram is the table of contents of the
 specification set: it says what the system offers, to whom, and which
 specifications still have to be written. It says nothing about how a use case
 runs.
 
-The hard part is not PlantUML. It is choosing the right goals at the right
-level, because every error here is multiplied later: a goal that is too small
+Choose goals at the right level, because every error here is multiplied
+later: a goal that is too small
 becomes a fragment with no home, a goal that is too large becomes a
 specification nobody can review.
 
@@ -31,7 +30,7 @@ Shared paths and identifiers: [references/conventions.md](references/conventions
 
 1. **Actors first.** A role played toward the system: a kind of person, an
    organization, another system, or time itself for anything that runs on a
-   schedule. Roles come from the catalog's user stories and the vision.
+   schedule. Roles come from the catalog's roles and needs and the vision.
 2. **Goals per actor.** For each actor, what do they come to the system to
    get done? Write each as a short verb phrase in the actor's own words:
    *Book Repair*, never *Create Work Order Record*.
@@ -77,26 +76,31 @@ usually means goals that are too low.
 ## Scope: in and out
 
 For every capability someone debated, decide In or Out and record it in the
-Scope section of `docs/vision.md`. Ten minutes here prevents weeks of drift,
+Scope section of `docs/use_cases.md`, consistent with `docs/vision.md`.
+Ten minutes here prevents weeks of drift,
 and the Out list is what stops an agent from building things nobody asked for.
 
 - A candidate that maps to an Out item is refused, with the item named.
 - A candidate nobody listed is not silently In: ask, then record the answer.
 - You may propose the wording of a scope entry. The decision is the owner's.
 
-## The diagram
+## The generated overview
 
-Start from [templates/use_cases.puml](templates/use_cases.puml). Other tools parse these conventions:
+Start from [templates/use_cases.md](templates/use_cases.md). People write
+`system` in front matter, Scope and Delivery order. The generator writes an
+actor-goal table and a Mermaid use case diagram (`usecase-beta`) between the
+markers: the named system boundary holds one ellipse per use case labeled
+`UC-XXX Name`, actors stand outside it, and plain lines join them. Never edit
+between the markers.
 
-- Each use case label is the identifier and the name on two lines:
-  `usecase "UC-001\nBook Repair" as UC001`.
-- The rectangle carries the real name of the system.
-- Every actor is connected to at least one use case and every use case to at
-  least one actor.
+- Create a stub per mapped use case: required use case front matter,
+  `status: Draft`, and the body `Not written yet.` Link the requirements it
+  realizes; `secondary_actors` is optional.
+- Run `python3 scripts/use_case_map.py` to generate the overview from the files.
 - Identifiers are `UC-` and three digits, assigned once. A removed use case's
   number is not given to another.
-- `include` and `extend` almost never: only for a sub-flow that several use
-  cases really share. Generalization: do not use it.
+- The overview shows actors and goals. Shared behavior is cited in the
+  specifications; it is not an extra diagram relationship.
 
 When the project tracks its work in the A-files, end the mapping with a
 proposal: for each new use case, the ability in `ABILITIES.md` whose `Specs`
@@ -113,8 +117,11 @@ pairing contract in the conventions has the rule.
 3. Apply the level test to every goal. Fold, split, or move to a process.
 4. Aggregate CRUD-like goals; split what has its own actor, preconditions or
    rules.
-5. Settle scope questions with the owner and record them in the vision.
-6. Write the diagram. New use cases get the next free identifiers.
+5. Settle scope questions with the owner; keep the vision and overview Scope
+   consistent.
+6. Create a stub per mapped use case, with the next free identifiers. Write
+   Scope and Delivery order in the overview, then run `scripts/use_case_map.py`;
+   never edit between the markers.
 7. Run the check and fix what it reports:
 
    ```bash
@@ -122,8 +129,7 @@ pairing contract in the conventions has the rule.
    ```
 
    The script is in this skill's folder; use the base directory shown when the skill
-   was loaded, and do not search the disk for it. Where PlantUML is
-   installed, also run `plantuml --check-syntax docs/use_cases.puml`.
+   was loaded, and do not search the disk for it.
 8. State the delivery order (below) and report every merge, split, move and
    refusal with its reason.
 
@@ -142,9 +148,10 @@ planned here; they follow once the main scenario has been seen working.
 
 ## Validation
 
-- The check exits 0. Every use case traces to a functional requirement once
-  specifications exist; until then the check reports the diagram's use cases
-  as pending, which is information, not a defect.
+- The check exits 0. Every mapped use case has a file, at least a Draft stub,
+  and links the functional requirements it realizes. `STALE_OVERVIEW` means
+  rerun the generator; `FRONT_MATTER` and `STUB` mean repair the file.
+  `OLD_FORMAT` (exit 5) routes to `up-migrating-spec-formats`.
 - Every functional requirement that is not Rejected or Deferred has a use case
   that will realize it. Name the pairs in the hand-off.
 - Each name passes the level test and is in the actor's language.

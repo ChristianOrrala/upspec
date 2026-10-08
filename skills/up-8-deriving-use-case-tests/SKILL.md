@@ -56,7 +56,7 @@ then it names both.
   message appeared passes when the data is wrong. Assert the final state.
 - **Failure guarantees.** For every flow ending in "Use case ends.": nothing
   was recorded, nothing changed. This is the assertion most often missing.
-- **Boundaries.** A rule's `Examples:` line gives the values: just inside,
+- **Boundaries.** A rule's Examples table gives the values: just inside,
   just outside. Test both. If the rule has a quantity and no examples, that is
   a gap in the specification: say so, do not pick the boundary yourself.
 - **Observable behavior only.** Never assert that a method was called, a query
@@ -105,7 +105,7 @@ documentation. Do not write framework calls from memory.
 
 ## Workflow
 
-1. Read the specification and the rows on its Requirements line. If Status is
+1. Read the specification and the rows on its `requirements` list. If Status is
    below `Approved`, say so and ask before writing tests against text that may
    still change.
 2. Run `coverage_units.py`. Existing tests for this use case are reconciled,

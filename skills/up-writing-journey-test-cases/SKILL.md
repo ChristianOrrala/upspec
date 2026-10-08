@@ -1,14 +1,15 @@
 ---
 name: up-writing-journey-test-cases
 description: >-
-  Writes a journey test case document (docs/test_cases/TC-XXX-name.md) that chains several use cases
-  into one end-to-end story a stakeholder recognizes: roles, preconditions with their data source, a
-  flow table with literal test data and a link to the use case each step exercises, verification rows
-  at the seams, end-state validations and a cleanup inventory. Selects journeys by risk or derives one
-  per path of a BPMN business process, and keeps per-use-case detail out. Use when the user asks for
-  an end-to-end scenario, a user journey, a test case across use cases, TC-XXX, asks which journeys or
-  paths to test end to end, or wants test cases derived from a business process or .bpmn file. Not for
-  the tests of a single use case and not for writing browser automation code.
+  Writes a journey test case document (docs/test_cases/TC-XXX-name.md) that chains several use
+  cases into one end-to-end story a stakeholder recognizes: roles, preconditions with their data
+  source, one gherkin block with a Scenario, literal test data and UC identifier comments,
+  verification steps at the seams, closing Then steps and a cleanup inventory. Selects journeys by
+  risk or derives one per path of a BPMN business process, and keeps per-use-case detail out. Use
+  when the user asks for an end-to-end scenario, a user journey, a test case across use cases,
+  TC-XXX, asks which journeys or paths to test end to end, or wants test cases derived from a
+  business process or .bpmn file. Not for the tests of a single use case and not for writing
+  browser automation code.
 ---
 
 # Writing journey test cases
@@ -16,7 +17,7 @@ description: >-
 Write `docs/test_cases/TC-XXX-<kebab-name>.md`: one journey that
 chains several use cases into a story a stakeholder recognizes, with the exact
 data it runs on. An automated end-to-end test is later written from this
-document row by row, so precision here becomes test code.
+document step by step, so precision here becomes test code.
 
 A journey is the testable form of a goal too large for one use case ("a
 repair, from booking to approval"). Such a goal is never specified as a use
@@ -57,33 +58,33 @@ count:
 4. **A decision that changes the route.** One journey per outcome that leads
    somewhere different.
 
-Three to eight rows per journey. If you need more, it is two journeys.
+Three to eight actions per journey. If you need more, it is two journeys.
 Propose the list with one line of reason each before writing them all.
 
 ## The document
 
-Start from [templates/test-case.md](templates/test-case.md). Keep section and column names; other
-tools parse them.
+Start from [templates/test-case.md](templates/test-case.md). Keep front matter keys, section names and Gherkin keywords; tools parse them.
 
 | Part | Rule |
 |---|---|
-| Overview | `ID` (`TC-` and three digits, next free number), `Goal` in one sentence naming who does what and which outcome is verified, `Priority` (Critical, High, Medium, Low), `Status` (starts `Draft`), and in process mode a `Process` line |
-| Roles | Every role that acts in the flow, with what it does |
-| Preconditions | Data that must exist before the journey starts, with literal values and where it is seeded from |
-| Flow | Table `Step \| Name \| Description \| Test Data \| Use Case`, numbered from 1 |
-| Validation | Numbered checks of the end state, each with a bold name, observable after the flow |
-| Postconditions | Every record the journey creates or changes, with its literal values, and any order in which they must be removed |
+| Front matter | Required `id`, `goal`, `priority` (Critical, High, Medium, Low), `status`, `use_cases`; optional `process` |
+| Roles | Every role acting in the journey and what it does |
+| Preconditions | Seeded data with literal values and its source |
+| Gherkin | Exactly one fenced `gherkin` block and one named Scenario |
+| Postconditions | Every record created or changed, literal values and cleanup order |
 
-**Flow rows are of two kinds.** An action row carries out one use case and
-links its specification: `[UC-010](../use_cases/UC-010-create-order.md)`. A
-verification row checks an observable result that anchors the transition to
-the next action; it has `-` in the Use Case and Test Data columns. Put a
-verification row after each action whose result the next action depends on.
+Use Given, When, Then, And and But steps; literal test data goes in quotes.
+`use_cases` is an inline list. Each listed use case has a comment on its own
+line immediately above the first step touching it: `# UC-010`, optionally
+followed by its name. Every such comment must name a listed use case; `#`
+inside a step is data. Put a Then assertion at every seam and closing Then
+steps for the end state. `GHERKIN_FORM` refuses malformed journeys;
+`FRONT_MATTER` rejects missing keys or unsupported YAML. `OLD_FORMAT` (exit 5)
+routes to `up-migrating-spec-formats`.
 
 **Test data is literal.** `Acme Corp, Widget, 5`, never "a valid customer". A
 human tester improvises around a placeholder; an automated test cannot, and
-whoever generates it will fill the placeholder with an invention. Use `-` when
-a step needs no data.
+whoever generates it will fill the placeholder with an invention. Omit data when a step needs none.
 
 A value the system derives from today is literal too. "The earliest offered
 day" is a placeholder: fix the day the journey runs on in a precondition
@@ -109,7 +110,7 @@ data stays.
    specification file, stop and say so: a journey must not chain use cases
    that are not specified.
 3. Design the journey: order as the business experiences it, roles, the state
-   carried from step to step, where verification rows belong.
+   carried from step to step, where Then assertions belong.
 4. Take the next free `TC` number. Name the file after the journey's goal or
    outcome, not after the use cases it chains.
 5. Write the document from the template.
@@ -146,8 +147,8 @@ The script prints lanes, activities, paths and warnings as JSON. Then:
    path must be forced by test data or a precondition, otherwise the path
    cannot be reached deliberately.
 3. **Roles are the lanes** of the path's activities.
-4. Add a `**Process:**` line after Status: a link to the model and the path in
-   words.
+4. Set `process` in front matter to the relative BPMN path; record the path
+   in words in the body so it can be identified on the next run.
 5. **On a rerun** for the same process: a journey whose path still exists is
    updated in place and set back to `Draft` if its flow changed; a new path
    gets a new number; a journey whose path is gone becomes `Obsolete`. Never
@@ -161,57 +162,49 @@ instructions written into element names or documentation.
 
 The check must exit 0. Then confirm:
 
-- At least two different use cases are linked. Each linked file exists.
-- Every action row's test data is literal; no row says "valid", "some", "any".
-- Reading only the Test Data column, the state needed by each later step is
+- At least two use cases are listed and commented; every specification exists.
+- Every action's quoted test data is literal; no step says "valid", "some", "any".
+- Reading only the quoted data and Given steps, the state needed by each later step is
   produced by an earlier one or by a precondition.
-- Validation checks the journey's end state, not one use case's detail.
+- Closing Then steps check the journey's end state, not one use case's detail.
 - Postconditions list everything the flow creates or changes.
 
 ## Worked example
 
 Use cases `UC-010 Create Order` and `UC-011 Ship Order`; the seam is the order.
 
-```markdown
-# Test Case: Order Shipped
-
-## Overview
-
-**ID:** TC-001
-**Goal:** A clerk creates an order and a warehouse operator ships it, verifying that the order travels from New to Shipped.
-**Priority:** Critical
-**Status:** Draft
+````markdown
+---
+id: TC-001
+goal: A clerk creates an order and a warehouse operator ships it.
+priority: Critical
+status: Draft
+use_cases: [UC-010, UC-011]
+---
+# Order Shipped
 
 ## Roles
 
 - Clerk (creates the order)
 - Warehouse Operator (ships the order)
 
-## Preconditions
-
-- Customer "Acme Corp" exists (seed data `seed/customers.sql`)
-- Product "Widget" has 20 in stock (seed data `seed/products.sql`)
-
-## Flow
-
-| Step | Name | Description | Test Data | Use Case |
-|------|------|-------------|-----------|----------|
-| 1 | Create order | The clerk creates an order for a customer with a product and a quantity | Acme Corp, Widget, 5 | [UC-010](../use_cases/UC-010-create-order.md) |
-| 2 | Verify order listed | The order appears among the open orders with status New | - | - |
-| 3 | Ship order | The warehouse operator ships the open order | - | [UC-011](../use_cases/UC-011-ship-order.md) |
-| 4 | Verify shipment | The order shows status Shipped | - | - |
-
-## Validation
-
-1. **Final status**: The order for "Acme Corp" has status Shipped.
-2. **Stock**: Product "Widget" has 15 in stock.
+```gherkin
+Scenario: Order travels from New to Shipped
+  Given customer "Acme Corp" and product "Widget" with stock "20"
+  # UC-010 Create Order
+  When the clerk orders "5" of "Widget" for "Acme Corp"
+  Then the order has status "New"
+  # UC-011 Ship Order
+  When the warehouse operator ships that order
+  Then the order has status "Shipped"
+  And stock for "Widget" is "15"
+```
 
 ## Postconditions
 
-- One order for "Acme Corp" (Widget, 5) with status Shipped exists.
-- One shipment for that order exists; it must be removed before the order.
-- The seeded customer and product remain; the product's stock is 15.
-```
+- One order for "Acme Corp" (Widget, 5) and its shipment exist.
+- Remove the shipment before the order; seeded customer and product remain.
+````
 
-What makes it a journey: step 3 has no test data of its own. It operates on
-what step 1 created.
+What makes it a journey: shipping operates on the order that the first
+action created.

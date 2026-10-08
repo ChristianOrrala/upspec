@@ -4,10 +4,10 @@
 State comes from the files, never from memory:
   - the profile and skipped artifacts recorded in the guideline file (AGENTS.md or CLAUDE.md);
   - which artifacts of the chain exist (vision, catalog, entity model, diagram);
-  - every use case with its Status, including those that are only in the diagram;
+  - every use case with its Status, including Draft stubs awaiting their body;
   - a recovery in progress: use cases recovered from code (rows in docs/recovery/ledger.md)
     whose specification is still Draft, waiting for the baseline review;
-  - mismatches between diagram and specification files;
+  - invalid identifiers or Status values in specification files;
   - journey test cases, and whether the repository holds code.
   - with the A-files (ACTIVE.md with a hot zone): the current work, what blocks it and
     what waits on the owner, AHEAD's Next up, the abilities and the use cases their
@@ -43,6 +43,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import use_case_map
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 PLACEHOLDER = re.compile(r"\[[^\]\n]+\](?!\()")
@@ -69,9 +70,27 @@ SKILLS = {
     "RECOVER": "up-recovering-specs-from-code", "REQUIREMENTS": "up-2-cataloging-requirements",
     "BASELINE_REVIEW": "up-6-reviewing-specifications, then the owner",
     "ENTITY_MODEL": "up-3-modeling-domain-entities", "DIAGRAM": "up-4-mapping-use-cases", "FIX": "up-6-reviewing-specifications",
+    "FIX_FORMAT": "up-6-reviewing-specifications",
     "SPECIFY": "up-5-writing-use-case-specs", "MAP": "up-4-mapping-use-cases", "JOURNEY": "up-writing-journey-test-cases",
     "IDLE": "up-triaging-change-requests",
 }
+
+
+def skill_for_artifact(path):
+    path = path.replace("\\", "/")
+    if any("/" + folder + "/" in "/" + path for folder in ("use_cases", "use-cases")):
+        return "up-5-writing-use-case-specs"
+    if path.endswith(("use_cases.md", "use-cases.md")):
+        return "up-4-mapping-use-cases"
+    if "requirements" in path:
+        return "up-2-cataloging-requirements"
+    if "entity_model" in path or "entity-model" in path:
+        return "up-3-modeling-domain-entities"
+    if any("/" + folder + "/" in "/" + path for folder in ("test_cases", "test-cases")):
+        return "up-writing-journey-test-cases"
+    if "change-records" in path or "change_records" in path:
+        return "up-triaging-change-requests"
+    return "up-6-reviewing-specifications"
 
 
 def recovered_ids(docs):
@@ -236,23 +255,28 @@ def tracking_view(root, use_cases, alignment=None):
 
 
 def collect(docs_dir):
+    docs = model.Docs(docs_dir)
+    earlier = model.old_formats(docs)
+    if earlier:
+        return {"docs": docs_dir, "migration": {"code": "MIGRATE", "skill": "up-migrating-spec-formats",
+                                               "why": "%d files in earlier formats" % len(earlier)}}
     root = model.project_root(docs_dir)
     state = {"docs": docs_dir, "docs_exists": os.path.isdir(docs_dir)}
     guideline, profile, skipped = model.read_rules_block(root)
     state["guideline"] = {"file": guideline, "profile": profile,
-                          "skipped": [word for word in ("requirements", "entity model", "diagram") if word in skipped]}
+                          "skipped": [word for word in ("requirements", "entity model", "overview", "diagram") if word in skipped]}
     docs = model.Docs(docs_dir) if state["docs_exists"] else None
     artifacts = {}
     for key, path in (("vision", docs and docs.vision), ("requirements", docs and docs.requirements),
-                      ("entity_model", docs and docs.entity_model), ("diagram", docs and docs.diagram)):
+                      ("entity_model", docs and docs.entity_model), ("diagram", docs and docs.overview)):
         artifacts[key] = {"path": os.path.relpath(path, root) if path else None, "present": bool(path)}
     if docs and docs.vision:
         text = re.sub(r"<!--.*?-->", "", "\n".join(model.read_lines(docs.vision)), flags=re.DOTALL)
         artifacts["vision"]["placeholders"] = len(PLACEHOLDER.findall(text))
+    artifacts["diagram"]["current"] = bool(docs and use_case_map.current(docs))
     state["artifacts"] = artifacts
 
     use_cases, mismatches = [], []
-    diagram = model.parse_diagram(docs.diagram) if docs and docs.diagram else None
     specs = model.load_use_cases(docs) if docs else []
     seen = {}
     for uc in specs:
@@ -267,18 +291,10 @@ def collect(docs_dir):
         status = uc.status
         if status not in model.UC_STATUSES:
             mismatches.append("%s has Status '%s', which is not a Status" % (uc.id, status))
-        if diagram and uc.id not in diagram.use_cases and status != "Obsolete":
-            mismatches.append("%s has a specification and is not in the diagram" % uc.id)
-        if diagram and uc.id in diagram.use_cases and diagram.use_cases[uc.id][0] != uc.name:
-            mismatches.append("%s is '%s' in its specification and '%s' in the diagram" % (uc.id, uc.name, diagram.use_cases[uc.id][0]))
-        step = PER_STATUS.get(status)
+        step = (("WRITE", "up-5-writing-use-case-specs", "write the stub's specification")
+                if uc.is_stub else PER_STATUS.get(status))
         use_cases.append({"id": uc.id, "name": uc.name, "status": status, "file": rel,
                           "next": step[0] if step else None, "by": step[1] if step else None, "what": step[2] if step else None})
-    if diagram:
-        for uc_id, (name, _, _) in sorted(diagram.use_cases.items()):
-            if uc_id not in seen:
-                use_cases.append({"id": uc_id, "name": name, "status": "not specified", "file": None, "next": "SPECIFY",
-                                  "by": "up-5-writing-use-case-specs", "what": "write the specification; it starts as Draft"})
     use_cases.sort(key=lambda u: u["id"])
     state["use_cases"] = use_cases
     recovered = recovered_ids(docs)
@@ -296,6 +312,9 @@ def collect(docs_dir):
     state["journey_test_cases"] = len(docs.test_case_files()) if docs else 0
     state["code_files"] = count_code(root, docs_dir)
     state["code_files_capped"] = state["code_files"] >= CODE_COUNT_CAP
+    findings = model.format_findings(docs) if docs else []
+    state["format_findings"] = [{"path": os.path.relpath(p, root), "line": l, "code": c, "message": m}
+                                 for p, l, c, m in findings]
     state["alignment"] = alignment_view(root, docs, use_cases)
     state["tracking"] = tracking_view(root, use_cases, state["alignment"])
     return state
@@ -303,10 +322,12 @@ def collect(docs_dir):
 
 def decide(state):
     """First matching row wins. Returns the next step as a dict."""
+    if "migration" in state:
+        return state["migration"]
     art, guide, ucs = state["artifacts"], state["guideline"], state["use_cases"]
     skipped = guide["skipped"]
     specified = [u for u in ucs if u["file"]]
-    chain_started = any(art[k]["present"] for k in ("requirements", "entity_model", "diagram")) or bool(specified)
+    chain_started = any(art[k]["present"] for k in ("requirements", "entity_model")) or bool(specified)
 
     def step(code, target, reason, by=None, what=None):
         return {"code": code, "target": target, "by": by or SKILLS.get(code), "reason": reason, "what": what}
@@ -317,6 +338,15 @@ def decide(state):
     def where(name):
         """A file of the specification folder, written as the user passed or recorded the folder."""
         return "%s/%s" % (state["docs"].replace(os.sep, "/").rstrip("/"), name)
+
+    findings = state.get("format_findings", [])
+    if findings:
+        finding = findings[0]
+        skill = skill_for_artifact(finding["path"])
+        names_and_codes = ", ".join(sorted({"%s (%s)" % (f["path"], f["code"]) for f in findings}))
+        return step("FIX_FORMAT", finding["path"],
+                    "%d format finding(s): %s" % (len(findings), names_and_codes),
+                    by=skill, what="repair the reported format findings using %s" % skill)
 
     if not guide["file"] and not art["vision"]["present"] and not chain_started:
         return step("SETUP", None, "no rules block in a guideline file, no vision and no specifications")
@@ -338,19 +368,19 @@ def decide(state):
         return step("REQUIREMENTS", where("requirements.md"), "the requirements catalog is missing and not recorded as skipped")
     if not art["entity_model"]["present"] and "entity model" not in skipped:
         return step("ENTITY_MODEL", where("entity_model.md"), "the entity model is missing and not recorded as skipped; it comes before any use case")
-    if not art["diagram"]["present"] and "diagram" not in skipped:
-        return step("DIAGRAM", where("use_cases.puml"), "the use case diagram is missing and not recorded as skipped")
+    if (not art["diagram"]["present"] or not art["diagram"]["current"]) and not any(k in skipped for k in ("diagram", "overview")):
+        return step("DIAGRAM", where("use_cases.md"), "the use case overview is missing or stale and not recorded as skipped")
     if state["mismatches"]:
-        return step("FIX", None, "diagram and specifications disagree: %s" % state["mismatches"][0], what="run the specification lint and repair what it reports")
+        return step("FIX", None, "specification files need repair: %s" % state["mismatches"][0], what="run the specification lint and repair what it reports")
     tracking = state.get("tracking")
     if tracking and tracking["focus"]:
         focus = [u for u in ucs if u["id"] in tracking["focus"]]
-        for code in ("TEST", "IMPLEMENT", "APPROVE", "REVIEW", "SPECIFY", "BUSINESS_REVIEW"):
+        for code in ("TEST", "IMPLEMENT", "APPROVE", "WRITE", "REVIEW", "SPECIFY", "BUSINESS_REVIEW"):
             uc = next((u for u in focus if u["next"] == code), None)
             if uc:
                 return step(code, uc["id"], "%s %s has Status %s; %s names it" % (uc["id"], uc["name"], uc["status"], tracking["focus_from"]),
                             by=uc["by"], what=uc["what"])
-    for code in ("TEST", "IMPLEMENT", "APPROVE", "REVIEW", "SPECIFY"):
+    for code in ("TEST", "IMPLEMENT", "APPROVE", "WRITE", "REVIEW", "SPECIFY"):
         uc = first(code)
         if uc:
             return step(code, uc["id"], "%s %s has Status %s" % (uc["id"], uc["name"], uc["status"]), by=uc["by"], what=uc["what"])
@@ -358,7 +388,7 @@ def decide(state):
         return step("SPECIFY", None, "no use case is specified yet", what="specify the first use case: one behavior that is contested or unclear today")
     if state["requirements_without_use_case"]:
         return step("MAP", state["requirements_without_use_case"][0],
-                    "no use case realizes %s" % ", ".join(state["requirements_without_use_case"]), what="add the missing use case to the diagram, or defer the requirement")
+                    "no use case realizes %s" % ", ".join(state["requirements_without_use_case"]), what="add the missing use case file and regenerate the overview, or defer the requirement")
     tested = [u for u in ucs if u["status"] in ("Tested", "Done")]
     if len(tested) >= 2 and not state["journey_test_cases"]:
         return step("JOURNEY", None, "%d use cases are Tested or Done and no journey test case chains them" % len(tested),
@@ -370,12 +400,16 @@ def decide(state):
 
 
 def print_text(state):
+    if "migration" in state:
+        nxt = state["migration"]
+        print("Next step: %s\n  by: %s\n  reason: %s" % (nxt["code"], nxt["skill"], nxt["why"]))
+        return
     guide = state["guideline"]
     print("Profile: %s%s" % (guide["profile"] or "not recorded", " (%s)" % guide["file"] if guide["file"] else " (no rules block found in AGENTS.md or CLAUDE.md)"))
     if guide["skipped"]:
         print("Skipped: %s" % ", ".join(guide["skipped"]))
     print("Artifacts")
-    for key, label in (("vision", "vision"), ("requirements", "requirements catalog"), ("entity_model", "entity model"), ("diagram", "use case diagram")):
+    for key, label in (("vision", "vision"), ("requirements", "requirements catalog"), ("entity_model", "entity model"), ("diagram", "use case overview")):
         item = state["artifacts"][key]
         note = item["path"] if item["present"] else "missing"
         if key == "vision" and item.get("placeholders"):
@@ -392,6 +426,10 @@ def print_text(state):
         print("Mismatches")
         for item in state["mismatches"]:
             print("  %s" % item)
+    if state.get("format_findings"):
+        print("Format findings")
+        for f in state["format_findings"]:
+            print("  %s:%d: %s: %s" % (f["path"], f["line"], f["code"], f["message"]))
     nxt = state["next"]
     print()
     print("Next step: %s%s" % (nxt["code"], " " + nxt["target"] if nxt["target"] else ""))

@@ -31,4 +31,4 @@ Code [n]/[total] · Tests [n]/[total] · Spec: `docs/use_cases/UC-XXX-<name>.md`
 
 ### Suggested status
 
-[`Implemented` | `Tested`] is justified because [evidence]. [What is missing for the next Status.] The Status line was not changed.
+[`Implemented` | `Tested`] is justified because [evidence]. [What is missing for the next Status.] The `status` field was not changed.

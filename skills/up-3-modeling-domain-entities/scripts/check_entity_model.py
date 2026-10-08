@@ -1,23 +1,11 @@
 #!/usr/bin/env python3
-"""Check an entity model: diagram and sections agree, cells use the vocabulary,
-lifecycles are consistent, and avoided words are not used in the specifications.
-
-ERROR  no erDiagram; an entity of the diagram has no section; a section appears
-       twice; a foreign key names an entity that does not exist.
-WARN   attributes inside the diagram; a heading that is not UPPER_SNAKE_CASE; a
-       missing description; wrong table columns; a data type or validation phrase
-       outside the vocabulary; an empty validation cell; a foreign key without a
-       relationship line; a state attribute without a lifecycle; a lifecycle
-       state that is not an allowed value; an avoided word used in a specification.
-INFO   a section that is not in the diagram; a relationship without a foreign key.
+"""Check an entity model: diagram and sections agree, attribute tables use
+business types, lifecycles are consistent, and avoided words are not used.
 
 Output: path:line: SEVERITY CODE [element]: message
-Exit code 0 when clean, 1 on any ERROR (with --strict also on any WARN), 2 on usage errors.
-
-Usage:
-    check_entity_model.py [--docs DIR] [--strict]      (default DIR: docs)
-
-Requires Python 3.9+, standard library only. Reads files as data; writes nothing.
+Exit code 0 when clean, 1 on ERROR (with --strict also on WARN), 2 on usage errors,
+5 for earlier formats. Python 3.9+, standard library only; reads only.
+Usage: check_entity_model.py [--docs DIR] [--strict]
 """
 import argparse
 import os
@@ -27,19 +15,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spec_model as model  # noqa: E402  (local module, same folder)
 
-COLUMNS = ["Attribute", "Description", "Data Type", "Length/Precision", "Validation Rules"]
-PHRASES = (r"Primary Key", r"Sequence", r"Not Null", r"Optional", r"Unique", r"Foreign Key \(([A-Z][A-Z0-9_]*)\.\w+\)",
-           r"Min: \S+", r"Max: \S+", r"Format: \w+")
+COLUMNS = ["Attribute", "Meaning", "Type", "Rules"]
 STATE_NAMES = ("status", "state")
-
-
-def split_rules(cell):
-    """Split a Validation Rules cell into phrases; 'Values:' takes the rest of the cell."""
-    head, values = cell, None
-    match = re.search(r"\bValues:\s*(.*)$", cell)
-    if match:
-        head, values = cell[:match.start()], [v.strip() for v in match.group(1).split(",") if v.strip()]
-    return [p.strip() for p in head.split(",") if p.strip()], values
 
 
 def lifecycle_states(text):
@@ -61,10 +38,8 @@ def check(docs, report):
     for name, line in sorted(em.diagram_entities.items()):
         if name not in em.entities:
             report.error(path, line, "ENTITY_NO_SECTION", name, "entity is in the diagram but has no '### %s' section" % name)
-    related = set()
-    for line, left, right, _ in em.relationships:
-        related.add(frozenset((left, right)))
-    foreign = set()
+    for finding_path, line, code, message in model.format_findings(docs, kinds=("entity_model",)):
+        report.error(finding_path, line, code, "-", message)
     for name, entity in em.entities.items():
         if name not in em.diagram_entities:
             report.info(path, entity.line, "SECTION_NOT_IN_DIAGRAM", name, "entity has a section but is not in the diagram; list it there, on a line of its own if it has no relationship")
@@ -72,35 +47,16 @@ def check(docs, report):
             report.warn(path, entity.line, "HEADING_FORM", name, "entity headings are UPPER_SNAKE_CASE")
         if not entity.description:
             report.warn(path, entity.line, "NO_DESCRIPTION", name, "one sentence saying what the entity is")
-        if entity.header and entity.header != COLUMNS:
-            report.warn(path, entity.line, "TABLE_COLUMNS", name, "table columns must be: %s" % " | ".join(COLUMNS))
         if not entity.attributes:
             report.warn(path, entity.line, "NO_ATTRIBUTES", name, "entity has no attribute table")
         state_values = None
         for line, row, _ in entity.attributes:
-            attribute = "%s.%s" % (name, row.get("Attribute", "?"))
-            data_type = row.get("Data Type", "")
-            if data_type and data_type not in model.DATA_TYPES:
-                report.warn(path, line, "DATA_TYPE", attribute, "'%s' is not a business type; use one of %s" % (data_type, ", ".join(model.DATA_TYPES)))
-            cell = row.get("Validation Rules", "")
-            if not cell or cell in ("-", "N/A"):
-                report.warn(path, line, "VALIDATION_EMPTY", attribute, "every attribute states at least Not Null, Optional or Primary Key")
-                continue
-            phrases, values = split_rules(cell)
-            for phrase in phrases:
-                if not any(re.fullmatch(p, phrase) for p in PHRASES):
-                    report.warn(path, line, "VALIDATION_PHRASE", attribute, "'%s' is not a phrase of the validation vocabulary" % phrase)
-                fk = re.fullmatch(PHRASES[5], phrase)
-                if fk:
-                    target = fk.group(1)
-                    if target not in em.entities:
-                        report.error(path, line, "REFERENCE_UNKNOWN", attribute, "foreign key names %s, which has no section" % target)
-                    else:
-                        foreign.add(frozenset((name, target)))
-                        if frozenset((name, target)) not in related and name != target:
-                            report.warn(path, line, "FK_NO_RELATIONSHIP", attribute, "no relationship line between %s and %s in the diagram" % (name, target))
-            if row.get("Attribute", "").lower() in STATE_NAMES and values:
-                state_values = (line, values)
+            data_type = row.get("Type", "")
+            reference = model.RE_REFERENCE.fullmatch(data_type.strip())
+            if reference and reference.group(1) not in em.entities:
+                report.error(path, line, "REFERENCE_UNKNOWN", "%s.%s" % (name, row.get("Attribute", "?")), "reference names %s, which has no section" % reference.group(1))
+            if row.get("Attribute", "").lower() in STATE_NAMES and data_type.startswith("Choice of "):
+                state_values = (line, [value.strip() for value in data_type[len("Choice of "):].split(",") if value.strip()])
         if state_values and not entity.lifecycle:
             report.warn(path, state_values[0], "LIFECYCLE_MISSING", name, "the entity has states %s but no **Lifecycle:** line saying which moves are allowed" % ", ".join(state_values[1]))
         if entity.lifecycle:
@@ -111,10 +67,6 @@ def check(docs, report):
                     report.warn(path, line, "LIFECYCLE_STATE", name, "lifecycle state '%s' is not one of the attribute's values" % state)
                 for value in sorted(set(state_values[1]) - states):
                     report.warn(path, line, "LIFECYCLE_STATE", name, "value '%s' appears in no lifecycle chain" % value)
-    for line, left, right, _ in em.relationships:
-        if frozenset((left, right)) not in foreign and left != right:
-            report.info(path, line, "RELATIONSHIP_NO_FK", "%s-%s" % (left, right), "relationship has no foreign key attribute on either side")
-
     # avoided words in the specifications
     avoided = [(word, name) for name, entity in em.entities.items() for word in entity.avoid]
     if avoided:
@@ -141,6 +93,9 @@ def main(argv):
         return 2
     docs = model.Docs(args.docs)
     report = model.Reporter(os.getcwd())
+    stop = model.stop_if_old(docs)
+    if stop is not None:
+        return stop
     if not docs.entity_model:
         print("no entity model in %s (expected entity_model.md)" % args.docs, file=sys.stderr)
         return 2

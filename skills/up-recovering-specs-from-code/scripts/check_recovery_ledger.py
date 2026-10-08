@@ -109,20 +109,17 @@ def check_evidence(report, path, line, element, cell, root):
 
 
 class Known:
-    """What citations may resolve to: specified use cases with their flows and rules, and the use cases of the diagram."""
+    """What citations may resolve to: use case files with their flows and rules."""
 
-    def __init__(self, specs, diagram_ids):
+    def __init__(self, specs):
         self.specs = {uc.id: uc for uc in specs if uc.id}
-        self.diagram_ids = set(diagram_ids)
 
     def problem(self, uc_id, part):
         uc = self.specs.get(uc_id)
         if uc is None:
-            if uc_id not in self.diagram_ids:
-                return "%s is neither in the diagram nor specified" % uc_id
-            if part:
-                return "%s has no specification yet, so %s %s cannot be cited" % (uc_id, uc_id, part)
-            return None
+            return "%s has no use case file" % uc_id
+        if uc.is_stub and part:
+            return "%s is a stub, so %s %s cannot be cited yet" % (uc_id, uc_id, part)
         if part and part.startswith("BR-") and part not in [r.id for r in uc.rules]:
             return "%s does not define %s" % (uc_id, part)
         if part and part.startswith("A") and part not in [f.label for f in uc.flows]:
@@ -227,8 +224,7 @@ def check(docs, ledger_path, root, report):
         report.error(ledger_path, 0, "LEDGER_EMPTY", "-", "no table with the columns Element | Evidence | State | Note")
         return None
     specs = model.load_use_cases(docs)
-    diagram = model.parse_diagram(docs.diagram) if docs.diagram else None
-    known = Known(specs, diagram.use_cases if diagram else {})
+    known = Known(specs)
     record_dir = os.path.dirname(ledger_path)
     suspects_path = os.path.join(record_dir, "suspects.md")
     suspect_ids, suspect_counts = (check_suspects(report, suspects_path, root) if os.path.isfile(suspects_path) else (None, (0, 0)))
@@ -276,15 +272,11 @@ def check(docs, ledger_path, root, report):
         match = ELEMENT.match(element)
         if match and match.group(2) and match.group(1) in spec_ids and element not in present:
             report.warn(ledger_path, line, "LEDGER_STALE", element, "the specification of %s has no such flow or rule" % match.group(1))
-    if diagram:
-        for uc_id, (name, _, line) in sorted(diagram.use_cases.items()):
-            if uc_id not in seen:
-                report.info(docs.diagram, line, "LEDGER_MISSING", uc_id, "'%s' has no ledger row naming its entry points" % name)
     if docs.entity_model:
         for name, entity in model.parse_entity_model(docs.entity_model).entities.items():
             if "ENTITY %s" % name not in seen:
                 report.info(docs.entity_model, entity.line, "LEDGER_MISSING", "ENTITY %s" % name, "entity has no ledger row naming where it was recovered from")
-            required = [row.get("Attribute", "?") for _, row, _ in entity.attributes if REQUIRED.search(row.get("Validation Rules", ""))]
+            required = [row.get("Attribute", "?") for _, row, _ in entity.attributes if row.get("Type", "") == "Identifier" or REQUIRED.search(row.get("Rules", ""))]
             if required and "ENTITY %s required" % name not in seen:
                 report.warn(docs.entity_model, entity.line, "LEDGER_MISSING", "ENTITY %s required" % name,
                             "%s marked identifier or required; add a row citing the schema line of each, which also shows its type (a guess here is the commonest recovery error)" % ", ".join(required))
@@ -318,7 +310,7 @@ def check(docs, ledger_path, root, report):
     statuses = {}
     for uc in specs:
         statuses[uc.status] = statuses.get(uc.status, 0) + 1
-    return {"map": len(diagram.use_cases) if diagram else 0, "specified": len(spec_ids), "statuses": statuses,
+    return {"map": len(spec_ids), "specified": len(spec_ids), "statuses": statuses,
             "rows": sum(states.values()), "states": states, "suspects": suspect_counts if suspect_ids is not None else None,
             "entries": entries, "open": open_entries, "backlog": backlog}
 
@@ -342,6 +334,10 @@ def main(argv):
     parser.add_argument("--strict", action="store_true", help="fail on warnings too")
     args = parser.parse_args(argv)
     args.docs = args.docs or model.docs_default()
+    docs_model = model.Docs(args.docs)
+    stop = model.stop_if_old(docs_model)
+    if stop:
+        return stop
     if not os.path.isdir(args.docs) or not os.path.isdir(args.root):
         print("no such folder: %s" % (args.docs if not os.path.isdir(args.docs) else args.root), file=sys.stderr)
         return 2

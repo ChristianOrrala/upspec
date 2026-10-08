@@ -54,13 +54,12 @@ Usage:
 it started from. --code and --tests default to the repository; test files are
 recognized by their names and folders (test_x, x_test, x.test, x.spec, XTest,
 tests/, __tests__/). --record defaults to the newest file in a change-records
-folder under docs that is named after the use case or names it in its Element
-line or its differences table (one change may cover several use cases).
+folder under docs that is named after the use case or names it in its element
+metadata or its differences table (one change may cover several use cases).
 
 Requires Python 3.9+, standard library only, and git for the scope audit. Reads only.
 """
 import argparse
-import glob
 import json
 import os
 import re
@@ -101,21 +100,17 @@ def test_file_exists(root, reference):
 
 
 def names_use_case(path, uc_id):
-    """True when the record's Element line or a row of its differences table names the use case."""
-    lines = model.read_lines(path)
-    if any(re.match(r"\**Element:?\**", line.strip()) and uc_id in line for line in lines):
+    """True when the record's element metadata or a row of its differences table names the use case."""
+    record = model.parse_change_record(path)
+    if uc_id in model.RE_UC_ID.findall(record.element):
         return True
-    return any(mine for _, _, _, mine in (record_rows_from(lines, uc_id) or []) if mine is True)
+    return any(mine for _, _, _, mine in (record_rows_from(model.read_lines(path), uc_id) or []) if mine is True)
 
 
 def record_use_cases(path):
-    """Every use case a change record names in its Element line or its differences table."""
-    lines = model.read_lines(path)
-    ids = set()
-    for line in lines:
-        if re.match(r"\**Element:?\**", line.strip()):
-            ids.update(model.RE_UC_ID.findall(line))
-    for cell, _, _, _ in record_rows_from(lines, "") or []:
+    """Every use case a change record names in its element metadata or differences table."""
+    ids = set(model.RE_UC_ID.findall(model.parse_change_record(path).element))
+    for cell, _, _, _ in record_rows_from(model.read_lines(path), "") or []:
         ids.update(model.RE_UC_ID.findall(cell))
     return ids
 
@@ -354,10 +349,10 @@ def element_exists(spec, part):
     return part.upper() in [f.label for f in spec.flows]
 
 
-def find_record(docs_dir, uc_id):
+def find_record(docs, uc_id):
     """The newest change record named after the use case or naming it; None when there is none."""
     found = []
-    for path in glob.glob(os.path.join(docs_dir, "**", "change-records", "*.md"), recursive=True):
+    for path in docs.change_record_files():
         name = os.path.basename(path)
         if name == uc_id + ".md" or name.startswith(uc_id + "-") or names_use_case(path, uc_id):
             found.append(path)
@@ -428,14 +423,14 @@ def tracking_warning(repo, base, rel, uc):
     code, before = model.git(["show", "%s:%s" % (base, rel)], cwd=repo)
     if code != 0:
         return None          # the specification is new since the base: its first Status is no move
-    match = re.search(r"(?m)^\*\*Status:\*\*\s*(\w+)", before)
-    if not match or match.group(1) == uc.status:
+    previous = model.parse_use_case_lines(before.split("\n"), rel).status
+    if not previous or previous == uc.status:
         return None
     code, out = model.git(["diff", "--name-only", base, "--", "ABILITIES.md", "ACTIVE.md"], cwd=repo)
     if code == 0 and out.strip():
         return None
     return ("%s moved from %s to %s and neither ABILITIES.md nor ACTIVE.md changed: update the ability whose Specs line "
-            "names it, and the current work, in the same commit" % (uc.id, match.group(1), uc.status))
+            "names it, and the current work, in the same commit" % (uc.id, previous, uc.status))
 
 
 def check(args):
@@ -448,7 +443,14 @@ def check(args):
     code, top = model.git(["rev-parse", "--show-toplevel"], cwd=os.path.dirname(os.path.abspath(path)))
     repo = top.strip() if code == 0 else None
     rel = os.path.relpath(os.path.realpath(path), os.path.realpath(repo)).replace(os.sep, "/") if repo else None
-    record = args.record or find_record(args.docs, uc.id)
+    record = args.record or find_record(docs, uc.id)
+    formats = []
+    if record:
+        record_docs = model.Docs(args.docs)
+        record_docs.change_record_files = lambda: [record]
+        formats = model.format_findings(record_docs, kinds=("record",))
+        problems += ["record format %s: %s" % (code, message) for _, _, code, message in formats]
+    result["formats"] = formats
     units, origin = units_in_change(uc, repo, rel, record)
     result.update({"use_case": uc.id, "units": units, "units_from": origin, "record": os.path.relpath(record) if record else None})
 
@@ -590,6 +592,8 @@ def check(args):
 
 
 def print_text(r, base):
+    for path, line, code, message in r.get("formats", []):
+        print("%s:%d: ERROR %s [-]: %s" % (path, line, code, message))
     print("%s  finish check against %s" % (r["use_case"], base))
     print("Units in the change (from %s): %s" % (r["units_from"], ", ".join(r["units"]) or "none"))
     scope = r["scope"]
@@ -654,14 +658,21 @@ def main(argv):
     if args.record and not os.path.isfile(args.record):
         print("no such file: %s" % args.record, file=sys.stderr)
         return 2
+    docs = model.Docs(args.docs)
+    if args.record:
+        records = docs.change_record_files()
+        docs.change_record_files = lambda: sorted(set(records + [args.record]))
+    stop = model.stop_if_old(docs)
+    if stop is not None:
+        return stop
     try:
         result = check(args)
     except SystemExit as exc:
         print(str(exc), file=sys.stderr)
         return 2
     except (OSError, UnicodeDecodeError) as exc:
-        print("cannot read: %s" % exc, file=sys.stderr)
-        return 2
+        print("%s:0: ERROR UNREADABLE: cannot read: %s" % (args.record or args.docs, exc), file=sys.stderr)
+        return 1
     if args.format == "json":
         print(json.dumps(result, indent=2, ensure_ascii=False))
     else:

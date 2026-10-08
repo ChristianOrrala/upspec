@@ -26,7 +26,7 @@ Shared paths, identifiers, Status values and markers: [references/conventions.md
 
 ## The gate
 
-Read the `**Status:**` line first.
+Read `status` in the front matter first.
 
 | Status | Do |
 |---|---|
@@ -34,7 +34,7 @@ Read the `**Status:**` line first.
 | `Draft`, `Reviewed` | Stop. Say the use case is not approved. Ask whether to review it first (`up-6-reviewing-specifications`) or go ahead anyway. Proceed only on an explicit yes |
 | `Obsolete` | Do not implement |
 
-Never change the Status line to get through the gate. `Approved` is a human's
+Never change the `status` field to get through the gate. `Approved` is a human's
 decision.
 
 The gate has a second half when the system already has the behavior being
@@ -61,14 +61,14 @@ rest of its list is the checklist of the change.
 | Input | Rule |
 |---|---|
 | `docs/use_cases/UC-XXX-*.md` | The contract. Required |
-| `docs/requirements.md` | Only the rows named on the use case's Requirements line. Every linked `NFR` and `C` is a limit your code must honor |
+| `docs/requirements.md` | Only the rows named on the use case's `requirements` list. Every linked `NFR` and `C` is a limit your code must honor |
 | `docs/entity_model.md` | The shape of every noun the use case uses. Required |
 | Guideline file (`CLAUDE.md`, `AGENTS.md`) | How this project is built |
 | `docs/decisions/` if present | Technical choices already made |
 | Existing code and tests of this use case | Search for its id, plain and compact (`UC-012`, `UC012`), and for its nouns |
 | Two or three existing features | The project's conventions: follow them, do not import your own |
 
-A missing or unresolvable Requirements line is reported and handed to
+A missing or unresolvable `requirements` list is reported and handed to
 `up-6-reviewing-specifications`. Do not guess which requirements apply. Do not read
 the whole catalog to find some.
 

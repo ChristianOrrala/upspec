@@ -1,6 +1,6 @@
 # upspec: User Manual
 
-Version 0.2.1
+Version 1.0.0
 
 This manual explains how to install the `upspec` skills, how the work
 they support is organized, and how to carry a piece of work from an idea, a
@@ -31,7 +31,7 @@ agent: a solo developer, a product owner, a lead or a reviewer.
 
 ## 1. What this package is
 
-`upspec` is a set of fourteen agent skills for specification-first
+`upspec` is a set of fifteen agent skills for specification-first
 development with use cases. The specification is the source of truth: behavior
 is written down, reviewed and approved before code is generated or changed,
 and code and tests are then checked against it.
@@ -226,12 +226,26 @@ you could observe is a question for you; a free detail is declared as free.
 
 ## 5. The project's files
 
+```text
+docs/
+├── vision.md
+├── requirements.md
+├── entity_model.md
+├── use_cases.md
+├── use_cases/UC-XXX-name.md
+├── processes/name.bpmn
+├── test_cases/TC-XXX-name.md
+├── change-records/UC-XXX-name.md
+├── reviews/
+└── recovery/
+```
+
 | Path | Content | Written by |
 |---|---|---|
 | `docs/vision.md` | Purpose, users, goals, scope in and out | A person |
 | `docs/requirements.md` | Functional (`FR`), non-functional (`NFR`) and constraint (`C`) rows | `up-2` |
 | `docs/entity_model.md` | Entities, relationships, attributes, lifecycles; the project's vocabulary | `up-3` |
-| `docs/use_cases.puml` | Overview of actors and use cases | `up-4` |
+| `docs/use_cases.md` | Scope, delivery order and the generated actor-goal table and Mermaid overview | `up-4` |
 | `docs/use_cases/UC-XXX-<name>.md` | One use case specification per file | `up-5` |
 | `docs/processes/<name>.bpmn` | Optional business process models | A person |
 | `docs/test_cases/TC-XXX-<name>.md` | One end-to-end journey per file | `up-writing-journey-test-cases` |
@@ -241,8 +255,8 @@ you could observe is a question for you; a free detail is declared as free.
 | `CLAUDE.md` or `AGENTS.md` | Guideline file with the rules block and the profile | `up-1` |
 
 **Language.** Specifications and records are written in the project's own
-language. Section headings, field labels (`**Status:**`, `**Trigger:**`),
-Status values and flow endings (`Use case ends.`) stay as the template has
+language. Front matter keys, section headings, table columns, Gherkin
+keywords, flow labels (`**Trigger:**`), Status values and flow endings (`Use case ends.`) stay as the template has
 them, because the scripts read them.
 
 **People.** Specifications and records name roles (the administrator, a
@@ -253,7 +267,7 @@ records the folder in the rules block as `**Specs folder:** DIR` (setup writes
 it with `--specs-folder DIR`; a nested folder such as `documentation/specs`
 works). Every script reads it, and `--docs DIR` overrides it for one run.
 
-### With the A-files
+### 5.1 With the A-files
 
 When the project also tracks its work in the A-files, the two join by files,
 and neither moves the other's:
@@ -280,10 +294,71 @@ A tracking file kept at adoption (the board, say) becomes the A-file's home:
 the A-file names it with `**Home:**`, and the router then guesses nothing from
 it. Without the A-files the skills behave as before.
 
+### 5.2 The formats
+
+Front matter starts at the first line between `---` delimiters. The supported
+subset is top-level `key: value`, inline lists, quoted strings and comments.
+No nesting, anchors or multiline values; `FRONT_MATTER` reports violations.
+
+| Artifact | Required keys | Optional keys |
+|---|---|---|
+| Use case | `id`, `name`, `primary_actor`, `goal`, `trigger`, `status`, `requirements` | `secondary_actors` |
+| Overview | `system` | — |
+| Journey | `id`, `goal`, `priority`, `status`, `use_cases` | `process` |
+| Change record | `outcome`, `element`; `decided_by` for outcomes 2, 4, 5, 6 | `decided_by` for other outcomes |
+
+A mapped use case starts as a stub: required front matter, `status: Draft`,
+and `Not written yet.` as the body. Past Draft a stub reports `STUB`.
+People write Scope and Delivery order in `docs/use_cases.md`. After adding a
+use case or changing its id, name, actors or goal, run `scripts/use_case_map.py`.
+Never edit between the generated markers. Status changes need no regeneration.
+The actor-goal table and Mermaid use case diagram are generated (Mermaid
+12.0.0 or later draws it); `STALE_OVERVIEW` means regenerate them. Business processes remain BPMN 2.0.
+
+Requirements tables:
+
+- Functional: `ID | Role | Need | Priority | Status`. Need is a short verb
+  phrase of what the role must be able to do.
+- Non-functional: `ID | Title | Statement | Category | Verification | Priority | Status`.
+- Constraints: `ID | Title | Statement | Category | Source | Priority | Status`.
+
+Each Statement follows an EARS pattern: `The <system> shall …`,
+`When <trigger>, the <system> shall …`, `While <state>, …`,
+`If <condition>, then the <system> shall …`, or `Where <feature is present>, …`.
+NFRs keep a numeric threshold, unit and condition. `NEED_FORM` reports a
+missing Role or Need, or a statement outside those patterns.
+
+Entity attributes use `Attribute | Meaning | Type | Rules`. Types are Text,
+Number, Money, Date, Date and time, Yes/No, Identifier, Choice of …, and
+Reference to ENTITY. No storage lengths, keys or sequences. The Mermaid
+`erDiagram` owns relationships; `REFERENCE_NO_RELATIONSHIP` reports a
+reference without one, and `ENTITY_TYPE` an unknown type.
+
+Each business rule has a `### BR-001: Name` heading, a sentence and an Examples
+table, with a blank line before the Examples table. Input columns precede
+`result`, the last column. Keep at least two rows for every active rule.
+Fill every cell and include a row on each side of every stated boundary.
+Otherwise the check reports `EXAMPLES_FORM`.
+
+A journey has exactly one fenced `gherkin` block and one named Scenario.
+Steps use Given, When, Then, And or But, with literal test data in quotes.
+Each use case listed in `use_cases` is named by a comment on its own line,
+`# UC-001` or `# UC-001 Name`, immediately above its first step. Every such
+comment names a listed use case. Closing Then steps verify the end state;
+`GHERKIN_FORM` reports violations. Roles, Preconditions and Postconditions
+remain in the body. `process`, when present, is the relative BPMN path.
+
+Change records have outcomes 1 through 7 or `migration`, and four required
+sections: Context (report and sign-off test), Decision (owner's decisions
+table with each decision's element), Specification change, Consequences
+(differences from today and impact). Sources of new behavior, Assumptions,
+Reproduction and Urgent path appear only when applicable. `RECORD_FORM`
+reports an unknown outcome or missing required section.
+
 ## 6. The skills
 
 Every skill name starts with `up-`. The number is the skill's place in the
-chain; the four without a number are side entries.
+chain; the five without a number are side entries.
 
 | Skill | Use it to | It produces |
 |---|---|---|
@@ -291,7 +366,7 @@ chain; the four without a number are side entries.
 | `up-1-bootstrapping-spec-driven-projects` | Set a repository up: profile, docs tree, rules block, team instruments | The docs tree, a vision skeleton, the rules block; for teams, ownership, a pull request template and a pipeline job |
 | `up-2-cataloging-requirements` | Turn a vision, notes or an interview into requirements | `docs/requirements.md` and a conflict ledger |
 | `up-3-modeling-domain-entities` | Build or change the entity model and its vocabulary | `docs/entity_model.md` |
-| `up-4-mapping-use-cases` | Decide which use cases exist, at the right level, in what order | `docs/use_cases.puml` and a delivery order |
+| `up-4-mapping-use-cases` | Decide which use cases exist, at the right level, in what order | `docs/use_cases.md` and a delivery order |
 | `up-5-writing-use-case-specs` | Write or revise one use case | `docs/use_cases/UC-XXX-<name>.md` |
 | `up-6-reviewing-specifications` | Review a use case or the whole set, without editing it | A review report with a verdict; a traceability matrix on request |
 | `up-7-implementing-use-cases` | Implement or synchronize one approved use case | Code with markers, a plan, an invention list, the finish check's report |
@@ -301,6 +376,7 @@ chain; the four without a number are side entries.
 | `up-recovering-specs-from-code` | Bring an existing system under specifications | Use cases, entities, specifications, an evidence ledger, suspects, a baseline review plan |
 | `up-splitting-bounded-contexts` | Split a specification set that has outgrown review | Proposed contexts, assignments and contracts; the move, on approval |
 | `up-writing-journey-test-cases` | Write an end-to-end journey across use cases | `docs/test_cases/TC-XXX-<name>.md` |
+| `up-migrating-spec-formats` | Move earlier specification formats to the current ones | A mechanical plan and judgment items; on approval, converted specifications in two commits |
 
 You rarely need to name a skill. Describe the work ("write the use case for
 resetting a forgotten password", "is UC-004 fully tested?") and the matching
@@ -315,7 +391,8 @@ coding agent with the skills.
 
 1. **Set up.** Ask the agent to set the repository up. Choose a profile
    ([section 10](#10-rigor-profiles-throwaway-solo-team)), read the dry run,
-   and say yes.
+   and say yes. The overview's `system` starts with the repository folder's
+   name, quoted when needed; edit it later to the system's actual name.
 2. **Write the vision.** `docs/vision.md` is yours. It must name the actors by
    role, the core nouns with their meaning, and the boundaries (in scope, out
    of scope, neighboring systems). The agent can interview you and write down
@@ -331,7 +408,7 @@ coding agent with the skills.
 7. **Review.** "Review UC-001." The reviewer works from the files alone and
    reports a verdict.
 8. **Approve.** Read the specification and the review, then set
-   `**Status:** Approved` yourself.
+   `status: Approved` in the front matter yourself.
 9. **Implement and test.** "Implement UC-001 with its tests." See 7.4.
 10. **Audit.** "Is UC-001 fully tested?" The audit suggests whether Tested is
     justified. The report lists the recovery change log entries in change on the use case; a report without gaps is what closes them.
@@ -451,24 +528,72 @@ Every requirement, entity and use case goes to exactly one context; shared data
 becomes an explicit contract. Files move only after you approve, with their
 identifiers and history kept.
 
+### 7.9 Moving a project to the current formats
+
+When a check reports `OLD_FORMAT` (exit 5), normal work stops. The router's
+single next step is `MIGRATE` → `up-migrating-spec-formats`.
+
+The migration first inventories old files and shows a mechanical dry run.
+A separate judgment pass lists choices and inventions for you to decide.
+After your approval it commits the mechanical conversion, then the judgment
+changes, replaces installed checks in `tools/specs/`, regenerates the overview
+and verifies the formats. Identifiers and Status stay unchanged; Approved use
+cases keep their approval. The change record uses `outcome: migration`.
+
+Run the migration skill's `scripts/migrate_formats.py plan|apply|verify --docs DIR`.
+Plan is read-only and runs without git, with a warning that apply needs it.
+Apply needs a clean git work tree; verify also requires git. Missing git or a
+folder outside a git work tree reports `GIT_UNAVAILABLE` with exit 3. Apply
+records every planned text and fingerprint before writing, in
+`upspec-migration.json` in the git
+directory (also in linked worktrees). After interruption, rerun apply with the
+same HEAD and docs folder. Resume recognizes completed writes and refuses
+files changed by a person or unrelated uncommitted work. Keep the journal
+until apply completes.
+
+An uncertain conversion leaves the entire file and its filename unchanged and
+lists the reason under judgment. Dependent overviews and stubs wait for that
+document. A diagram with unmapped lines stays intact; its judgment items name
+each line, while the overview can still be generated from supported content.
+Writes are limited to the rules block's recorded Specs folder (otherwise
+`docs/`) and `tools/specs/`. An unauthorized `--docs` is refused with exit 2
+before reading specification contents or creating a journal. Resume checks
+every target and rename source against the same boundary and refuses conflicts.
+Apply rechecks their fingerprints immediately before each mutation, keeping
+the journal and any owner edit when a conflict stops it. Journey Process lines
+and change-record Next instructions carry over verbatim; requirement titles
+and benefits remain as context for owner judgment.
+
+Released installed checks are refreshed automatically; checks changed by hand
+are listed for review and manual replacement from the skill. Verification
+checks all formats and the generated overview. Other lint findings are listed
+for you without changing the verification result; a lint that cannot run makes
+verification fail. Exit codes are 0 for done/nothing to do, 1 for verification
+or read errors, 2 for usage, and 3 for git or resume conflicts. The environment
+variables `UPSPEC_MIGRATE_STOP_AFTER` and `UPSPEC_MIGRATE_CRASH_AFTER_WRITE`
+exercise interruptions in tests; leave them unset during ordinary migration.
+
 ## 8. The change record
 
 A change record is the agreement behind one change. Triage writes it; the
 specification writer, the reviewer, the implementer and the finish check all
 read it.
 
-| Section | What it holds |
+Front matter holds `outcome` (1–7 or `migration`), `element`, and
+`decided_by` (required for outcomes 2, 4, 5 and 6). The record is found by path;
+it has no identifier.
+
+| Required section | What it holds |
 |---|---|
-| Report and Element | Who reported what, and the use case element it concerns |
-| Classification | The outcome, the sign-off test and who decided |
-| Owner's decisions | Each decision you made, and the specification element it lives in |
-| Sources of new behavior | Each new flow or rule and what it rests on: the request, a decision, today's behavior or an assumption |
-| Assumptions | What the agent assumed for you to confirm, and where |
+| Context | The report or recovery change log entry, and the sign-off test |
+| Decision | The chosen outcome and your decisions table, with the specification element carrying each decision |
 | Specification change | What changes in which element, and the Status reset |
-| Differences from today | `Element \| Today \| After the change \| Requested by \| Seen in` |
-| Impact | What else is affected, upward, sideways and downward |
-| Reproduction, Urgent path | For defects and hotfixes |
-| Next | The steps that follow |
+| Consequences | Differences from today (`Element \| Today \| After the change \| Requested by \| Seen in`) and upward, sideways and downward impact |
+
+Sources of new behavior, Assumptions, Reproduction and Urgent path appear only
+when applicable. A new flow or rule needs its source; an assumption names its
+element. Defects get a reproduction and hotfixes an urgent-path account.
+Pinning and other next steps belong with Consequences.
 
 **Seen in** says how today's behavior is known: `code` (read from the code, so
 it must be pinned by a test before it changes), `test <name>` (pinned by that
@@ -495,18 +620,40 @@ the team profile, setup copies the lint, the validator and the guard into
 
 Output follows one format: `path:line: SEVERITY CODE [element]: message`,
 with `ERROR`, `WARN` or `INFO`. Exit code 0 means clean, 1 a problem (with
-`--strict`, warnings too), 2 a usage error.
+`--strict`, warnings too), 2 a usage error, 5 `OLD_FORMAT`.
+
+### Format codes
+
+| Code | Meaning |
+|---|---|
+| `OLD_FORMAT` | Earlier formats detected; stop with exit 5 and use `up-migrating-spec-formats` |
+| `FRONT_MATTER` | Missing or malformed front matter, unsupported YAML or a missing required key |
+| `STALE_OVERVIEW` | The generated overview differs from the use case files; regenerate it |
+| `STUB` | A stub whose `status` is past Draft |
+| `EXAMPLES_FORM` | A rule needs a filled Examples table: a blank line before the Examples table, input columns then final `result`, and rows on both sides of each boundary |
+| `GHERKIN_FORM` | A journey needs one gherkin block, one named Scenario, allowed steps and comments matching its `use_cases` list |
+| `ENTITY_TYPE` | An attribute type is outside the closed business list |
+| `REFERENCE_NO_RELATIONSHIP` | A Reference to ENTITY lacks a relationship in the diagram |
+| `NEED_FORM` | A functional row lacks Role or Need, or a Statement follows no EARS pattern |
+| `RECORD_FORM` | A change record lacks a required section or has an unknown outcome |
+| `UNREADABLE` | A file cannot be read |
+
+Retired codes: `NO_START_END`, `NO_SYSTEM`, `LABEL_FORM`, `ACTOR_UNCONNECTED`,
+`USE_CASE_UNCONNECTED`, `SPEC_NOT_IN_DIAGRAM`, `NAME_MISMATCH`, `SPEC_PENDING`,
+`FK_NO_RELATIONSHIP`, `STORY_FORM`. The overview is generated from existing
+files; references use business types, and functional rows use Role and Need.
 
 ### Specification checks
 
 | Script (skill) | What it checks | Example |
 |---|---|---|
 | `validate_use_case.py` (`up-5`, `up-6`) | One specification's structure and closed loop: every flow ends, every ending is covered | `validate_use_case.py --strict docs/use_cases/UC-001-book-repair.md` |
-| `spec_lint.py` (`up-6`, `up-1`) | The whole set across files: dangling or duplicate identifiers, unrealized requirements, diagram and file mismatches, copied rules, mechanism and weak words; the traceability matrix | `spec_lint.py --strict`, `spec_lint.py --trace` |
+| `spec_lint.py` (`up-6`, `up-1`) | The whole set across files: dangling or duplicate identifiers, unrealized requirements, front matter errors and stale overview content, copied rules, mechanism and weak words; the traceability matrix | `spec_lint.py --strict`, `spec_lint.py --trace` |
 | `unrecorded_changes.py` (`up-6`, `up-7`) | Flows and rules the specification changed since the change began that the change record does not name | `unrecorded_changes.py UC-012` |
 | `check_requirements.py` (`up-2`) | The catalog row by row | `check_requirements.py --strict` |
 | `check_entity_model.py` (`up-3`) | Diagram and sections agree; the vocabulary is used | `check_entity_model.py` |
-| `check_use_case_map.py` (`up-4`) | The diagram against its conventions, the specifications and the catalog | `check_use_case_map.py` |
+| `use_case_map.py` (`up-4`) | Generate the actor-goal table and Mermaid diagram inside the overview markers; preserve the surrounding text | `use_case_map.py --docs DIR` (`--check` checks freshness) |
+| `check_use_case_map.py` (`up-4`) | Use case front matter, stubs, overview freshness and catalog coverage | `check_use_case_map.py` |
 | `check_test_case.py` (`up-writing-journey-test-cases`) | Journey test case documents | `check_test_case.py docs/test_cases/TC-001-*.md` |
 | `bpmn_paths.py` (`up-writing-journey-test-cases`) | The start-to-end paths of a BPMN process | `bpmn_paths.py docs/processes/repair.bpmn` |
 
@@ -602,6 +749,21 @@ Hooks are earlier feedback, not a gate: they run only in sessions of the tool
 that has them. The commit hook and the team's pipeline still hold for
 everyone.
 
+The overview is generated from the use case files' front matter. Rerun
+`use_case_map.py --docs DIR` after changing an identifier, name, actor or goal.
+Status stays in the use case file and dashboard. The lint reports
+`STALE_OVERVIEW` when the generated block differs. A Draft stub whose body is
+`Not written yet.` routes to `WRITE`; a stub past Draft reports `STUB`. When
+format findings exist, the router reports `FIX_FORMAT` naming the files and
+codes, and the skill that writes the artifact, before any Status-based step.
+
+Use case checks stop with exit 5 and `OLD_FORMAT` on earlier specification
+formats. The router instead reports `MIGRATE` with `up-migrating-spec-formats`.
+Every agent hook mode shows one migration notice with result 1 (warn).
+Setup creates `use_cases.md`; `--skip overview` skips it, and `--skip diagram`
+is accepted as an alias with a note. Installed checks and hooks include the
+overview generator beside the model.
+
 ## 10. Rigor profiles: throwaway, solo, team
 
 Setup asks one question: will this system be maintained, extended or handed
@@ -684,6 +846,7 @@ whether workspace hooks run.
 
 | Symptom | What to do |
 |---|---|
+| A script says `OLD_FORMAT` | Stop normal work and run `up-migrating-spec-formats`; see 7.9. Old formats are recognized, not accepted by the checks |
 | A skill does not start for your request | Name it (`up-7-implementing-use-cases UC-004`), or ask the router where you are |
 | Two skills answer the same request | Another skill set for the same steps is installed; keep one set |
 | The agent searches the disk for a script | The script is in the skill's own folder; every skill says so. Point it there |
@@ -699,15 +862,15 @@ whether workspace hooks run.
 
 ## 14. Known limits
 
-- **Early release.** Version 0.2.1. Tested on three small real projects, all
+- **Early release.** Version 1.0.0. Tested on three small real projects, all
   in Python, with a stand-in owner, plus fixture projects.
 - **Other stacks.** The skills carry no framework code, but only Python
   projects have run them end to end; the TypeScript fixture is read as text.
 - **Size.** The largest real project tried had about twenty use cases. How
   the skills behave on hundreds is not known.
-- **Renderers and hosts.** PlantUML and Mermaid output was checked by parsers,
-  not rendered. The pipeline template was checked as YAML, not run on a
-  hosted runner.
+- **Renderers and hosts.** The overview's use case diagram needs Mermaid
+  12.0.0 or later (keyword `usecase-beta`); GitHub draws it, and an older
+  renderer shows a syntax error in its place while the table stays readable. The pipeline template was checked as YAML, not run on a hosted runner.
 - **Pinning on weaker models.** On Gemini, pinning today's behavior first for a
   row the change alters can be skipped in ways the finish check cannot see.
   The new test and its guard check still protect the changed behavior.
@@ -734,7 +897,7 @@ whether workspace hooks run.
 | Baseline review | The review of recovered specifications, in two roles: what the system does and what it was meant to do |
 | Bounded context | A part of a large system that owns its own requirements, entities and use cases |
 | Business rule | A named decision of a use case (`BR-001`), with boundary examples |
-| Change record | The agreement behind one change: classification, decisions, sources, assumptions, differences from today |
+| Change record | The agreement behind one change: front matter, Context, Decision, Specification change and Consequences |
 | Coverage unit | Something a test must cover: the main scenario, a flow, a rule boundary, a postcondition, a failure guarantee |
 | Evidence ledger | Recovery's record of where each recovered claim comes from, with its verification state |
 | Finish check | The implementer's gate before reporting a change |

@@ -9,7 +9,7 @@ the tests against what was approved. The skills cover the whole path: vision,
 requirements, entity model, use cases, review, implementation, tests, change
 and coverage. They also bring an existing codebase under specifications.
 
-**Version 0.2.1.** Fourteen skills. Their scripts are tested against fixture
+**Version 1.0.0.** Fifteen skills. Their scripts are tested against fixture
 projects, and each skill is evaluated against sessions without it.
 
 ## Install
@@ -83,7 +83,7 @@ Type `up-` to list them all. The number is the skill's place in the chain.
 | `up-8-deriving-use-case-tests` | Derives tests from the specification and proves they guard its rules |
 | `up-9-auditing-spec-coverage` | Shows coverage from requirement to test; reports only |
 
-Four side entries, without a number:
+Five side entries, without a number:
 
 | Skill | What it does |
 |---|---|
@@ -91,6 +91,7 @@ Four side entries, without a number:
 | `up-triaging-change-requests` | Turns a bug, a change or a hotfix into a change that starts at the specification |
 | `up-recovering-specs-from-code` | Recovers the specifications of an existing system |
 | `up-splitting-bounded-contexts` | Splits a specification set that has grown too large for one review |
+| `up-migrating-spec-formats` | Moves earlier specification formats to the current ones after your approval |
 
 ## How they fit together
 
@@ -106,6 +107,7 @@ bootstrapping ─► vision (a person) ─► requirements ─► entities ─�
 Triage turns every later request into a change that starts at the specification.
 Recovery brings an existing system to the same starting point.
 Splitting cuts a set that has outgrown review.
+Migration moves a project from the earlier formats.
 The router tells you where you are in this picture.
 ```
 

@@ -72,6 +72,10 @@ def main(argv):
     parser.add_argument("--junit", help="test report in JUnit XML")
     args = parser.parse_args(argv)
     args.docs = args.docs or model.docs_default()
+    docs_model = model.Docs(args.docs)
+    stop = model.stop_if_old(docs_model)
+    if stop:
+        return stop
     for folder in (args.docs, args.code, args.tests):
         if folder and not os.path.isdir(folder):
             print("no such folder: %s" % folder, file=sys.stderr)
@@ -87,13 +91,12 @@ def main(argv):
     try:
         requirements = model.parse_requirements(docs.requirements)[0] if docs.requirements else []
         use_cases = [u for u in model.load_use_cases(docs) if u.id and u.status != "Obsolete"]
-        diagram = model.parse_diagram(docs.diagram) if docs.diagram else None
         journeys = [model.parse_test_case(p) for p in docs.test_case_files()]
     except (OSError, UnicodeDecodeError) as exc:
         print("cannot read the specifications: %s" % exc, file=sys.stderr)
         return 2
     by_id = {u.id: u for u in use_cases}
-    pending = sorted(i for i in (diagram.use_cases if diagram else {}) if i not in by_id)
+    pending = sorted(u.id for u in use_cases if u.is_stub)
 
     rows = []
     full_tests = some_tests = 0
@@ -139,7 +142,7 @@ def main(argv):
     frs = [r for r in requirements if r.kind == "FR" and r.status not in model.REQ_SCOPE]
     fr_complete = sum(1 for r in frs if linking.get(r.id) and all(model.STATUS_RANK.get(u.status, -1) >= TESTED for u in linking[r.id]))
     fr_none = sum(1 for r in frs if not linking.get(r.id))
-    uc_total = len(use_cases) + len(pending)
+    uc_total = len(use_cases)
     uc_complete = sum(1 for u in use_cases if model.STATUS_RANK.get(u.status, -1) >= TESTED)
 
     print("# Spec Dashboard")
@@ -151,7 +154,7 @@ def main(argv):
     print("| Category | Total | Complete | In progress | Not started | Coverage |")
     print("|---|---|---|---|---|---|")
     print("| Functional requirements | %d | %d | %d | %d | %s |" % (len(frs), fr_complete, len(frs) - fr_complete - fr_none, fr_none, percent(fr_complete, len(frs))))
-    print("| Use cases | %d | %d | %d | %d | %s |" % (uc_total, uc_complete, len(use_cases) - uc_complete, len(pending), percent(uc_complete, uc_total)))
+    print("| Use cases | %d | %d | %d | %d | %s |" % (uc_total, uc_complete, len(use_cases) - uc_complete - len(pending), len(pending), percent(uc_complete, uc_total)))
     if args.tests:
         print("| Use cases with full test coverage | %d | %d | %d | %d | %s |" % (uc_total, full_tests, some_tests, uc_total - full_tests - some_tests, percent(full_tests, uc_total)))
     else:
@@ -168,13 +171,11 @@ def main(argv):
     print("|---|---|---|---|---|---|---|---|---|")
     for row in rows:
         print("| " + " | ".join(row) + " |")
-    for uc_id in pending:
-        print("| %s | %s | — | not specified | no | no | no | — | Weak |" % (uc_id, diagram.use_cases[uc_id][0]))
     print()
     print("## How the cells are computed")
     print()
     print("- Requirement complete: every use case that links it is Tested or Done. Not started: no use case links it. Deferred and Rejected requirements are left out.")
-    print("- Use case complete: Status Tested or Done. Not started: in the diagram without a specification.")
+    print("- Use case complete: Status Tested or Done. Not started: a Draft stub awaiting its specification.")
     print("- Code: a file outside docs and tests carries the use case id.")
     print("- Unit: yes when the main scenario, every alternative flow and every business rule is named by a test in a file that carries the use case id; partial when some are.")
     print("- E2E: yes when a journey test case with Status Automated includes the use case; planned when a journey includes it but is not automated yet.")

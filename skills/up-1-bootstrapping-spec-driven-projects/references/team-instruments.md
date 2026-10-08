@@ -102,7 +102,7 @@ useful and it is judgment, so:
 
 - it comments, it never blocks;
 - it runs in a fresh context that did not write the change;
-- it never approves, and never edits a Status line.
+- it never approves, and never edits a `status` field.
 
 Only the exact checks block. A pipeline that fails on an opinion teaches the
 team to argue with the pipeline.

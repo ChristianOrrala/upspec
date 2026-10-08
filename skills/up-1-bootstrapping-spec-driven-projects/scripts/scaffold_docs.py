@@ -37,7 +37,7 @@ Exit code 0, 2 on usage errors.
 
 Usage:
     scaffold_docs.py [--root DIR] [--profile solo|team] [--host github|gitlab|none]
-                     [--guideline FILE] [--specs-folder DIR] [--skip requirements|diagram|entity-model ...] [--hooks] [--apply]
+                     [--guideline FILE] [--specs-folder DIR] [--skip requirements|overview|entity-model ...] [--hooks] [--apply]
 
 The rules block goes into AGENTS.md when it stands alone or is imported by
 CLAUDE.md, otherwise into an existing CLAUDE.md; --guideline names another file.
@@ -67,14 +67,14 @@ import spec_model  # noqa: E402  (local module, same folder)
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES = os.path.join(os.path.dirname(HERE), "templates")
 RULES_HEADING = "## Working from specifications"
-CHECK_SCRIPTS = ("spec_model.py", "validate_use_case.py", "spec_lint.py", "spec_first_guard.py")
+CHECK_SCRIPTS = ("spec_model.py", "validate_use_case.py", "spec_lint.py", "use_case_map.py", "spec_first_guard.py")
 # The gate of the agent hooks and every script it calls; copied together so that the gate runs from the project.
 HOOK_SCRIPTS = ("hook_gate.py", "workflow_state.py", "validate_use_case.py", "finish_change.py", "scope_audit.py",
-                "uc_change_list.py", "unrecorded_changes.py", "spec_model.py")
+                "uc_change_list.py", "unrecorded_changes.py", "spec_model.py", "use_case_map.py")
 VISION_SECTIONS = ("Mission", "Target Users", "Goals", "Core Terms", "In Scope", "Out of Scope", "Neighboring Systems",
                    "Constraints", "Success Measures")
 # What a solo project may leave out, and the words recorded for it in the rules block.
-SKIPPABLE = {"requirements": "requirements catalog", "diagram": "use case diagram", "entity-model": "entity model"}
+SKIPPABLE = {"requirements": "requirements catalog", "overview": "use case overview", "diagram": "use case overview", "entity-model": "entity model"}
 PLACEHOLDER = re.compile(r"\[[^\]\n]+\](?!\()")       # [text] that is not a Markdown link
 # Files that already say what a product is for and who uses it, in the order they are looked for.
 PRODUCT_DOCS = ("PRODUCT.md", "VISION.md", "PRD.md", "docs/PRODUCT.md", "docs/product.md", "docs/prd.md",
@@ -222,7 +222,7 @@ def join_atlas(text, row):
 def atlas_row(root, folder, checks_copied):
     """The map row for the specifications; paths in backticks only for what exists once the plan is applied."""
     works = ["`%s/vision.md`" % folder, "`%s/use_cases/`" % folder, "`%s/test_cases/`" % folder]
-    for name in ("requirements.md", "entity_model.md", "use_cases.puml"):
+    for name in ("requirements.md", "entity_model.md", "use_cases.md"):
         if os.path.isfile(os.path.join(root, folder, name)):
             works.append("`%s/%s`" % (folder, name))
     checked = "`tools/specs/`" if checks_copied else "the validator and the lint of the specification skills"
@@ -256,6 +256,16 @@ def other_specs(root, folder):
     return found + [(rel, "use cases in this method's format") for rel in ours]
 
 
+def overview_system(root):
+    """Represent the folder name in the model's front-matter subset, losslessly."""
+    name = os.path.basename(os.path.abspath(root))
+    for candidate in (name, '"' + name + '"', "'" + name + "'"):
+        meta, _, problems = spec_model.read_front_matter(('---\nsystem: ' + candidate + '\n---').splitlines())
+        if not problems and meta.get('system', (None, 0))[0] == name and name:
+            return candidate
+    raise ValueError('repository folder name cannot be represented in the front matter subset')
+
+
 def plan(root, profile, host, guideline, skipped=(), hooks=False, folder="docs"):
     """Return a list of (action, relative path, source or text, note)."""
     steps = []
@@ -272,6 +282,8 @@ def plan(root, profile, host, guideline, skipped=(), hooks=False, folder="docs")
                       "skeleton; Mission and Target Users point to %s instead of restating it" % product_doc))
     else:
         file_step(folder + "/vision.md", source=os.path.join(TEMPLATES, "vision.md"))
+    if "use case overview" not in skipped:
+        file_step(folder + "/use_cases.md", text="---\nsystem: %s\n---\n# Use cases\n\n## Scope\n\n## Delivery order\n\n" % overview_system(root))
     for sub in (folder + "/use_cases", folder + "/test_cases"):
         if os.path.isdir(os.path.join(root, sub)):
             steps.append(("skip", sub + "/", None, "exists"))
@@ -396,6 +408,11 @@ def main(argv):
             or any(part in (".", "..") for part in folder.split("/")) or not real.startswith(os.path.realpath(root) + os.sep):
         print("--specs-folder must be a folder inside the project, such as docs, specs or documentation/specs", file=sys.stderr)
         return 2
+    stop = spec_model.stop_if_old(spec_model.Docs(real))
+    if stop:
+        return stop
+    if "diagram" in args.skip:
+        print("note: --skip diagram is an alias for --skip overview")
     try:
         guideline, guideline_note = pick_guideline(root, args.guideline)
     except (OSError, UnicodeDecodeError) as exc:
@@ -424,7 +441,7 @@ def main(argv):
         steps = plan(root, args.profile, args.host, guideline, [SKIPPABLE[name] for name in sorted(set(args.skip))], args.hooks, folder=folder)
         if args.apply:
             apply(root, steps)
-    except (OSError, UnicodeDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
         print("cannot complete the setup: %s" % exc, file=sys.stderr)
         return 2
 

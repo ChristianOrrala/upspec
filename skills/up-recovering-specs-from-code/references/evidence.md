@@ -115,11 +115,10 @@ Sources in order of authority:
 Translate, do not copy:
 
 - Table and class names become business nouns in upper snake case.
-- Storage types become business types. The identifier's type is read for
-  every entity from its own table: a number the system assigns in sequence and
-  a generated unique value are different facts (one tells how many exist and
-  in which order, the other does not). Never carry one entity's identifier
-  type over to the next.
+- Storage types become business types from the closed list. Identifiers become
+  `Identifier`, references become `Reference to ENTITY`, and state sets become
+  `Choice of …`. Keep storage lengths, keys and sequences in the ledger evidence,
+  outside the model. Read each entity independently.
 - A nullable column is `Optional`; a constraint becomes a validation phrase.
 - A status column's values come from the code that writes it; its lifecycle
   from the transitions the code performs.

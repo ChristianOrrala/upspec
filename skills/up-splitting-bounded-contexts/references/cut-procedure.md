@@ -33,7 +33,7 @@ so ownership rules matter.
 
 ```text
 workshop/
-├── docs/            requirements.md, entity_model.md, use_cases.puml, use_cases/, test_cases/
+├── docs/            requirements.md, entity_model.md, use_cases.md, use_cases/, test_cases/
 ├── AGENTS.md        guideline file of this context
 └── ...              this context's code and tests
 billing/
@@ -85,7 +85,7 @@ Some non-functional requirements and constraints bind every context (a legal
 retention period, an accessibility standard). Give them one home: a small
 catalog of a context named for it (commonly `platform`), with a named owner.
 Use cases elsewhere cite them qualified, for example `platform/NFR-001`, on
-their Requirements line. Do not copy the rows into every catalog; copies
+their `requirements` list. Do not copy the rows into every catalog; copies
 drift.
 
 ## Citations across contexts

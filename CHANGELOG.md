@@ -2,6 +2,35 @@
 
 All notable changes to upspec. Versions follow semantic versioning.
 
+## 1.0.0
+
+- Use case metadata moves to YAML front matter; Draft stubs are files with
+  the body `Not written yet.`.
+- The use case overview is `docs/use_cases.md`: an actor-goal table and
+  Mermaid use case diagram (Mermaid 12.0.0 or later) generated from the use
+  case files. It replaces the
+  PlantUML diagram; scope and delivery order remain editable.
+- Functional requirements use Role and Need columns; non-functional
+  requirements and constraints use EARS statements.
+- Entity attributes use business types from a closed list, with Meaning
+  and Rules columns instead of storage details.
+- Journeys use front matter and one Gherkin Scenario per file, with literal
+  test data and comments naming the use cases.
+- Each business rule has an Examples table with input columns and a final
+  `result` column, covering both sides of its boundaries.
+- Change records use front matter and four required sections: Context,
+  Decision, Specification change and Consequences.
+- Checks recognize earlier formats and stop with `OLD_FORMAT` and exit 5;
+  the router names migration as the next step.
+- Retired codes: `NO_START_END`, `NO_SYSTEM`, `LABEL_FORM`,
+  `ACTOR_UNCONNECTED`, `USE_CASE_UNCONNECTED`, `SPEC_NOT_IN_DIAGRAM`,
+  `NAME_MISMATCH`, `SPEC_PENDING`, `FK_NO_RELATIONSHIP`, `STORY_FORM`.
+- The fifteenth skill, `up-migrating-spec-formats`, shows the mechanical
+  plan and judgment work, preserves identifiers and Status, and waits for
+  your approval before writing.
+
+**How to migrate:** Update the plugin, then ask the agent: *Move the specs to the current formats.* It shows a plan, asks before writing, and makes two commits.
+
 ## 0.2.1
 
 - The README is rewritten: what the skills do and why, install steps for
