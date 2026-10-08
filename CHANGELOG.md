@@ -2,6 +2,13 @@
 
 All notable changes to upspec. Versions follow semantic versioning.
 
+## 1.0.1
+
+- The migration skill recognizes the installed checks copied from 1.0.0,
+  so a later format change can refresh them.
+
+**How to migrate:** Update the plugin. Nothing in a project changes.
+
 ## 1.0.0
 
 - Use case metadata moves to YAML front matter; Draft stubs are files with
