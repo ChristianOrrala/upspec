@@ -2,6 +2,15 @@
 
 All notable changes to upspec. Versions follow semantic versioning.
 
+## 1.0.4
+
+- The migration plan no longer lists empty "unclear business type" items
+  for tables in the entity model that hold no attributes, such as a
+  glossary or a words-to-avoid table. Those tables were never changed;
+  only the plan's list was wrong.
+
+**How to migrate:** Update the plugin. Nothing in a project changes.
+
 ## 1.0.3
 
 - Recovery starts when you ask it to carry the items a baseline review

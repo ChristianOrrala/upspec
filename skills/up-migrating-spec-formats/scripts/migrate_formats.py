@@ -558,6 +558,8 @@ def plan(root, docs):
                             note('judgment', path, '%s: statement into EARS: %s' % (row['ID'], statement), n)
         else:
             for table in model.read_tables(value.split('\n')):
+                if 'Attribute' not in table['header']:
+                    continue    # a glossary or a words-to-avoid table holds no business types
                 for n, row, _ in table['rows']:
                     dtype = row.get('Data Type', row.get('Type', ''))
                     if not model.entity_type_ok(dtype) and dtype not in TYPE_MAP and not re.search(r'Primary Key|Foreign Key|Values:', row.get('Validation Rules', '')):
