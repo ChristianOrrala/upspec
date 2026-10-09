@@ -1,6 +1,6 @@
 # upspec: User Manual
 
-Version 1.0.2
+Version 1.0.3
 
 This manual explains how to install the `upspec` skills, how the work
 they support is organized, and how to carry a piece of work from an idea, a
@@ -864,7 +864,7 @@ whether workspace hooks run.
 
 ## 14. Known limits
 
-- **Early release.** Version 1.0.2. Tested on three small real projects, all
+- **Early release.** Version 1.0.3. Tested on three small real projects, all
   in Python, with a stand-in owner, plus fixture projects.
 - **Other stacks.** The skills carry no framework code, but only Python
   projects have run them end to end; the TypeScript fixture is read as text.

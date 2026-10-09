@@ -2,6 +2,15 @@
 
 All notable changes to upspec. Versions follow semantic versioning.
 
+## 1.0.3
+
+- Recovery starts when you ask it to carry the items a baseline review
+  left for later forward, and on inherited codebases. With the A-files it
+  shows the drafts of the new items and writes nothing until you say yes,
+  even when you asked it to take defaults.
+
+**How to migrate:** Update the plugin. Nothing in a project changes.
+
 ## 1.0.2
 
 - Recovery offers four depths after the map: full only where change is

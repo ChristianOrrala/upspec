@@ -4,14 +4,13 @@ description: >-
   Recovers the specifications of an existing system from its code and running behavior: actors from
   authorization, a use case map from server, front-end and hosted-service entry points grouped by user
   goal, an entity model from the schema in the project's own words, and use case specifications at the
-  depth the owner chooses (baseline or full, for every use case or where change is coming),
-  written at business level with implementation detail kept out by check. Keeps an evidence ledger and
-  a list of suspect behavior instead of correcting anything, prepares the two-role baseline review
-  (what the system does versus what it was meant to do) and the first change log, and pins current
+  depth the owner chooses, at business level with implementation detail kept out by check. Keeps an
+  evidence ledger and a list of suspect behavior instead of correcting anything, prepares the two-role
+  baseline review (what it does versus what it was meant to do) and its change log, and pins current
   behavior with tests before the first change. Use when the user wants to reverse-engineer, document,
-  baseline or onboard a legacy or brownfield codebase into use cases, bring an existing project under
-  spec-driven development, or extract the business rules from existing code, even from a single class
-  or service.
+  baseline or onboard a legacy, inherited or brownfield codebase into use cases, bring an existing project under
+  spec-driven development, extract the business rules from existing code, even from a single class or
+  service, or carry the items a baseline review left for later forward.
 ---
 
 # Recovering specifications from code
@@ -252,6 +251,9 @@ markers. Status changes need no regeneration.
    in the systematic pass, stays `recovered` until a later sample checks it. Stop at the eighth round
    whatever its result, and report how many errors the last sample found.
 10. **Prepare the baseline review** and, after it, the hand-off of the backlog: [references/baseline-review.md](references/baseline-review.md).
+    With the A-files, show the AHEAD drafts and write nothing to `AHEAD.md`
+    or the change log until the owner says yes. Being told to take defaults
+    or not to ask is not that yes.
 11. **Summarize honestly**, with the counts the ledger check printed: what you
     could not classify, where the main scenario was hard to recover, the
     verification rounds and what they corrected, the suspects to decide, and
