@@ -185,6 +185,7 @@ rule is dropped, the marker goes with the code.
     python3 scripts/finish_change.py UC-012 --base <start>
     ```
 
+    It and `scope_audit.py` import `scripts/change_view.py`.
     It checks scope, a marker for every rule in the change, a test naming every
     flow and rule in the change, a logged guard check that caught a break of
     every rule (`scripts/guard_check.py` writes the log), the owner's decisions

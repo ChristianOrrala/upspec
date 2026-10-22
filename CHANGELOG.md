@@ -2,6 +2,52 @@
 
 All notable changes to upspec. Versions follow semantic versioning.
 
+## 1.1.0
+
+Portable agent hooks. The hooks now run as one process that builds one view of the change. They find the branch a change is integrated into, and each tool gets output in the form it reads: Claude Code, Codex, Antigravity CLI and Kiro CLI.
+
+- **Faster stop hook.** One view per firing: the file list and the marker search go through git, untracked files included, and each source file is read at most once. On a generated repository the size of a large project (about 9,000 files and 67 MB, five open change records), the stop hook took about 51 s with the 1.0.4 copies and about 4 s with these, with the same result.
+- **The integration branch.**
+  - The base is `--base`, then `UP_BASE`, then `git config up.base`, then a new rules-block line `**Integration branch:** <name>`, then detection.
+  - Detection looks at each remote's default branch and `main`, `master`, `dev` and `develop`, on any remote, not only `origin`, then the local branches. It picks the one with the fewest commits that HEAD has and it lacks.
+  - Setup proposes the line from detection, and a personal override stays local.
+  - Detection can now find a base where 1.0.4 found none, for example a repository whose only integration branch is `dev`. A feature branch on an unpushed local branch takes that local branch.
+- **Each tool gets its own output.** `hook_gate.py <moment> --emit claude|codex|antigravity|kiro`. A configuration without `--emit` keeps 1.0.4's exit codes and output.
+- **Setup writes the wiring.**
+  - Run `scaffold_docs.py --hooks --tool <tool>`, review the plan, then `--apply`.
+  - It merges only its own entries, keeps everything else in the file, and shows a diff before it writes.
+  - It refuses to add an entry for a moment that another entry or a 1.0.x adapter already covers, until you name that moment in `--replace wiring:<moment>` or `--keep wiring:<moment>`.
+  - Each tool's wiring was seen firing on Claude Code 2.1.307, Codex 0.159.2, Kiro CLI 2.33.1 (V3 engine) and Antigravity CLI 1.4.4.
+- **Specifications are checked at the stop.**
+  - Changed use case files are validated each time the agent ends its turn.
+  - During specification work, errors warn. Once implementation files change, they block.
+- **What counts as implementation.** Edits to the guideline file and to the root A-files no longer start the finish check, and the scope audit groups the A-files as tracking.
+- **Deleted files.** A deleted file belongs to the change when its path names the use case, when it carried the use case id at the base, or when the change record names its exact path.
+- **A new loop guard.**
+  - The stop hook gives up, with "stop and report these to the person", after three blocked stops with no fall in the number of problems, or at six blocked stops in a row.
+  - The give-up comes once.
+  - A problem keeps its identity when only its line number moves.
+  - Codex no longer turns the second block into a message; the cap ends a stuck agent in every tool.
+- **Updating installed copies.**
+  - `scaffold_docs.py --update` sorts each copy in `tools/specs/` as current, untouched, kept, changed by hand, or missing. It replaces the untouched ones and shows a diff for each copy changed by hand.
+  - It writes nothing until each of those is named in `--replace` or `--keep`.
+  - A bundle file, `tools/specs/upspec-installed.json`, records what setup wrote.
+  - The migration skill uses the same sorting, and replaces no script while a copy changed by hand is undecided.
+- **An update notice.** The state reader, run from the plugin, says in one line when the copies in `tools/specs/` are older than the plugin.
+- **A mixed set is caught.** Every installed script carries `UPSPEC_VERSION`. The gate answers "could not run", naming `--update`, when its siblings come from another release.
+- **Submodules.** The hooks and the default checks no longer read submodule contents. A `--code` or `--tests` folder inside a submodule or another repository is still searched as in 1.0.4.
+- **Tool notes.**
+  - Kiro CLI runs the hook file only on its V3 engine: `kiro-cli settings chat.agentEngine v3`, or `kiro-cli chat --v3`.
+  - Antigravity's after-edit check is not wired, because on 1.4.4 nothing from it reaches the agent; the stop carries the specification check.
+  - Codex runs project hooks only after you trust the folder and approve each hook.
+
+**How to migrate:**
+1. Update the plugin.
+2. In each project with installed copies, run `scaffold_docs.py --update` and read the plan. Name every copy changed by hand in `--replace` or `--keep`, then add `--apply`.
+3. Run `scaffold_docs.py --hooks --tool <tool>` to bring your hook entries under setup. Name each moment that a 1.0.x adapter or a hand-made entry covers in `--replace wiring:<moment>` or `--keep wiring:<moment>`.
+4. Accept the integration-branch line the plan proposes, or keep the branch local with `git config up.base <branch>`.
+5. Commit `tools/specs/` and the wiring on their own.
+
 ## 1.0.4
 
 - The migration plan no longer lists empty "unclear business type" items

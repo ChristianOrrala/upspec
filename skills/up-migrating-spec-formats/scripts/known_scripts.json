@@ -1,5 +1,6 @@
 {
   "scripts": {
+    "change_view.py": [],
     "finish_change.py": [
       "5314270232b22c8f37dc5e8b8c8bef147a06f32b5a14256b623d006381f08a91",
       "d03842f0507a1155f27bf134bba031691c7fadce1d27f046a85e56777e3df9d2"
@@ -8,6 +9,7 @@
       "0396d870a8c9103bfd0602a245395bd95ddfeb4730ff627400c788116479f9b5",
       "9b129ac86583c4a88f8fd00270d4e86bfe4a1a82dc1c59309ae43c18bd67aa87"
     ],
+    "hook_profiles.py": [],
     "scope_audit.py": [
       "31c24135ac6fa645db67fb34d8d1b2069684f308600c8d25ae4aefaf7d6a4949",
       "fb0489399fa68fd6b40cc9d9b90fed34be4cea411ea73f1a53af9a7a392913d1"
@@ -50,6 +52,10 @@
     "0.1.0",
     "0.2.0",
     "0.2.1",
-    "1.0.0"
+    "1.0.0",
+    "1.0.1",
+    "1.0.2",
+    "1.0.3",
+    "1.0.4"
   ]
 }

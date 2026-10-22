@@ -31,13 +31,14 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spec_model as model
 import use_case_map
+import installed_copies
 
 HERE = Path(__file__).resolve().parent
 JOURNAL = 'upspec-migration.json'
 # Exact union of scaffold_docs.CHECK_SCRIPTS and HOOK_SCRIPTS; tested against setup.
 INSTALLED_SCRIPTS = ('spec_model.py', 'validate_use_case.py', 'spec_lint.py', 'use_case_map.py',
                      'spec_first_guard.py', 'hook_gate.py', 'workflow_state.py', 'finish_change.py',
-                     'scope_audit.py', 'uc_change_list.py', 'unrecorded_changes.py')
+                     'scope_audit.py', 'uc_change_list.py', 'unrecorded_changes.py', 'change_view.py', 'hook_profiles.py')
 TYPE_MAP = {'String': 'Text', 'Integer': 'Number', 'Boolean': 'Yes/No',
             'Date': 'Date', 'DateTime': 'Date and time'}
 
@@ -601,17 +602,34 @@ def plan(root, docs):
     folder = safe(root, root / 'tools' / 'specs')
     known = json.loads((HERE / 'known_scripts.json').read_text(encoding='utf-8'))['scripts']
     if folder.exists():
+        bundle_path = safe(root, folder / installed_copies.BUNDLE_NAME)
+        bundle = installed_copies.read_bundle(folder)
+        current = {name: installed_source(name).read_bytes() for name in INSTALLED_SCRIPTS}
+        states = {name: installed_copies.classify(safe(root, folder / name), current[name], known, bundle)
+                  for name in INSTALLED_SCRIPTS}
+        undecided = any(state == 'changed' for state in states.values())
+        baselines = bundle.get('scripts', {})
+        if not isinstance(baselines, dict):
+            baselines = {}
+        wrote = False
         for name in sorted(INSTALLED_SCRIPTS):
-            path = safe(root, folder / name)
-            current = installed_source(name).read_bytes()
-            if path.exists():
-                data = path.read_bytes()
-                what = 'current' if data == current else ('replace with the current copy' if fingerprint(data) in known.get(name, []) else 'changed by hand: review it, then copy the current version yourself')
+            path, state = folder / name, states[name]
+            if state == 'changed':
+                what = ('changed by hand: run scaffold_docs.py --update with --replace %s or --keep %s'
+                        % (name, name))
+            elif undecided:
+                what = state + '; scripts wait for all decisions'
             else:
-                what = 'add'
+                what = {'missing': 'add', 'untouched': 'untouched; replace with the current copy'}.get(state, state)
             note('installed', path, what)
-            if what.startswith(('replace', 'add')):
-                item(path, current.decode('utf-8'), what)
+            public['installed'][-1]['state'] = state
+            if not undecided and state in ('untouched', 'missing'):
+                item(path, current[name].decode('utf-8'), what)
+                baselines[name] = {'baseline': installed_copies.fingerprint(current[name])}
+                wrote = True
+        if wrote:
+            bundle.update(version=installed_copies.UPSPEC_VERSION, scripts=baselines)
+            item(bundle_path, json.dumps(bundle, indent=2, sort_keys=True) + '\n', 'refresh installed script baselines')
     return public, rename_items + items
 
 
@@ -729,6 +747,8 @@ def apply(root, docs, journal):
                 raise Conflict('%s: changed since the journal was written' % entry['path'])
             if entry['text'] is None:
                 path.unlink()
+            elif path == root / 'tools' / 'specs' / installed_copies.BUNDLE_NAME:
+                installed_copies.write_bundle(path.parent, json.loads(entry['text']))
             else:
                 atomic(path, entry['text'])
         count += 1

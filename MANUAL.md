@@ -566,9 +566,13 @@ the journal and any owner edit when a conflict stops it. Journey Process lines
 and change-record Next instructions carry over verbatim; requirement titles
 and benefits remain as context for owner judgment.
 
-Released installed checks are refreshed automatically; checks changed by hand
-are listed for review and manual replacement from the skill. Verification
-checks all formats and the generated overview. Other lint findings are listed
+Installed checks use setup's classification. While any copy is changed and
+undecided, migration replaces and adds no scripts; specifications still convert.
+The plan names each changed file and `scaffold_docs.py --update` with
+`--replace` or `--keep`. Once decided, untouched copies are refreshed and the
+whole missing set is added, including hooks, when `tools/specs/` exists.
+Current and kept copies stay; each script written gets a bundle baseline.
+Verification checks all formats and the generated overview. Other lint findings are listed
 for you without changing the verification result; a lint that cannot run makes
 verification fail. Exit codes are 0 for done/nothing to do, 1 for verification
 or read errors, 2 for usage, and 3 for git or resume conflicts. The environment
@@ -665,20 +669,32 @@ files; references use business types, and functional rows use Role and Need.
 |---|---|---|
 | `impact.py` (triage) | Everything that refers to an identifier or a business noun | `impact.py UC-004 "work order"` |
 | `uc_change_list.py` (`up-7`) | What changed in one specification since it was last implemented | `uc_change_list.py UC-012` |
-| `scope_audit.py` (`up-7`) | Every changed file belongs to the use case | `scope_audit.py UC-012 --base main` |
+| `scope_audit.py` (`up-7`) | Every changed file belongs to the use case | `scope_audit.py UC-012 --base <start>` |
 | `finish_change.py` (`up-7`) | The implementer's gate (below) | `finish_change.py UC-012 --base <start>` |
 | `coverage_units.py` (`up-8`) | The coverage units of a use case and the tests that carry each label | `coverage_units.py UC-006 --tests tests` |
 | `guard_check.py` (`up-7`, `up-8`) | Breaks one rule on purpose, runs its test, restores the file and logs whether the test caught it | see below |
-| `spec_first_guard.py` (`up-1`) | A change set that changes behavior code with no specification behind it | `spec_first_guard.py --base main` |
+| `spec_first_guard.py` (`up-1`) | A change set that changes behavior code with no specification behind it | `spec_first_guard.py --base <integration-branch>` |
 | `relink.py` (`up-1`, recovery) | Moves files and every reference to them: `plan` lists links, imports, settings paths and agent instructions that name them, `apply` moves and rewrites, `verify` finds what is left; `--keep FILE` leaves a record of the moves as written | `relink.py plan --move specs docs` |
+
+The scope audit groups root A-files as `tracking`; guideline files still need
+attribution. A deleted file belongs to the change when its text at the base
+carries the use case id, or the change record names its exact repository-relative
+path in backticks or as a Markdown link target. The audit finds the newest record
+for the use case by default; `--record PATH` selects one explicitly. Its default
+`--base HEAD` compares against the HEAD commit, or lists uncommitted files when
+there is no commit yet; pass another base to include commits. Paths with spaces
+can appear in backticks, angle-bracket link targets or percent-encoded link
+targets. Bytecode cache folders (`__pycache__`) never belong to a change.
 
 **The finish check** (`finish_change.py`) is the gate before an
 implementation is reported. It checks:
 
 - **Scope**: every changed file belongs to the use case or to another use case
-  the same record names.
+  the same record names. Root A-files count as tracking. Deleted files belong
+  when they carried an id at the base or the record names their exact path.
 - **Markers**: every rule in the change has its marker in the code; a marker on
-  a function nothing calls is warned about.
+  a function nothing calls is warned about. Marker checks run only for changes
+  with rules; callers count even in files without an id, including untracked files.
 - **Tests named**: every flow and rule in the change is named by a test.
 - **Guard check**: every rule in the change has a logged break that a test
   caught.
@@ -694,6 +710,12 @@ Run it with `--base` set to the branch or commit the change started from
 numbered list of problems. With the A-files, it also prints
 `Tracking: warning: …` when a use case's Status changed and neither
 `ACTIVE.md` nor `ABILITIES.md` did; the warning never changes the result.
+
+`--code` and `--tests` limit their sections to those folders, including folders
+in another repository or a submodule. Test names and test folders are recognized
+relative to the folder searched: with `--tests selected/tests`, `test_capacity.py`
+counts as a test and `capacity.py` does not. Text files marked `-diff` or `binary`
+in git attributes still count; files containing NUL bytes or invalid UTF-8 do not.
 
 **The guard check** (`guard_check.py`) turns "this test guards that rule" from
 a claim into a recorded fact:
@@ -722,34 +744,7 @@ verdict is `caught`, `not caught` (the test does not guard the rule) or
 | `sample_claims.py` (recovery) | A random sample of recovered claims for a second reader | `sample_claims.py --count 10` |
 | `spec_core_metrics.py` (splitting) | Size of the specification set and where it could be cut | `spec_core_metrics.py` |
 | `workflow_state.py` (`up-0`) | The repository's state and the first step that applies, the alignment count of a recovery and its hints | `workflow_state.py` |
-| `scaffold_docs.py` (`up-1`) | The setup plan; writes only with `--apply`, never overwrites | `scaffold_docs.py --profile solo` |
-
-### Agent hooks (optional)
-
-Setup can make the agent's own tool run three checks without being asked:
-
-| Hook | When | What it does |
-|---|---|---|
-| Session state | A session starts | Gives the agent where each use case stands and the next step |
-| Specification check | Right after the agent edits a use case specification | Runs the validator and hands errors back to fix now |
-| Finish check | The agent is about to stop while a change record is open | Runs the finish check and keeps the agent working until it passes, or until the same problems come back a third time |
-
-The finish check starts once the change touches files outside the specification
-folder (`--docs`) and `tools/specs/`, with a change record open. It stays quiet
-during triage, specification writing and review.
-
-All three call one script, `tools/specs/hook_gate.py`, which setup copies into
-the project with `scaffold_docs.py --hooks`. Ask the setup skill for agent
-hooks: it wires them into the tool you use (examples exist for Claude Code,
-Codex, the Antigravity CLI and Kiro), shows you the configuration, and waits
-for you to turn it on. Tools protect their hook settings from the agent on
-purpose; approving is your step. The agent then proves that each hook fires
-(each firing is logged in the git folder's `up-hooks.log`) and records them in
-a `**Hooks:**` line of the rules block.
-
-Hooks are earlier feedback, not a gate: they run only in sessions of the tool
-that has them. The commit hook and the team's pipeline still hold for
-everyone.
+| `scaffold_docs.py` (`up-1`) | The setup or installed-copy update plan; writes only with `--apply`, with explicit decisions for customized scripts | `scaffold_docs.py --profile solo` |
 
 The overview is generated from the use case files' front matter. Rerun
 `use_case_map.py --docs DIR` after changing an identifier, name, actor or goal.
@@ -765,6 +760,166 @@ Every agent hook mode shows one migration notice with result 1 (warn).
 Setup creates `use_cases.md`; `--skip overview` skips it, and `--skip diagram`
 is accepted as an alias with a note. Installed checks and hooks include the
 overview generator beside the model.
+
+### Agent hooks (optional)
+
+Setup offers three checks through one gate, `tools/specs/hook_gate.py`:
+
+| Moment | What runs |
+|---|---|
+| Session starts or resumes | The specification state and next step |
+| After a write or edit | The validator on the edited use case specifications |
+| Before the agent stops | Validation of changed specifications; during implementation, the finish check for open change records |
+
+**Generate, review, approve.** Ask the setup skill for hooks. It runs
+`scaffold_docs.py --hooks --tool claude|codex|antigravity|kiro` from the plugin
+with `--root DIR`, proposing scripts and wiring without writing. Without
+`--tool`, `--hooks` copies scripts only. The agent reads the plan against
+existing hooks, the tool version, the repository layout and conflicts,
+adapts what does not fit, and explains why. You approve `--apply`; the tool's
+own trust prompt still enables the hooks. The agent never enables its own
+hooks or widens permissions for them.
+
+| Labeled tool example | Generated project file | After-edit feedback | Stop keeps working | Warning channel |
+|---|---|---|---|---|
+| Claude Code | `.claude/settings.json` | Agent | Yes | Person |
+| Codex CLI | `.codex/hooks.json` | Agent | Yes | Person |
+| Antigravity CLI | `.agents/hooks.json` | Nobody: not wired, since on 1.4.4 nothing reached the agent (per the tool's 1.4.3 changelog the failure is only logged); the stop carries the specification check | Yes | None documented |
+| Kiro CLI V3 | `.kiro/hooks/upspec.json` | Person only, by Kiro's documentation; unproven in the TUI | Yes, once per prompt; prove the IDE runtime, since its docs differ | By Kiro's documentation, person at session start and after edits (unproven in the TUI); nobody at Stop |
+
+All four generated examples were seen firing on 2026-10-21: Claude Code
+2.1.307, Codex 0.159.2, Kiro CLI 2.33.1 and Antigravity CLI 1.4.4. The
+reference records proof only after a firing on the named version. Kiro CLI
+runs the hooks only on its V3 engine: set `kiro-cli settings
+chat.agentEngine v3`, or start with `kiro-cli chat --v3`; setup changes no
+Kiro setting. Antigravity's after-edit is not wired. Codex runs hooks in a login
+shell (`$SHELL -lc`); startup output can corrupt the JSON, so check it in proof.
+Kiro's after-edit warnings never reach the agent; its documentation says they
+reach the person, which the proof did not see in `--no-interactive` mode and
+which is unproven in the TUI. Its stop cannot deliver an
+ordinary warning, so give-up uses one final block asking the agent to report
+and stop. Its generated command maps invocation failures to exit 3 and never
+returns exit 1, which would accidentally continue the agent.
+
+Profiles translate the internal results (0 pass, 1 warn, 2 act, 3 could not
+run) into each tool's contract. Result 3 never blocks. Select
+`--emit raw|claude|codex|antigravity|kiro`; the default is `raw`. Gemini CLI,
+Copilot CLI and Cursor have hook systems but no upspec profiles yet. A tool
+without a profile stays unwired until it has one. Profiles for Gemini CLI,
+Copilot CLI and Cursor are planned ideas; the commit hook and pipeline still
+apply to their work.
+
+**Integration branch.** The base order is `--base`, `UP_BASE`,
+`git config up.base`, the rules-block line `**Integration branch:** <name>`,
+then detection. Set it to where the feature will be integrated, even when a
+different branch receives deployments. Named branches are considered locally
+and on every remote. Detection compares remote defaults and `main`, `master`,
+`dev`, `develop`, then local candidates. It counts the commits HEAD has that
+each candidate lacks and chooses the smallest count. The current local
+branch is excluded unless it is the only candidate; ties follow candidate
+order. The comparison uses the merge base.
+An invalid named base reports its source with result 3; without a detected
+base, only uncommitted changes count. Committed pins and tracking warnings
+still compare against HEAD when it exists; the header keeps naming the base
+as `none`. The log names the ref and its source.
+
+Setup proposes the integration line from detection for you to confirm. It
+never turns `UP_BASE` or `git config up.base` into a shared setting: when one
+is set, it names the local override and proposes no line. Add a shared line
+by hand if appropriate. `--no-integration-line` declines a proposal while
+accepting the rest of the plan. When detection finds no branch, setup prints
+a note; add the integration line by hand. Setup also warns when git ignores
+the spec folder or change records: ignored specifications are validated at
+every stop; ignored records never open the finish check.
+
+**Stop policy.** Specification errors warn while only work files change and
+block once implementation changes, whatever the use case's Status. Validator
+warnings stay warnings. Work files are the specification folder (`--docs`),
+`tools/specs/`, the guideline holding the rules block and the root A-files
+(`ACTIVE.md`, `ABILITIES.md`, `AHEAD.md`, `ATLAS.md`). Any other changed file
+means implementation, which also starts the finish checks for open records.
+The checks share one change view in one process. Each record's failure is
+reported independently so the remaining records are still checked.
+
+The loop guard counts distinct validation and finish problems, ignoring
+validator line numbers. It gives up when the third consecutive blocked stop
+has no fewer problems than the first, or on the sixth consecutive block even
+if the count falls. The give-up instruction is delivered once; that problem
+set then only warns. A different set after give-up starts counting again.
+A pass or warning clears the guard. A session id starts a new session's count;
+without one counting spans sessions. A gate that could not run neither
+counts nor resets; a record whose check could not run warns, and a warning
+resets. If state cannot be stored, the gate warns rather than trapping the
+agent. Report unresolved problems to the person.
+
+**Generated wiring and conflicts.** Setup preserves unrelated hooks and
+settings, indentation, key order, Unicode and the final newline; inline
+layout may be normalized. Every wiring file that changes has a full unified
+diff before `--apply`; unchanged files have no file diff. Claude Code's Edit
+and Write entries both narrow to the use case folder. Setup scans other
+Kiro hook files for legacy entries, and Claude's local settings for duplicates.
+It never writes `.claude/settings.local.json`: keep that moment or remove
+its local entry by hand before asking for a generated replacement.
+
+An unrecorded, customized or legacy adapter entry already covers its moment,
+even if only one of two expected edit entries exists. Setup refuses duplicate
+wiring. Choose `--replace wiring:<moment>` for generated replacements, or
+`--keep wiring:<moment>` to retain the existing entries and add nothing.
+Moments are `session-start`, `after-edit` and `before-stop`. Pass the reason
+for each adaptation using repeated `--reason TEXT`, in the order of the kept
+wiring moments; the bundle records it (default: "kept by the person").
+A moment no longer generated for the tool (Antigravity's after-edit) whose
+entry is still installed must be decided the same way: `--replace` removes it
+and generates nothing, naming its old adapter as left behind; `--keep`
+retains it.
+
+**Updates.** Run `scaffold_docs.py --update` from the new plugin to see the
+plan, review it, then approve `--apply`. The plugin's state reader adds one
+advisory line naming older installed versions and the update command, also
+available as JSON `notice` (otherwise `null`). The router passes it on without
+blocking. The installed state reader cannot know about newer plugin releases.
+No installed copies means no notice.
+
+Each script is current, untouched, kept, changed by hand or missing. Current
+and kept copies stay; untouched copies refresh; missing copies are added only
+for an installed set. An update alone never installs the hook set. `--hooks`
+installs it and uses the same update plan when copies already exist. Read each
+changed script's diff and choose `--replace NAME` to take this release's copy,
+or `--keep NAME` after porting the customization onto this release, including
+its version. A kept file needs a new decision at the next release; the old
+baseline is shown for context. A kept customization can also be replaced.
+
+`tools/specs/upspec-installed.json` records package baselines, kept script
+fingerprints, and generated or adapted wiring per tool. An ordinary update
+also plans every recorded tool's wiring; `--hooks` without `--tool` requests
+scripts only. With several recorded tools, select `--hooks --tool` when
+deciding a moment. Matching entry baselines refresh; exact generated sets
+are current. Fingerprints include the whole Kiro hook, or the inner command
+object plus the group's matcher for other tools. Changes to those wrapper
+fields need another decision. Kept wiring adaptations stay recorded.
+
+Updates are **all or nothing**: an undecided script or wiring moment, or
+unreadable JSON (including comments), prevents every write. An undecided
+`--apply` exits 1; invalid decisions exit 2. Missing or mixed script versions
+make the gate return result 3 naming `scaffold_docs.py --update`. One exception:
+if `hook_profiles.py` itself cannot load, the gate logs that failure and exits
+0 with no output. Commit installed scripts and wiring on their own before a
+behavior change.
+
+**Proof and records.** After you enable hooks, the agent proves each moment
+in a new session, checking behavior and the git-folder `up-hooks.log`.
+Temporarily invalid specifications test after-edit delivery and the stop's
+warning during specification work; implementation with an unfinished record
+tests continuation. Restore every proof edit and confirm a clean stop. Add
+only hooks seen firing to a `**Hooks:**` line below the profile in the rules
+block, with the tool, configuration, date and delivery limitations.
+The log records internal results rather than the tool command's exit code.
+A shortened message names `up-hooks-report.txt` in the git folder for its
+full text; that file is replaced on the next shortened message.
+
+Hooks provide feedback in the tool's sessions. The commit hook and the team's
+pipeline still apply to everyone. Hooks never approve specifications, and a
+passing finish check still needs a person to read the report.
 
 ## 10. Rigor profiles: throwaway, solo, team
 
@@ -821,9 +976,8 @@ looks simple.
 
 Agent hooks are wired per tool from one tool-neutral template; the setup skill
 carries examples for Claude Code, Codex, the Antigravity CLI and Kiro, each
-checked against one version. The Kiro example comes from its documentation
-and has not been seen firing; for the Antigravity desktop app it is unclear
-whether workspace hooks run.
+checked against one version and seen firing on it. For the Antigravity
+desktop app it is unclear whether workspace hooks run.
 
 ## 12. Safety
 
@@ -852,6 +1006,10 @@ whether workspace hooks run.
 | A skill does not start for your request | Name it (`up-7-implementing-use-cases UC-004`), or ask the router where you are |
 | Two skills answer the same request | Another skill set for the same steps is installed; keep one set |
 | The agent searches the disk for a script | The script is in the skill's own folder; every skill says so. Point it there |
+| The finish check lists hundreds of files | Set `**Integration branch:** <name>` in the rules block to the feature's integration branch, or override it with `--base`, `UP_BASE` or `git config up.base`; check the base and source in the hook log |
+| A deleted file is flagged | Name its exact repository-relative path in the change record, in backticks or as a Markdown link target, so the check can attribute the deletion |
+| A hook never writes to `up-hooks.log` | The tool did not run it: check that the person approved the hook (and trusted the folder), and that the tool runs hooks in this mode or engine |
+| The stop hook warned and gave up | The loop guard saw no fall over three blocked stops, or reached six blocks. Read the findings and report what remains unresolved; the same problem set only warns after the one give-up instruction |
 | "unknown revision" from the finish check | Pass the branch or commit the change started from with `--base`, or `HEAD` while nothing is committed |
 | "rests on no source" | Add the flow or rule to the record's sources table: the request, a decision, today, or a listed assumption |
 | "... the change record does not name it" | A flow or rule changed outside the record: add a row for it (with why), or undo the change |

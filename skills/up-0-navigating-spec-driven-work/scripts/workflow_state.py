@@ -46,6 +46,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import use_case_map
 import spec_model as model  # noqa: E402  (local module, same folder)
 
+# the release these copies belong to; hook_gate.py refuses siblings of another release
+UPSPEC_VERSION = "1.1.0"
+
 PLACEHOLDER = re.compile(r"\[[^\]\n]+\](?!\()")
 SOURCE_SUFFIXES = (".py", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".java", ".kt", ".kts", ".go", ".rb", ".php",
                    ".cs", ".rs", ".swift", ".scala", ".c", ".h", ".cc", ".cpp", ".hpp", ".sql", ".vue", ".svelte",
@@ -56,6 +59,12 @@ CODE_COUNT_CAP = 50
 IN_PROGRESS = ("Implemented", "Tested")
 # Status values at which a use case can be audited for alignment: the hint names the report that would close it.
 READY = ("Tested", "Done")
+# Inspect both installation sets without depending on the plugin-only installed_copies module.
+INSTALLED_SCRIPTS = ("hook_gate.py", "workflow_state.py", "validate_use_case.py", "finish_change.py",
+                     "scope_audit.py", "uc_change_list.py", "unrecorded_changes.py", "spec_model.py",
+                     "use_case_map.py", "change_view.py", "hook_profiles.py", "spec_lint.py", "spec_first_guard.py")
+# Read a literal release line as data, using the same format as hook_gate and the release checks.
+VERSION_LINE = re.compile(r'^UPSPEC_VERSION = "(\d+\.\d+\.\d+)"$', re.M)
 
 # Status -> (step code, who or which skill acts, what happens)
 PER_STATUS = {
@@ -74,6 +83,34 @@ SKILLS = {
     "SPECIFY": "up-5-writing-use-case-specs", "MAP": "up-4-mapping-use-cases", "JOURNEY": "up-writing-journey-test-cases",
     "IDLE": "up-triaging-change-requests",
 }
+
+
+def update_notice(root: str) -> "str | None":
+    """Report older installed copies only when this reader runs from the plugin."""
+    folder = os.path.join(root, "tools", "specs")
+    if (not os.path.isdir(folder) or
+            os.path.realpath(__file__) == os.path.realpath(os.path.join(folder, "workflow_state.py"))):
+        return None
+    versions, unmarked = [], False
+    for name in INSTALLED_SCRIPTS:
+        path = os.path.join(folder, name)
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, encoding="utf-8") as handle:
+                match = VERSION_LINE.search(handle.read())
+        except (OSError, UnicodeError):
+            # A notice is advisory; an unreadable version must not stop the state report.
+            match = None
+        if match:
+            versions.append(tuple(int(part) for part in match.group(1).split(".")))
+        else:
+            unmarked = True
+    if not unmarked and (not versions or min(versions) >= tuple(int(p) for p in UPSPEC_VERSION.split("."))):
+        return None
+    installed = "before 1.1.0" if unmarked else ".".join(str(p) for p in min(versions))
+    return ("Installed upspec scripts in tools/specs/ are %s; "
+            "this plugin is %s: run scaffold_docs.py --update to see what changes." % (installed, UPSPEC_VERSION))
 
 
 def skill_for_artifact(path):
@@ -255,13 +292,14 @@ def tracking_view(root, use_cases, alignment=None):
 
 
 def collect(docs_dir):
+    root = model.project_root(docs_dir)
+    notice = update_notice(root)
     docs = model.Docs(docs_dir)
     earlier = model.old_formats(docs)
     if earlier:
-        return {"docs": docs_dir, "migration": {"code": "MIGRATE", "skill": "up-migrating-spec-formats",
+        return {"docs": docs_dir, "notice": notice, "migration": {"code": "MIGRATE", "skill": "up-migrating-spec-formats",
                                                "why": "%d files in earlier formats" % len(earlier)}}
-    root = model.project_root(docs_dir)
-    state = {"docs": docs_dir, "docs_exists": os.path.isdir(docs_dir)}
+    state = {"docs": docs_dir, "docs_exists": os.path.isdir(docs_dir), "notice": notice}
     guideline, profile, skipped = model.read_rules_block(root)
     state["guideline"] = {"file": guideline, "profile": profile,
                           "skipped": [word for word in ("requirements", "entity model", "overview", "diagram") if word in skipped]}
@@ -402,10 +440,15 @@ def decide(state):
 def print_text(state):
     if "migration" in state:
         nxt = state["migration"]
-        print("Next step: %s\n  by: %s\n  reason: %s" % (nxt["code"], nxt["skill"], nxt["why"]))
+        print("Next step: %s" % nxt["code"])
+        if state.get("notice"):
+            print(state["notice"])
+        print("  by: %s\n  reason: %s" % (nxt["skill"], nxt["why"]))
         return
     guide = state["guideline"]
     print("Profile: %s%s" % (guide["profile"] or "not recorded", " (%s)" % guide["file"] if guide["file"] else " (no rules block found in AGENTS.md or CLAUDE.md)"))
+    if state.get("notice"):
+        print(state["notice"])
     if guide["skipped"]:
         print("Skipped: %s" % ", ".join(guide["skipped"]))
     print("Artifacts")

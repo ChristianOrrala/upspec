@@ -1,138 +1,245 @@
 # Agent hooks
 
-Three hooks that let the agent's own tool run the checks of the method at the
-moments they matter. The agent wires them; the person turns them on. Labeled
-examples for four tools are in agent-hook-examples.md, in this folder.
+The agent prepares the hooks; the person approves and enables them. Generated
+files and each tool's delivery limits are in `agent-hook-examples.md`.
 
 ## Contents
 
-- The three hooks
-- The gate's result
-- Setting them up
-- Wiring rules
+- The three hooks and results
+- Generate, review, approve
+- Integration branch
+- Stop-time validation and the loop guard
+- Updating installed copies
 - Proving each hook
 - Recording what was wired
-- What hooks do not replace
+- Other tools and limits
 
-## The three hooks
+## The three hooks and results
 
-| Hook | Fires when | Runs | Strength |
-|---|---|---|---|
-| Session state | A session starts or resumes | `hook_gate.py session-start`: where each use case stands and the next step | Adds context; never blocks |
-| Specification check | Right after the agent writes or edits a file | `hook_gate.py after-edit`: the validator on each use case specification among the edited files | Feeds errors back to fix now; the edit stays |
-| Finish check | The agent is about to end its turn and hand back | `hook_gate.py before-stop`: the finish check for each change record still open | Keeps the agent working until the change is finished, or until the same problems come back a third time |
-
-All three call one script. The checks live in the scripts it calls, never in
-the tool's configuration: the configuration says only when the gate runs and
-what its result means.
-
-The finish check runs only while a change record is open: added or changed
-and not committed, or changed on the current branch, and once the change
-touches files outside the specification folder (`--docs`) and `tools/specs/`.
-It stays quiet during triage, specification writing and review.
-
-## The gate's result
-
-| Exit | Meaning | What the tool must do with it |
+| Moment | Gate command | What runs |
 |---|---|---|
-| 0 | Pass | Nothing; text on stdout is context to add where the event allows it |
-| 1 | Warn | Show the text; do not block. Some tools show it to the person only |
-| 2 | Act | Block, or keep the agent working, with the text as the reason. The only result sure to reach the agent |
-| 3 | The gate could not run | Never block; show the text to the person |
+| Session starts or resumes | `hook_gate.py session-start` | The specification state and next step |
+| After a file write or edit | `hook_gate.py after-edit` | Validation of the edited use case specifications |
+| Before the agent ends its turn | `hook_gate.py before-stop` | Validation of changed specifications; during implementation, the finish check for open change records |
 
-The gate reads the JSON the tool writes to its standard input and also takes
-file paths as arguments. It finds the repository from its working directory.
+One gate owns the policy. Each firing uses one view of the change and runs
+the checks in one process; a failed record does not prevent checking others.
+The tool configuration selects the moment and an explicit output profile,
+never reimplements a check or guesses the tool from environment variables.
 
-## Setting them up
+| Internal result | Meaning | Delivery |
+|---|---|---|
+| 0 | Pass | Session text becomes context where supported |
+| 1 | Warn | Never blocks; shown only where a warning channel exists |
+| 2 | Act | Feedback after an edit, or keep working at the stop, where supported |
+| 3 | The gate could not run | Never blocks; shown where the tool permits a warning |
 
-1. Copy the gate and the scripts it calls into the project:
-   `scripts/scaffold_docs.py --hooks`, a dry run first, then `--apply`. They
-   land in `tools/specs/`.
-2. Wire the hooks into the tool the person uses, following the rules below.
-3. Show the configuration and ask the person to turn it on. If they turn it on later, give them the proof steps below, so that they or the next session can run them.
-4. Prove each hook.
-5. Record what was wired.
-6. Commit the copied scripts, the configuration and the record on their own,
-   before any change. Hook files committed inside a change appear in its
-   finish check as files no use case explains.
+These are the gate's internal results, not universal shell exit meanings.
+`--emit raw` (the default) returns them directly; a named profile renders
+what its tool accepts. The profiles live in `scripts/hook_profiles.py`,
+including capabilities and message caps. An unavailable warning channel
+cannot be created by changing an exit code. See the examples for the limits.
 
-## Wiring rules
+Each firing logs its moment, internal result and base in `up-hooks.log` in
+the git folder (`git rev-parse --git-path up-hooks.log`). Stop entries also
+name the change records considered.
+A shortened message points to the full text in `up-hooks-report.txt` there;
+that report is replaced the next time output is shortened. If it cannot be
+saved, the shortened message says so.
 
-- **Project configuration.** Use the tool's project-level hook file, committed
-  with the repository. Fall back to the person's own configuration only when
-  the tool has no project level, and say so.
-- **Real events only.** Map each hook to the event the tool really has: the
-  start of a session; the moment after a file write or edit (filtered to the
-  write and edit tools when the tool filters by tool); the end of the agent's
-  turn. When the tool lacks one, leave that hook out and say which and why.
-  Never stand another event in for it.
-- **Narrow where the tool can.** When the tool filters a hook by file path or
-  by an expression on the call, narrow the specification check to the use case
-  folder. The gate filters anyway, so a tool that cannot narrow loses nothing.
-- **The tool's own documentation decides** the event names, the filter syntax,
-  and how a hook adds context, feeds back and keeps the agent working. The
-  examples are a starting point, checked against one version each.
-- **Map the result, nothing else.** When the tool reads exit codes and the
-  standard error stream, send the gate's output to standard error for the
-  specification check and the finish check. When the tool wants JSON, write a
-  short adapter next to its configuration that runs the gate and turns its
-  exit code into that JSON. Never copy a check into the adapter.
-- **Keep the strength.** Do not turn a warning into a block or a block into a
-  warning.
-- **Run from the root.** Change to the repository root first
-  (`git rev-parse --show-toplevel`), then call `tools/specs/hook_gate.py`.
-- **A missing gate must not block.** When the interpreter cannot open a script
-  it exits 2, which several tools read as "block". Run the gate only when its
-  file is there: `if [ -f tools/specs/hook_gate.py ]; then python3 tools/specs/hook_gate.py <hook>; fi`.
-  An adapter answers as for result 3 when the gate is missing.
-- **Name the base when needed.** The gate tries `--base`, `UP_BASE`, the
-  remote's default branch, then `origin/main`, `main`, `origin/master`, `master`.
-  When the base branch is not found automatically, add `--base <branch>` to
-  the before-stop command or set `UP_BASE`. The log says "no base known" if
-  none can be found.
-- **The person turns them on.** Tools protect their hook configuration from
-  the agent: a protected folder, a trust prompt, a fingerprint the person
-  approves. Prepare the configuration, show it, and let the person approve the
-  write or the trust. Never bypass or widen permissions for it, in the wiring
-  or in the proof.
+## Generate, review, approve
+
+1. **Generate:** run `scripts/scaffold_docs.py --hooks --tool <tool>` from
+   the installed skill, targeting the project with `--root DIR`. Tools with
+   profiles are listed in the examples. Without `--tool`, `--hooks` copies
+   scripts only. The dry run writes nothing: it proposes the scripts in
+   `tools/specs/` and the project's hook file, with a full unified diff of
+   each wiring file that would change.
+2. **Review:** read that plan against the repository's existing hooks, the
+   installed tool version, the layout and conflicts. Check that a real event
+   exists for each moment and that the profile can deliver its result. Adapt
+   anything that does not fit, and tell the person why. When keeping an
+   existing adapted moment, pass its reason with
+   `--keep wiring:<moment> --reason TEXT`.
+3. **Approve:** show the final plan and obtain the person's approval before
+   running it with `--apply`. The tool's own trust prompt still switches the
+   hooks on. The agent never switches its own hooks on or widens permissions
+   to write or trust the settings. Preparing files does not replace trust.
+4. Prove each hook below, then record only what was seen firing. If the
+   person enables hooks later, leave these proof steps for the next session.
+5. Commit the copied scripts, configuration and record on their own before
+   a behavior change; otherwise setup files appear in that change's scope.
+
+Generated commands change to the git root and check that the gate exists
+before invoking it. A missing gate must not block. Profiles handle output
+inside the gate, so setup needs no separate adapter. The example blocks are
+what setup generates for an empty project.
+
+Setup merges only its own entries, preserving other settings and hooks.
+It preserves indentation, key order, Unicode and the final newline; inline
+layout may be normalized, so inspect the full file diff. A file that cannot
+be read as plain JSON (including JSON with comments) is refused.
+
+Existing unrecorded or customized entries, including legacy adapters, cover
+their moment: setup will not add a duplicate. A command naming a repository
+script that calls the gate also covers its moment. A partial generated set also
+needs a decision. Plain `--update` points out unrecorded wiring and the command
+to bring it under setup. After replacement, the plan names files left behind
+that the person may delete; setup never deletes them. Local settings are scanned where the tool loads them,
+but setup never writes that read-only configuration: keep its moment or
+remove its entry by hand before requesting replacement.
+
+## Integration branch
+
+The gate resolves the base in this order:
+
+1. `--base REF`;
+2. `UP_BASE`;
+3. `git config up.base`;
+4. `**Integration branch:** <name>` in the guideline's rules block;
+5. detection.
+
+Confirm the integration branch with the person. It is where the feature
+will be integrated, which may differ from a deployment branch. Setup proposes
+the shared line from detection only. A set environment or git-config
+override stays local: setup names it and proposes no shared line. Add the
+line by hand if the team should share that choice. `--no-integration-line`
+declines the proposal while accepting other setup or update work. When
+detection finds no branch, setup prints a note; add the line by hand.
+
+Detection considers each remote's default branch and `main`, `master`,
+`dev`, `develop`, then those local branches. For each candidate it counts
+the commits HEAD has that the candidate lacks, and chooses the smallest
+count, with candidate order breaking ties.
+A named branch is tried locally and on every remote; a remote-qualified ref
+or commit is used as given. The current branch's local ref is excluded
+unless it is the only candidate. The comparison starts at the merge base.
+An invalid explicit base reports its source with result 3; with no detected
+base, only uncommitted changes count. Committed pins and tracking warnings
+compare against HEAD when it exists, while the header still names the base
+as `none`. The log names the selected ref and its source. Use an override when detection does not describe the change.
+
+## Stop-time validation and the loop guard
+
+The stop validates changed use case specifications regardless of Status.
+Errors warn during specification work and block during implementation;
+validator warnings stay warnings. Work files are:
+
+- the specification folder (`--docs`, otherwise the recorded folder);
+- `tools/specs/`;
+- the guideline file holding the rules block;
+- root `ACTIVE.md`, `ABILITIES.md`, `AHEAD.md` and `ATLAS.md`.
+
+Any other changed file makes the change implementation. Only then do open
+change records also run through the finish check. Ignored specifications
+count as changed at every stop; ignored records never open the finish check.
+Setup warns about both. A deleted file can be attributed by the use case id
+in its path or its text at the base, or by naming its exact repository-relative
+path in the change record. Root A-files count as tracking in scope checks.
+
+The loop guard counts distinct validation and finish problems, ignoring
+validator line numbers. It gives up when the third consecutive blocked stop
+has no fewer problems than the first, or on the sixth consecutive block even
+when the count falls. It delivers the instruction to stop and report once;
+the same problem set then only warns. A different set starts counting again.
+A pass or warning resets the count. A gate that could not run neither counts
+nor resets; a record whose check could not run warns, and a warning resets.
+A supplied session id starts fresh for a new session; without one the count
+can span sessions. If guard state cannot be stored, the gate warns instead
+of trapping the agent.
+
+The profile delivers give-up instructions through the available channel.
+A tool without a stop-time warning channel may need one final continuation
+to ask the agent to report and stop. Do not bypass the guard or invent
+specification content to satisfy a check: report unresolved problems.
+
+## Updating installed copies
+
+Run `scripts/scaffold_docs.py --update --root DIR` from the new plugin to
+review the plan; add `--apply` only after approval. Running `--hooks` over an
+existing setup also uses the update plan, avoiding mixed script releases.
+The plugin's state reader and router show an advisory update notice with
+both versions and this command. The installed session hook cannot know
+about a newer plugin release and does not issue that notice.
+
+`tools/specs/upspec-installed.json` records package baselines and kept
+fingerprints, plus generated entries and adapted moments with reasons per
+tool. The plan classifies scripts as current, untouched, kept, changed by
+hand or missing. Current and kept copies stay; untouched copies refresh;
+missing copies are added only to an installed set. An update alone never
+installs hooks into a project that had none.
+
+For every changed-by-hand script, read the diff and choose `--replace NAME`
+to take the package copy, or `--keep NAME` after porting the customization
+onto this release. A kept customization needs a fresh decision at the next
+release; the old baseline is shown for context. It must carry this release's
+version. Missing or mixed siblings make the gate return result 3 naming
+`scaffold_docs.py --update`; they never block a stop. One exception: if
+`hook_profiles.py` itself cannot load, the gate logs that failure and exits 0
+with no output.
+
+An ordinary update also plans wiring for every tool recorded in the bundle.
+`--hooks` without `--tool` still requests scripts only. With several recorded
+tools, select `--hooks --tool <tool>` when deciding a wiring moment. Use
+`--replace wiring:<moment>` to generate its replacement, or
+`--keep wiring:<moment>` to retain it and add nothing for that moment.
+Moments are `session-start`, `after-edit` and `before-stop`. Repeat
+`--reason TEXT` in the order of the `--keep wiring:<moment>` arguments;
+reasons are recorded in the bundle (default: "kept by the person").
+A moment the profile no longer generates, but whose entry is still installed,
+is undecided too: `--replace` removes the entry and puts nothing in its
+place, and `--keep` retains it.
+
+Fingerprints cover the command object and its group's matcher, or the
+whole hook object where the file format requires it. Editing those wrapper
+fields also makes an entry changed. Matching baselines refresh; exact
+complete generated sets are current. A kept adaptation stays until another
+decision is made. Undecided scripts or moments, or unreadable JSON, prevent
+**every write**, including otherwise safe script updates. Resolve the whole
+plan, approve, apply, then commit scripts and wiring on their own.
 
 ## Proving each hook
 
-A hook that was configured but never seen to fire is not done: documentation
-and the running tool disagree often enough that only firing settles it.
+Configured is not proven. Start a new session with the approved hooks
+trusted, and check both the tool's behavior and the git-folder log:
 
-Each firing appends a line to `up-hooks.log` in the repository's git folder
-(`git rev-parse --git-path up-hooks.log`): the time, the hook, the exit code
-and the files it looked at. With the hooks on, in a new session of the tool:
+1. **Session state:** ask for the next step. The log shows
+   `session-start exit=0` and the answer matches the state report.
+2. **Specification check:** temporarily give a use case an invalid Status,
+   then restore it. The log shows `after-edit exit=2`. Confirm feedback
+   reaches the agent or the person as the profile's capabilities state.
+3. **Stop check:** first change only work files with an invalid specification;
+   stopping warns. Then, with implementation changed and an unfinished open
+   record, stop: the log shows `before-stop exit=2` and the agent continues
+   where the profile supports it. Restore the proof edits and confirm a
+   clean stop shows `before-stop exit=0`.
 
-1. **Session state:** start the session and ask for the next step. The log
-   shows `session-start exit=0`, and the answer matches the state report.
-2. **Specification check:** change the Status of a use case to a value that
-   does not exist, then put it back. The log shows `after-edit exit=2`, and
-   the agent quotes the finding.
-3. **Finish check:** with a change record open and unfinished and a changed file
-   outside the specification folder and `tools/specs/`, end the turn.
-   The log shows `before-stop exit=2`, and the agent keeps working or reports
-   the problems. With no change open, it shows `before-stop exit=0`.
-
-Undo every edit made for the proof.
+The log records internal results, which can differ from the command's exit
+code. Verify the tool version, warning delivery and trust behavior too.
+Undo all proof edits. Mark an example proven only after observing its hooks
+on that version; documentation alone does not establish delivery. Some tools
+run project hooks only after the person approves them, or only in a
+particular mode, so a hook that never logs a line usually means it was not
+approved or not enabled.
 
 ## Recording what was wired
 
-Add one line under the profile line of the rules block in the guideline file:
+Under the profile line in the guideline's rules block, add:
 
 ```text
-**Hooks:** session state, specification check, finish check: <tool>, <configuration file>, seen firing <YYYY-MM-DD>
+**Hooks:** session state, specification check, stop check: <tool>, <configuration file>, seen firing <YYYY-MM-DD>
 ```
 
-Name only the hooks that were seen firing. An agent of another tool reads the
-line and knows it can wire its own.
+Name only moments seen firing, with any delivery limitation. Another agent
+can read the line and prepare wiring for its own tool.
 
-## What hooks do not replace
+## Other tools and limits
 
-- **The commit hook and the pipeline.** Agent hooks run only in sessions of
-  the tool that has them; the commit hook of the profiles reference and the
-  team's pipeline hold for every tool and every person.
-- **The person's approval of a specification.** No hook approves anything.
-- **Reading the report.** The finish check before a stop makes the agent
-  finish; it does not make the change right.
+A tool without a profile stays unwired until it has one. Additional profiles
+are planned ideas, listed in the examples. Never substitute session-end for
+before-stop; session-end cannot keep the agent working. Leave unsupported
+moments out and explain why.
+
+Hooks provide feedback within the tool's sessions. Keep the commit hook
+and team pipeline for everyone. Hooks never approve a specification, and
+a passing finish check still needs a person to read the report.

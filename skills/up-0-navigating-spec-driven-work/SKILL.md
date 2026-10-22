@@ -148,6 +148,7 @@ through `up-1-bootstrapping-spec-driven-projects`. Until then apply the full cha
 
 1. Run `scripts/workflow_state.py` on `docs/` (read the folder by hand if
    Python is unavailable).
+   When the state report carries an update notice, pass it on to the person in one line; it never blocks the next step.
 2. If the script reports `MIGRATE`, name `up-migrating-spec-formats` and
    stop routing normal work. Otherwise classify the request: question, throwaway, new behavior, change, bug,
    existing system, too large.

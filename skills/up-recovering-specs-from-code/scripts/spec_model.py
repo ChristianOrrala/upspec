@@ -15,6 +15,10 @@ import os
 import re
 import subprocess
 import sys
+from typing import Optional
+
+# the release these copies belong to; hook_gate.py refuses siblings of another release
+UPSPEC_VERSION = "1.1.0"
 
 # --- vocabulary -------------------------------------------------------------
 
@@ -403,10 +407,8 @@ def local_links(lines):
     return found
 
 
-def read_rules_block(root):
-    """The spec-first rules block of a project's guideline file: (file name or None, profile or None, skipped words, lowercase).
-
-    AGENTS.md is read before CLAUDE.md; the first file that carries the block wins."""
+def _rules_block_text(root) -> tuple[Optional[str], Optional[str]]:
+    """The first guideline file carrying the rules heading, and the text after it."""
     for name in ("AGENTS.md", "CLAUDE.md"):
         path = os.path.join(root, name)
         if not os.path.isfile(path):
@@ -415,16 +417,35 @@ def read_rules_block(root):
             text = "\n".join(read_lines(path))
         except (OSError, UnicodeDecodeError):
             continue
-        if RULES_HEADING not in text:
-            continue
-        block = text.split(RULES_HEADING, 1)[1]
-        profile = re.search(r"^\*\*Profile:\*\*\s*(solo|team)\b", block, re.MULTILINE | re.IGNORECASE)
-        skipped = re.search(r"^\*\*Skipped:\*\*\s*(.+)$", block, re.MULTILINE | re.IGNORECASE)
-        return name, (profile.group(1).lower() if profile else None), (skipped.group(1).lower() if skipped else "")
-    return None, None, ""
+        if RULES_HEADING in text:
+            return name, text.split(RULES_HEADING, 1)[1]
+    return None, None
+
+
+def read_rules_block(root):
+    """The spec-first rules block of a project's guideline file: (file name or None, profile or None, skipped words, lowercase).
+
+    AGENTS.md is read before CLAUDE.md; the first file that carries the block wins."""
+    name, block = _rules_block_text(root)
+    if block is None:
+        return None, None, ""
+    profile = re.search(r"^\*\*Profile:\*\*\s*(solo|team)\b", block, re.MULTILINE | re.IGNORECASE)
+    skipped = re.search(r"^\*\*Skipped:\*\*\s*(.+)$", block, re.MULTILINE | re.IGNORECASE)
+    return name, (profile.group(1).lower() if profile else None), (skipped.group(1).lower() if skipped else "")
 
 
 RE_SPECS_FOLDER = re.compile(r"^\*\*Specs folder:\*\*\s*`?([^`\s]+?)`?\s*$", re.MULTILINE | re.IGNORECASE)
+
+
+# The integration branch line shared by setup and change-base resolution.
+RE_INTEGRATION_BRANCH = re.compile(r"^\*\*Integration branch:\*\*\s*`?([^`\s]+?)`?\s*$", re.MULTILINE | re.IGNORECASE)
+
+
+def integration_branch(root=".") -> Optional[str]:
+    """The integration branch in the first guideline file carrying the rules block, or None."""
+    _, block = _rules_block_text(root)
+    match = RE_INTEGRATION_BRANCH.search(block) if block is not None else None
+    return match.group(1) if match else None
 
 
 def recorded_docs(root="."):
@@ -433,28 +454,18 @@ def recorded_docs(root="."):
     A folder inside the project, relative to its root (docs, specs, documentation/specs); a path that leaves the
     root, directly or through a symbolic link, is ignored. The first guideline file that carries the rules block
     decides, as for the profile."""
-    for name in ("AGENTS.md", "CLAUDE.md"):
-        path = os.path.join(root, name)
-        if not os.path.isfile(path):
-            continue
-        try:
-            text = "\n".join(read_lines(path))
-        except (OSError, UnicodeDecodeError):
-            continue
-        if RULES_HEADING not in text:
-            continue
-        match = RE_SPECS_FOLDER.search(text.split(RULES_HEADING, 1)[1])
-        if not match:
-            return None
-        folder = match.group(1).replace("\\", "/").rstrip("/")
-        parts = folder.split("/")
-        real_root = os.path.realpath(root)
-        real = os.path.realpath(os.path.join(root, folder))
-        if not re.fullmatch(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*", folder) or any(p in (".", "..") for p in parts) \
-                or not (real == real_root or real.startswith(real_root + os.sep)) or real == real_root:
-            return None
-        return folder
-    return None
+    _, block = _rules_block_text(root)
+    match = RE_SPECS_FOLDER.search(block) if block is not None else None
+    if not match:
+        return None
+    folder = match.group(1).replace("\\", "/").rstrip("/")
+    parts = folder.split("/")
+    real_root = os.path.realpath(root)
+    real = os.path.realpath(os.path.join(root, folder))
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*", folder) or any(p in (".", "..") for p in parts) \
+            or not (real == real_root or real.startswith(real_root + os.sep)) or real == real_root:
+        return None
+    return folder
 
 
 def docs_default(root="."):
@@ -1279,20 +1290,29 @@ def scan_units(root, uc, suffixes=None):
     Inside such a file, a line counts for a unit when it carries the unit's label.
     Lines that carry the qualified form (UC-001 BR-002) count wherever they are.
     """
-    hits = {}
     files = sorted({path for path, _, _ in find_markers(root, uc.id, suffixes)})
+
+    def sources():
+        for path in files:
+            try:
+                yield path, read_lines(path)
+            except (UnicodeDecodeError, OSError):
+                continue
+
+    return files, scan_unit_lines(uc, sources())
+
+
+def scan_unit_lines(uc, sources):
+    """Map unit labels to hits in (path, lines) pairs already known to carry the use case id."""
+    hits = {}
     labels = ["Main"] + [f.label for f in uc.flows if not f.retired] + [r.id for r in uc.rules if not r.retired]
     patterns = {label: unit_pattern(label) for label in labels}
-    for path in files:
-        try:
-            lines = read_lines(path)
-        except (UnicodeDecodeError, OSError):
-            continue
+    for path, lines in sources:
         for number, line in enumerate(lines, 1):
             for label, pattern in patterns.items():
                 if pattern is not None and pattern.search(line):
                     hits.setdefault(label, []).append((path, number, line.strip()))
-    return files, hits
+    return hits
 
 
 def compact_id(identifier):
@@ -1300,15 +1320,61 @@ def compact_id(identifier):
     return identifier.replace("-", "")
 
 
-def iter_source_files(root, globs=None, skip=(".git", "node_modules", ".venv", "venv", "dist", "build", "target", "__pycache__")):
+# Dependency, build and hidden folders are excluded from every source search.
+SOURCE_SKIP = (".git", "node_modules", ".venv", "venv", "dist", "build", "target", "__pycache__")
+
+
+def git_list(root: str) -> Optional[list[str]]:
+    """Tracked and untracked, non-ignored paths relative to root; None without git."""
+    code, output = git(["-c", "core.quotePath=false", "ls-files", "-z", "--cached",
+                        "--others", "--exclude-standard"], cwd=root)
+    return sorted(set(output.rstrip("\0").split("\0")) - {""}) if code == 0 else None
+
+
+def source_path(path, skip=SOURCE_SKIP):
+    """Apply the walk's folder exclusions to a relative git path."""
+    return all(part not in skip and not part.startswith(".") for part in path.split("/")[:-1])
+
+
+def iter_source_files(root, globs=None, skip=SOURCE_SKIP):
     """Yield text files under root, skipping dependency and build folders. globs filters by suffix when given."""
     suffixes = tuple(globs) if globs else None
+    listed = git_list(root)
+    if listed is not None:
+        for relative in listed:
+            path = os.path.join(root, relative)
+            if source_path(relative, skip) and (not suffixes or relative.endswith(suffixes)) and os.path.isfile(path):
+                yield path
+        return
+    found = []
     for directory, names, files in os.walk(root):
         names[:] = [n for n in names if n not in skip and not n.startswith(".")]
         for name in sorted(files):
             if suffixes and not name.endswith(suffixes):
                 continue
-            yield os.path.join(directory, name)
+            found.append(os.path.join(directory, name))
+    yield from sorted(found)
+
+
+def _marker_patterns(uc_id):
+    return tuple(re.compile(r"(?<![A-Za-z0-9])%s(?!\d)" % re.escape(value))
+                 for value in (uc_id, compact_id(uc_id)))
+
+
+def _marker_paths(root, ids, suffixes=None):
+    """Narrow one or more marker searches in git, falling back only on errors."""
+    args = ["-c", "core.quotePath=false", "grep", "-z", "-l", "-F", "--untracked"]
+    for uc_id in sorted(set(ids)):
+        args.extend(("-e", uc_id, "-e", compact_id(uc_id)))
+    args.append("--")
+    args.extend("*" + suffix for suffix in (suffixes or ()))
+    code, output = git(args, cwd=root)
+    if code == 1:
+        return []
+    if code == 0:
+        return [os.path.join(root, path) for path in sorted(set(output.split("\0")) - {""})
+                if source_path(path)]
+    return iter_source_files(root, suffixes)
 
 
 def find_markers(root, uc_id, suffixes=None):
@@ -1316,18 +1382,71 @@ def find_markers(root, uc_id, suffixes=None):
 
     Returns [(path, line number, text)]. Binary and unreadable files are skipped.
     """
-    plain = re.compile(r"(?<![A-Za-z0-9])%s(?!\d)" % re.escape(uc_id))
-    compact = re.compile(r"(?<![A-Za-z0-9])%s(?!\d)" % re.escape(compact_id(uc_id)))
+    plain, compact = _marker_patterns(uc_id)
     hits = []
-    for path in iter_source_files(root, suffixes):
+    for path in _marker_paths(root, [uc_id], suffixes):
         try:
             with open(path, encoding="utf-8") as handle:
-                for number, line in enumerate(handle, 1):
-                    if plain.search(line) or compact.search(line):
-                        hits.append((path, number, line.rstrip("\n")))
+                text = handle.read()
         except (UnicodeDecodeError, OSError):
             continue
+        if "\0" in text or not (plain.search(text) or compact.search(text)):
+            continue
+        for number, line in enumerate(text.split("\n"), 1):
+            if plain.search(line) or compact.search(line):
+                hits.append((path, number, line))
     return hits
+
+
+# Flow and business-rule labels carried by change-record element cells.
+UNIT = re.compile(r"\b(A\d+|BR-\d{3})\b")
+
+
+def record_rows_from(lines, uc_id):
+    """Read differences rows with their units, evidence and use case ownership."""
+    for table in read_tables(lines):
+        header = [h.strip().lower() for h in table["header"]]
+        if "element" not in header or not any(h.startswith("today") for h in header):
+            continue
+        element_col = table["header"][header.index("element")]
+        seen_col = next((table["header"][i] for i, h in enumerate(header) if h.startswith("seen")), None)
+        rows = []
+        for _, row, _ in table["rows"]:
+            cell = row.get(element_col, "").strip()
+            if not cell or cell.startswith("["):
+                continue
+            other = [u for u in RE_UC_ID.findall(cell) if u != uc_id]
+            mine = True if uc_id in cell else (False if other else None)
+            units = [] if mine is False else UNIT.findall(cell)
+            rows.append((cell, units, row.get(seen_col, "").strip() if seen_col else None, mine))
+        return rows
+    return None
+
+
+def find_change_record(docs, uc_id):
+    """The newest record named after the use case or naming it in its metadata or differences."""
+    found = []
+    for path in docs.change_record_files():
+        name = os.path.basename(path)
+        named = name == uc_id + ".md" or name.startswith(uc_id + "-")
+        if not named:
+            named = uc_id in RE_UC_ID.findall(parse_change_record(path).element)
+        if not named:
+            named = any(mine is True for _, _, _, mine in (record_rows_from(read_lines(path), uc_id) or []))
+        if named:
+            found.append(path)
+    return max(found, key=lambda path: (os.path.getmtime(path), path)) if found else None
+
+
+# The finish check's established file-name conventions for test code.
+TEST_NAME = re.compile(r"(^test_|_test\.|\.test\.|\.spec\.|_spec\.|Tests?\.[A-Za-z]+$)")
+# Folder conventions shared by the finish check and reference search.
+TEST_FOLDERS = {"tests", "test", "__tests__", "spec", "specs", "e2e"}
+
+
+def is_test_path(path):
+    parts = path.replace("\\", "/").split("/")
+    return bool(TEST_NAME.search(parts[-1])) or any(part in TEST_FOLDERS for part in parts[:-1])
 
 
 # --- markers on code nothing calls ------------------------------------------
@@ -1466,7 +1585,7 @@ def git(args, cwd="."):
     try:
         # 60 seconds: history walks on large repositories take seconds, never minutes;
         # a longer wait means git is blocked on a prompt and should be abandoned.
-        done = subprocess.run(["git"] + list(args), cwd=cwd, capture_output=True, text=True, timeout=60)
+        done = subprocess.run(["git"] + list(args), cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="surrogateescape", timeout=60)
     except (OSError, subprocess.TimeoutExpired) as exc:
         return 127, str(exc)
     return done.returncode, done.stdout

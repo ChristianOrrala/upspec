@@ -36,6 +36,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spec_model as model  # noqa: E402  (local module, same folder)
 
+# the release these copies belong to; hook_gate.py refuses siblings of another release
+UPSPEC_VERSION = "1.1.0"
+
 UNIT = re.compile(r"\b(A\d+|BR-\d{3})\b")
 
 

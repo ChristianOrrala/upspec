@@ -12,6 +12,9 @@ to upgrade earlier upspec formats. Read [conventions](references/conventions.md)
 for the target shapes and [mapping](references/mapping.md) for mechanical rules.
 This is a format conversion, with no change to behavior or approval.
 
+Setup and the migration share `scripts/installed_copies.py` for installed copies
+and their bundle record; the module stays in the plugin.
+
 ## Plan
 
 Run `python3 scripts/migrate_formats.py plan --docs DIR --format json` from
@@ -19,15 +22,18 @@ the project. Show all three lists to the owner: mechanical changes, judgment
 work, and installed checks. Plan writes nothing. Refuse to start apply outside
 a git work tree or with uncommitted work and no migration journal.
 
-An installed check under `tools/specs/` is replaced only when its fingerprint
-matches a released copy. Current copies stay as they are. Missing checks are
-added when the project has an installed-check folder. A file changed by hand
-needs review: show its customizations to the owner and agree how to preserve
-them before manually copying the current script from this skill's `scripts/`.
+Installed copies under `tools/specs/` use setup's classification. While any
+copy is changed and undecided, no script is replaced or added; specifications
+still convert. Show each changed file and run `scaffold_docs.py --update`
+with `--replace` or `--keep` for the owner's decisions. Once decided, replace
+untouched copies and add the whole missing set, including hooks, recording
+each written script's baseline. Current and kept copies stay as they are.
 The replacement set includes `scripts/spec_model.py`,
 `scripts/validate_use_case.py`, `scripts/spec_lint.py`, `scripts/use_case_map.py`,
-`scripts/spec_first_guard.py`, `scripts/hook_gate.py`, `scripts/workflow_state.py`,
-`scripts/finish_change.py`, `scripts/scope_audit.py`, `scripts/uc_change_list.py`
+`scripts/spec_first_guard.py`, `scripts/hook_gate.py`, `scripts/hook_profiles.py`,
+`scripts/workflow_state.py`,
+`scripts/finish_change.py`, `scripts/scope_audit.py` (both import
+`scripts/change_view.py`), `scripts/uc_change_list.py`
 and `scripts/unrecorded_changes.py`. `scripts/known_scripts.json` holds released
 fingerprints, consumed by the migration. Never silently overwrite custom
 checks. Benefits and titles stay in requirement context; Next instructions

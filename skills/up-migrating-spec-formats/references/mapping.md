@@ -42,3 +42,12 @@ context outside the tables, for the owner to decide where they belong.
 Unknown sections, duplicate headings and unplaced metadata leave the whole
 file byte for byte, with a judgment entry. No conversion silently drops
 instructions.
+
+Installed copies share setup's classification and bundle baselines. Any
+changed, undecided script holds back every script replacement and addition;
+specification conversion continues. Resolve each through
+`scaffold_docs.py --update` with `--replace` or `--keep`.
+After all decisions, migration replaces untouched copies and adds the whole
+missing set, including hooks, whenever `tools/specs/` exists. Setup's update
+adds missing scripts only for an installed or requested set. Kept copies stay;
+each script migration writes gets a fresh baseline in `upspec-installed.json`.

@@ -87,10 +87,14 @@ the project (`scripts/spec_lint.py`, `scripts/validate_use_case.py` and the
 guard), so the pipeline runs without anything installed.
 
 It also carries identical copies of the state reader and the finish check
-(`scripts/workflow_state.py`, `scripts/finish_change.py`,
+(`scripts/workflow_state.py`, `scripts/finish_change.py`, `scripts/change_view.py`,
 `scripts/scope_audit.py`, `scripts/uc_change_list.py` and
 `scripts/unrecorded_changes.py`), which it installs into the project for the
-agent hooks, with their entry point `scripts/hook_gate.py`.
+agent hooks, with their entry point `scripts/hook_gate.py` and its module
+`scripts/hook_profiles.py`.
+
+Setup and migration share the module `scripts/installed_copies.py` and released
+fingerprints in `scripts/known_scripts.json`; both stay in the plugin.
 
 When the project's files move to this layout, `scripts/relink.py` plans the
 moves with every reference to them, applies them and verifies that nothing is
@@ -176,10 +180,11 @@ Details and host-specific forms: [references/team-instruments.md](references/tea
 ## The guard
 
 ```bash
-python3 scripts/spec_first_guard.py --base main --mode warn
+python3 scripts/spec_first_guard.py --base INTEGRATION_BRANCH --mode warn
 ```
 
-It flags a change set that changes behavior code with no specification change
+Replace `INTEGRATION_BRANCH` with the project's integration branch. The guard flags
+a change set that changes behavior code with no specification change
 and no declaration line `No behavior change: UC-012`, and code that arrives
 with a use case still `Draft` or `Reviewed`. Refactoring and dependency
 updates pass through the declaration, so the guard stays honest without false
@@ -190,18 +195,19 @@ not install a hook without asking: hooks change how every commit behaves.
 
 ## Agent hooks
 
-With the solo and team profiles, offer three hooks that let the agent's own
-tool run the checks when they matter: the state of the specifications when a
-session starts, the validator right after a specification is edited, and the
-finish check before the agent ends its turn while a change record is open
-and the change touches files outside the specification folder and `tools/specs/`.
-It stays quiet during triage, specification writing and review.
+With the solo and team profiles, offer three hooks: specification state when
+a session starts, validation after specification edits, and validation of
+changed specifications before stopping. At the stop, errors warn during
+specification work; once files beyond the work files change, they block and
+each open record runs the finish check. Work files are the specification
+folder, `tools/specs/`, the guideline holding the rules block and root A-files.
 All three call `scripts/hook_gate.py`; `scripts/scaffold_docs.py --hooks`
 copies it into `tools/specs/` with the scripts it calls.
 
-Wire them into the tool you run in, following
+Generate with `--hooks --tool <tool>`, review, then approve `--apply`, following
 [references/agent-hooks.md](references/agent-hooks.md); labeled examples for
 four tools are in [references/agent-hook-examples.md](references/agent-hook-examples.md).
+For installed copies, use `scaffold_docs.py --update` as the reference explains.
 You prepare the configuration and show it; the person turns it on. Never
 bypass or widen permissions for it. A hook is done once it was seen firing,
 and a `**Hooks:**` line under the profile in the rules block records it.

@@ -6,7 +6,10 @@
     hook_gate.py after-edit [PATH ...] [--docs DIR]
         the validator on every use case specification among the edited files
     hook_gate.py before-stop [--docs DIR] [--base REF]
-        the finish check for every change record still open
+        validate changed specifications, then finish open implementation records
+
+Every moment accepts --emit raw|claude|codex|antigravity|kiro (default: raw).
+A profile renders the internal result for the calling tool.
 
 Edited paths come from the arguments and from the JSON the tool writes to
 stdin: every string under a key that names a file path, and the file names on
@@ -18,8 +21,10 @@ starts with a use case's identifier.
 
 A change record is open when it is added or changed and not committed, or
 changed on the current branch since it left the base branch (--base, else the
-environment variable UP_BASE, else the remote default branch, origin/main, main, origin/master, master).
-Once the change touches files outside the specification folder and tools/specs/,
+environment variable UP_BASE, git config up.base, the rules block, then detected
+integration branches).
+Once the change touches files outside the specification folder, tools/specs/,
+the rules-block guideline and root A-files,
 the finish check runs against the commit where the branch left its base.
 During triage, specification writing and review it waits for implementation.
 
@@ -31,19 +36,21 @@ The result is the same for every tool; the tool's hook configuration maps it:
     3  the gate could not run (no git repository, a script missing, bad
        usage); never block on it
 
-before-stop answers 1 instead of 2 when the same problems come back for the
-third time in a row, so that an agent that cannot fix them stops and reports
-them. Every firing appends one line to up-hooks.log in the repository's git
+before-stop gives up at the third blocked stop without a fall in problem count,
+or at the sixth consecutive block, and delivers the instruction to stop and report once
+for the same problem set. Every firing appends one line to up-hooks.log in the repository's git
 folder: the evidence that a hook fires.
 
-The scripts it calls must sit in its own folder: workflow_state.py,
-validate_use_case.py, and finish_change.py with scope_audit.py,
-uc_change_list.py, unrecorded_changes.py and spec_model.py.
+The scripts it imports must sit in its own folder: change_view.py, hook_profiles.py,
+workflow_state.py, validate_use_case.py, and finish_change.py with scope_audit.py,
+uc_change_list.py, unrecorded_changes.py, use_case_map.py and spec_model.py.
 scaffold_docs.py --hooks copies them together into tools/specs/.
 
 Requires Python 3.9+, standard library only, and git.
 """
 import argparse
+from contextlib import redirect_stdout, redirect_stderr
+from typing import NamedTuple, Optional
 import datetime
 import hashlib
 import io
@@ -55,26 +62,38 @@ import sys
 import threading
 import tempfile
 
+# the release these copies belong to; hook_gate.py refuses siblings of another release
+UPSPEC_VERSION = "1.1.0"
+
 sys.dont_write_bytecode = True   # a __pycache__ folder in tools/specs/ would be an unexplained file in every change
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-NO_BYTECODE = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
 UC_ID = re.compile(r"\bUC-\d{3}\b")
 SPEC_NAME = re.compile(r"^UC-\d{3}\b.*\.md$")
-PATH_KEY = re.compile(r"(^|_)(file_?path|path|paths|target_?file|filename)$", re.IGNORECASE)
-SESSION_KEY = re.compile(r"transcript|cwd|dir|workspace", re.IGNORECASE)
-PATCH_FILE = re.compile(r"^\*\*\* (?:(?:Update|Add) File|Move to): (.+)$", re.MULTILINE)
-SUMMARY = re.compile(r"(\d+) errors?, (\d+) warnings?")
-BASES = ("origin/main", "main", "origin/master", "master")
 STDIN_WAIT = 1.0                # seconds: hook runners write their JSON at once; a terminal never writes
-REPEATS_BEFORE_GIVING_UP = 2    # the same problems blocked twice; the third time the agent may stop and report
+# Three blocked stops without fewer distinct problems mean the agent should stop and report.
+NO_PROGRESS_STOPS = 3
+# Below Claude Code and Copilot CLI's eight, two no-progress windows, and the only loop end in Codex and Antigravity.
+BLOCK_CAP = 6
 MAX_CONTEXT_LINES = 60          # a longer state report is cut; the full one is one command away
-MAX_MESSAGE_CHARS = 9000        # below the smallest cap on hook output among the tools checked (10,000 characters)
 LOG_LINES = 200                 # a proof session and some days of work; older lines are dropped
 LOG_NAME = "up-hooks.log"
 STATE_NAME = "up-hook-stop"
 PASS, WARN, ACT, FAILED = 0, 1, 2, 3
 MODES = ("session-start", "after-edit", "before-stop")
+# Match the installed hook bundle without importing possibly incompatible siblings.
+BUNDLE_SCRIPTS = ("workflow_state.py", "validate_use_case.py", "finish_change.py", "scope_audit.py",
+                  "uc_change_list.py", "unrecorded_changes.py", "spec_model.py", "use_case_map.py",
+                  "change_view.py", "hook_profiles.py")
+# Match the literal release constants exactly as the package version test does.
+VERSION_LINE = re.compile(r'^UPSPEC_VERSION = "(\d+\.\d+\.\d+)"$', re.M)
+
+
+class Verdict(NamedTuple):
+    result: int
+    text: str
+    detail: str
+    give_up: bool = False
 
 
 class GateError(Exception):
@@ -104,13 +123,26 @@ def git_path(root, name):
     return out if os.path.isabs(out) else os.path.join(root, out)
 
 
-def run_script(root, name, *args):
-    path = os.path.join(HERE, name)
-    if not os.path.isfile(path):
-        raise GateError("%s is missing next to hook_gate.py; copy the scripts with scaffold_docs.py --hooks" % name)
-    done = subprocess.run([sys.executable, path] + list(args), cwd=root, capture_output=True, text=True,
-                          env=NO_BYTECODE)
-    return done.returncode, done.stdout.strip(), done.stderr.strip()
+def bundle_problem(here: str) -> Optional[str]:
+    """Reject missing, unversioned or mixed siblings before running any check."""
+    problems = []
+    for name in BUNDLE_SCRIPTS:
+        try:
+            with open(os.path.join(here, name), encoding="utf-8") as handle:
+                found = VERSION_LINE.search(handle.read())
+        except FileNotFoundError:
+            problems.append("%s is missing" % name)
+            continue
+        except (OSError, UnicodeError) as exc:
+            problems.append("%s cannot be read: %s" % (name, exc))
+            continue
+        if found is None:
+            problems.append("%s has no UPSPEC_VERSION (gate %s)" % (name, UPSPEC_VERSION))
+        elif found.group(1) != UPSPEC_VERSION:
+            problems.append("%s is version %s (gate %s)" % (name, found.group(1), UPSPEC_VERSION))
+    if problems:
+        return "; ".join(problems) + "; refresh the bundle with scaffold_docs.py --update"
+    return None
 
 
 def docs_folder(root):
@@ -155,28 +187,6 @@ def read_stdin():
     return box[0] if box else None
 
 
-def payload_paths(node):
-    """Every path a hook payload names as an edited file."""
-    found = []
-    if isinstance(node, dict):
-        for key, value in node.items():
-            key = str(key)
-            if SESSION_KEY.search(key):
-                continue
-            if PATH_KEY.search(key) and isinstance(value, str):
-                found.append(value)
-            elif PATH_KEY.search(key) and isinstance(value, list):
-                found.extend(item for item in value if isinstance(item, str))
-            else:
-                found.extend(payload_paths(value))
-    elif isinstance(node, list):
-        for item in node:
-            found.extend(payload_paths(item))
-    elif isinstance(node, str):
-        found.extend(name.strip() for name in PATCH_FILE.findall(node))
-    return found
-
-
 def specifications(root, base, docs, paths):
     """The use case specifications among the paths, relative to the root."""
     real_root = os.path.realpath(root)
@@ -201,18 +211,22 @@ def specifications(root, base, docs, paths):
     return sorted(found)
 
 
-def cut(text, limit=MAX_MESSAGE_CHARS):
-    """Keep a message under what tools pass on to the agent."""
-    if len(text) <= limit:
-        return text
-    return text[:limit].rsplit("\n", 1)[0] + "\n... cut here; run the check by hand for the full report"
+def could_not_run(name, exc):
+    return Verdict(FAILED, "%s could not run: %s: %s" % (name, type(exc).__name__, exc), "")
 
 
-def session_start(root, args, payload):
-    code, out, err = run_script(root, "workflow_state.py", "--docs", args.docs)
-    if code != 0:
-        raise GateError("workflow_state.py failed: %s" % (err or out))
-    lines = out.splitlines()
+def session_start(root, args, event):
+    try:
+        import workflow_state
+        output = io.StringIO()
+        with redirect_stdout(output):
+            state = workflow_state.collect(args.docs)
+            if "migration" not in state:
+                state["next"] = workflow_state.decide(state)
+            workflow_state.print_text(state)
+        lines = output.getvalue().strip().splitlines()
+    except BaseException as exc:
+        return could_not_run("workflow_state.py", exc)
     if len(lines) > MAX_CONTEXT_LINES:
         next_step = next((i for i, line in enumerate(lines) if line.startswith("Next step:")), len(lines))
         tail = lines[next_step:]
@@ -220,68 +234,64 @@ def session_start(root, args, payload):
         head_count = min(head_count, next_step)
         rest = next_step - head_count
         lines = lines[:head_count] + ["... %d more lines: run workflow_state.py for the full state" % rest] + tail
-    return PASS, cut("Specification state of this repository:\n" + "\n".join(lines)), ""
+    return Verdict(PASS, "Specification state of this repository:\n" + "\n".join(lines), "")
 
 
-def after_edit(root, args, payload):
-    session_dir = payload.get("cwd") if isinstance(payload, dict) else None
-    base = session_dir if isinstance(session_dir, str) and os.path.isdir(session_dir) else os.getcwd()
-    paths = list(args.paths) + (payload_paths(payload) if payload is not None else [])
-    specs = specifications(root, base, args.docs, paths)
-    if not specs:
-        return PASS, "", " ".join(paths)
-    code, out, err = run_script(root, "validate_use_case.py", "--docs", args.docs, *specs)
-    if code not in (0, 1):
-        raise GateError("validate_use_case.py failed: %s" % (err or out))
-    summary = SUMMARY.search(out)
-    errors = int(summary.group(1)) if summary else 0
-    warnings = int(summary.group(2)) if summary else 0
-    detail = " ".join(specs)
-    if code == 0 and not warnings:
-        return PASS, "", detail
-    verdict = ACT if code == 1 or errors else WARN
-    return verdict, cut("The specification just edited has findings; fix them before going on:\n" + out), detail
+def validation(paths, docs, error_result, heading):
+    """Keep validation failures local and leave the full text for the profile."""
+    if not paths:
+        return Verdict(PASS, "", "")
+    try:
+        import spec_model
+        import validate_use_case
+        report = spec_model.Reporter(os.getcwd())
+        notice = io.StringIO()
+        with redirect_stdout(notice), redirect_stderr(notice):
+            checked = validate_use_case.validate_files(paths, docs_dir=docs, report=report)
+        if isinstance(checked, int):
+            if checked == spec_model.OLD_FORMAT_EXIT:
+                return Verdict(WARN, notice.getvalue().strip(), "OLD_FORMAT")
+            return could_not_run("validate_use_case.py", GateError("unexpected result %s" % checked))
+        result = error_result if checked.count("ERROR") else WARN if checked.count("WARN") else PASS
+        if result == PASS:
+            return Verdict(PASS, "", "")
+        checked.print_text(stream=notice)
+        return Verdict(result, heading + "\n" + notice.getvalue().strip(), "")
+    except BaseException as exc:
+        return could_not_run("validate_use_case.py", exc)
 
 
-def base_commit(root, wanted):
-    """The commit where the current branch left its base, or None when no base is known."""
-    ref = wanted or os.environ.get("UP_BASE")
-    if ref:
-        code, fork = git(root, "merge-base", "HEAD", ref)
-        if code:
-            raise GateError("unknown base branch '%s': pass --base with a branch that exists" % ref)
-        return fork.strip()
-    code, default = git(root, "symbolic-ref", "-q", "refs/remotes/origin/HEAD")
-    candidates = ([default.strip()] if code == 0 else []) + list(BASES)
-    for candidate in candidates:
-        if git(root, "rev-parse", "--verify", "-q", candidate + "^{commit}")[0] == 0:
-            code, fork = git(root, "merge-base", "HEAD", candidate)
-            return fork.strip() if code == 0 else None
-    return None
+def after_edit(root, args, event):
+    try:
+        base = event.cwd if event and event.cwd and os.path.isdir(event.cwd) else os.getcwd()
+        paths = list(args.paths) + (event.paths if event else [])
+        specs = specifications(root, base, args.docs, paths)
+        verdict = validation(specs, args.docs, ACT,
+                             "The specification just edited has findings; fix them before going on:")
+        return verdict._replace(detail=" ".join(specs or paths))
+    except BaseException as exc:
+        return could_not_run("selecting edited specifications", exc)
 
 
-def open_records(root, wanted_base):
-    """Open records, the base commit (or None), and all changed paths."""
-    names = set()
-    for args in (("diff", "--name-only", "HEAD"), ("ls-files", "--others", "--exclude-standard")):
-        code, out = git(root, *args)
-        if code == 0:
-            names.update(out.splitlines())
-    fork = base_commit(root, wanted_base)
-    if fork:
-        code, out = git(root, "diff", "--name-only", fork, "HEAD")
-        if code == 0:
-            names.update(out.splitlines())
-    records = sorted(name for name in names
-                     if name.endswith(".md") and "change-records" in name.split("/")
-                     and os.path.isfile(os.path.join(root, name)))
-    return records, fork, names
+def open_records(view):
+    """The changed change records that still exist in the working tree."""
+    return sorted(name for name in view.changed
+                  if name.endswith(".md") and "change-records" in name.split("/")
+                  and os.path.isfile(os.path.join(view.root, name)))
 
 
-def problem_digest(message):
-    """What identifies the problems: their list lines, not the headings around them."""
-    lines = [line.strip() for line in message.splitlines() if line.strip().startswith("- ")]
-    return hashlib.sha256("\n".join(lines or [message]).encode("utf-8")).hexdigest()
+def problem_ids(text: str) -> list[str]:
+    """Identify list problems and validator findings, without headings or line numbers."""
+    found = set()
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("- "):
+            found.add(line)
+        else:
+            finding = re.match(r"^(.+?):\d+: ((?:ERROR|WARN|INFO) \S+ \[[^\]]*\]: .*)$", line)
+            if finding:
+                found.add("%s: %s" % finding.groups())
+    return sorted(found)
 
 
 def fallback_state(root):
@@ -290,22 +300,48 @@ def fallback_state(root):
     return os.path.join(tempfile.gettempdir(), STATE_NAME + "-" + key)
 
 
-def times_seen(state, digest, session=None):
-    """Count consecutive problems in this session; None means storage failed."""
-    count = 1
+def guard(state_path: str, session: Optional[str], ids: list[str]) -> str:
+    """Persist a blocked stop; raise OSError when the caller must try fallback storage."""
+    # Version 2 distinguishes the count window and delivered ids from the old digest state.
+    state = {"version": 2, "session": session, "counts": [], "blocks": 0, "given_up": None}
     try:
-        with open(state, encoding="utf-8") as handle:
+        with open(state_path, encoding="utf-8") as handle:
             previous = json.load(handle)
-        if previous.get("digest") == digest and previous.get("session") == session:
-            count = int(previous["count"]) + 1
-    except (OSError, TypeError, ValueError, KeyError, AttributeError):
+        if (isinstance(previous, dict) and set(previous) == set(state)
+                and type(previous["version"]) is int and previous["version"] == 2
+                and previous["session"] == session
+                and type(previous["blocks"]) is int and 0 <= previous["blocks"] < BLOCK_CAP
+                and isinstance(previous["counts"], list)
+                and len(previous["counts"]) == min(previous["blocks"], NO_PROGRESS_STOPS)
+                and all(type(count) is int and count >= 0 for count in previous["counts"])
+                and (previous["given_up"] is None or
+                     (isinstance(previous["given_up"], list) and
+                      all(isinstance(item, str) for item in previous["given_up"])))):
+            state = previous
+    except (OSError, TypeError, ValueError, KeyError, UnicodeError):
         pass
+    ids = sorted(set(ids))
+    if state["given_up"] is not None and set(state["given_up"]) == set(ids):
+        return "quiet"
+    state["given_up"] = None
+    state["blocks"] += 1
+    state["counts"] = (state["counts"] + [len(ids)])[-NO_PROGRESS_STOPS:]
+    counts = state["counts"]
+    give_up = (state["blocks"] >= BLOCK_CAP or
+               (len(counts) == NO_PROGRESS_STOPS and counts[-1] >= counts[0]))
+    if give_up:
+        state.update(counts=[], blocks=0, given_up=ids)
     try:
-        with open(state, "w", encoding="utf-8") as handle:
-            json.dump({"digest": digest, "count": count, "session": session}, handle)
-    except (OSError, TypeError):
-        return None
-    return count
+        with open(state_path, "w", encoding="utf-8") as handle:
+            json.dump(state, handle)
+    except (OSError, TypeError) as exc:
+        raise OSError("cannot write loop guard state") from exc
+    return "give_up" if give_up else "block"
+
+
+def guard_reset(state_path):
+    """Forget both the blocked-stop counts and any previously delivered give-up."""
+    forget(state_path)
 
 
 def forget(state):
@@ -315,57 +351,76 @@ def forget(state):
         pass
 
 
-def before_stop(root, args, payload):
-    if not os.path.isfile(os.path.join(HERE, "finish_change.py")):
-        raise GateError("finish_change.py is missing next to hook_gate.py; copy the scripts with scaffold_docs.py --hooks")
-    sys.path.insert(0, HERE)
-    import finish_change     # noqa: E402  (a script of the same folder)
-    records, fork, changed = open_records(root, args.base)
-    detail = " ".join(records) + ("; no base known" if fork is None else "")
-    state = git_path(root, STATE_NAME)
-    fallback = fallback_state(root)
-    docs_folder = os.path.realpath(os.path.join(root, args.docs))
-    scripts_folder = os.path.realpath(os.path.join(root, "tools", "specs"))
-    implementation = any(all(os.path.commonpath([os.path.realpath(os.path.join(root, name)), folder]) != folder
-                             for folder in (docs_folder, scripts_folder)) for name in changed)
-    if not implementation:
-        forget(state)
-        forget(fallback)
-        return PASS, "", detail + ("; waiting for implementation" if records else "")
-    since = ["--base", fork] if fork else []
+def finish_checks(view, args, event, records, detail):
+    """Collect each open record's finish problems, containing failures per record."""
+    root = view.root
     reports, unfinished = [], False
     for rel in records:
-        named = finish_change.record_use_cases(os.path.join(root, rel))
-        use_cases = sorted(named) or sorted(set(UC_ID.findall(os.path.basename(rel))))
+        try:
+            import finish_change
+            named = finish_change.record_use_cases(os.path.join(root, rel))
+            use_cases = sorted(named) or sorted(set(UC_ID.findall(os.path.basename(rel))))
+        except BaseException as exc:
+            reports.append("change record %s: the finish check could not run: %s: %s" %
+                           (rel, type(exc).__name__, exc))
+            continue
         if not use_cases:
             reports.append("%s names no use case; the finish check cannot run for it" % rel)
         for uc in use_cases:
-            code, out, err = run_script(root, "finish_change.py", uc, "--docs", args.docs, "--record", rel, *since)
-            if code == 1:
-                unfinished = True
-                reports.append("%s, change record %s:\n%s" % (uc, rel, out))
-            elif code != 0:
-                reports.append("%s, change record %s: the finish check could not run: %s" % (uc, rel, err or out))
-    if not unfinished:
-        forget(state)
-        forget(fallback)
-        if reports:
-            return WARN, cut("\n\n".join(reports)), detail
-        return PASS, "", detail
-    message = "\n\n".join(reports)
-    session = (payload.get("session_id") or payload.get("conversationId")) if isinstance(payload, dict) else None
-    count = times_seen(state, problem_digest(message), session)
-    if count is None:
-        count = times_seen(fallback, problem_digest(message), session)
+            try:
+                check_args = argparse.Namespace(use_case=uc, docs=args.docs, record=rel,
+                                                base=view.base.ref or "HEAD", format="text", code=None, tests=None)
+                code, out = finish_change.finish_report(check_args, view=view)
+                if code == 1:
+                    unfinished = True
+                    reports.append("%s, change record %s:\n%s" % (uc, rel, out.rstrip()))
+                elif code != 0:
+                    reports.append("%s, change record %s: the finish check could not run: %s" % (uc, rel, out.rstrip()))
+            except BaseException as exc:
+                reports.append("%s, change record %s: the finish check could not run: %s: %s" %
+                               (uc, rel, type(exc).__name__, exc))
+    return Verdict(ACT if unfinished else WARN if reports else PASS, "\n\n".join(reports), detail)
+
+
+def before_stop(view, args, event) -> Verdict:
+    implementation = view.is_implementation()
+    specs = view.changed_specs()
+    validated = validation(specs, args.docs, ACT if implementation else WARN,
+                           "The changed specifications have findings; fix them before going on:")
+    records = open_records(view)
+    detail = " ".join(records)
+    if implementation and records:
+        finished = finish_checks(view, args, event, records, detail)
     else:
-        forget(fallback)
-    if count is None:
-        return WARN, cut("the loop guard cannot store its state; not blocking\n\n" + message), detail
-    if count > REPEATS_BEFORE_GIVING_UP:
-        return WARN, cut("The change is still not finished and the same problems came back. "
-                         "Stop and report them to the person:\n\n" + message), detail
-    return ACT, cut("The change is not finished. Fix these problems before you stop, "
-                    "or say which one cannot be fixed and why:\n\n" + message), detail
+        finished = Verdict(PASS, "", detail + ("; waiting for implementation" if records else ""))
+    results = (validated.result, finished.result)
+    combined = Verdict(ACT if ACT in results else max(results),
+                       "\n\n".join(text for text in (validated.text, finished.text) if text),
+                       "; ".join(part for part in (validated.detail, finished.detail) if part))
+    state, fallback = git_path(view.root, STATE_NAME), fallback_state(view.root)
+    if combined.result in (PASS, WARN):
+        guard_reset(state)
+        guard_reset(fallback)
+    if combined.result != ACT:
+        return combined
+    ids = sorted(set(problem_ids(validated.text)) | set(problem_ids(finished.text)))
+    session = event.session_id if event else None
+    try:
+        outcome = guard(state, session, ids)
+    except OSError:
+        try:
+            outcome = guard(fallback, session, ids)
+        except OSError:
+            return combined._replace(result=WARN, text="the loop guard cannot store its state; not blocking\n\n" + combined.text)
+    else:
+        guard_reset(fallback)
+    if outcome == "give_up":
+        return combined._replace(result=WARN, give_up=True,
+                                 text="The change is still not finished and the same problems came back.\n\n" + combined.text)
+    if outcome == "quiet":
+        return combined._replace(result=WARN)
+    return combined._replace(text="The change is not finished. Fix these problems before you stop, "
+                             "or say which one cannot be fixed and why:\n\n" + combined.text)
 
 
 def log(root, mode, verdict, detail):
@@ -385,46 +440,116 @@ def log(root, mode, verdict, detail):
         pass
 
 
-HANDLERS = {"session-start": session_start, "after-edit": after_edit, "before-stop": before_stop}
+class GateParser(argparse.ArgumentParser):
+    def error(self, message):
+        raise GateError(message)
+
+
+def find_root(event=None):
+    """Try the process directory, then the normalized event's two fallbacks."""
+    starts = [os.getcwd()]
+    if event:
+        starts.extend(start for start in (event.cwd, event.workspace) if start)
+    for start in starts:
+        try:
+            return repo_root(start)
+        except (GateError, OSError):
+            continue
+    raise GateError("not inside a git repository: %s" % starts[0])
 
 
 def main(argv):
-    parser = argparse.ArgumentParser(description="One entry point for the agent hooks.")
+    parser = GateParser(description="One entry point for the agent hooks.")
     parser.add_argument("mode", choices=MODES)
     parser.add_argument("paths", nargs="*", help="after-edit: the edited files, besides those in the tool's JSON")
     parser.add_argument("--docs", help="the specification folder (default: the one the rules block records, else docs)")
     parser.add_argument("--base", help="before-stop: the branch a change starts from")
+    parser.add_argument("--emit", default="raw", help="raw, claude, codex, antigravity or kiro (default: raw)")
+    parse_problem = None
     try:
         args = parser.parse_args(argv)
-    except SystemExit as exc:
-        return PASS if exc.code == 0 else FAILED      # argparse's usage code is 2, which means "act" here
-    payload = read_stdin()
-    root = None
-    try:
-        root = repo_root(os.getcwd())
-        args.docs = args.docs or docs_folder(root)
-        sys.path.insert(0, HERE)
+    except GateError as exc:
+        parse_problem = str(exc)
+        # Retain a requested valid profile even when another argument is invalid.
+        output_parser = GateParser(add_help=False)
+        output_parser.add_argument("--emit", default="raw")
         try:
-            import spec_model as model
-        except ImportError:
-            raise GateError("spec_model.py is missing next to hook_gate.py; copy the scripts with scaffold_docs.py --hooks")
+            args, _ = output_parser.parse_known_args(argv)
+        except GateError:
+            args = argparse.Namespace(emit="raw")
+        args.mode = next((word for word in argv if word in MODES), "before-stop")
+    except SystemExit as exc:
+        return PASS if exc.code == 0 else FAILED
+    sys.path.insert(0, HERE)
+    try:
+        import hook_profiles
+    except BaseException as exc:
+        try:
+            log(find_root(), args.mode, PASS, "hook_profiles.py could not load: %s: %s" % (type(exc).__name__, exc))
+        except BaseException:
+            pass
+        return PASS
+    root, view, event = None, None, None
+    profile = args.emit if args.emit in hook_profiles.PROFILES else "raw"
+    try:
+        problem = bundle_problem(HERE)
+        if problem:
+            raise GateError(problem)
+        if parse_problem:
+            raise GateError(parse_problem)
+        event = hook_profiles.read_event(read_stdin())
+        # Relative edited paths retain their original base across the root chdir.
+        if not event.cwd:
+            event = event._replace(cwd=os.getcwd())
+        root = find_root(event)
+        os.chdir(root)
+        if args.emit not in hook_profiles.PROFILES:
+            raise GateError("unknown hook profile: %s" % args.emit)
+        args.docs = args.docs or docs_folder(root)
+        import spec_model as model
         warning = io.StringIO()
         stop = model.stop_if_old(model.Docs(os.path.join(root, args.docs)), stream=warning)
         if stop:
-            verdict, text, detail = WARN, warning.getvalue().rstrip(), "OLD_FORMAT" if stop == model.OLD_FORMAT_EXIT else "UNREADABLE"
+            verdict = Verdict(WARN, warning.getvalue().rstrip(),
+                              "OLD_FORMAT" if stop == model.OLD_FORMAT_EXIT else "UNREADABLE")
+        elif args.mode == "before-stop":
+            import change_view
+            docs_rel = os.path.relpath(os.path.join(root, args.docs), root).replace(os.sep, "/")
+            view = change_view.view_for(root, args.base, docs_rel)
+            verdict = before_stop(view, args, event)
+        elif args.mode == "session-start":
+            verdict = Verdict(*session_start(root, args, event))
         else:
-            verdict, text, detail = HANDLERS[args.mode](root, args, payload)
-    except GateError as exc:
-        verdict, text, detail = FAILED, "hook_gate: %s" % exc, ""
-    except Exception as exc:     # a gate must never block by accident
-        verdict, text, detail = FAILED, "hook_gate: unexpected error: %s: %s" % (type(exc).__name__, exc), ""
-    if text:
-        print(text)
-        if verdict == FAILED:
-            print(text, file=sys.stderr)
+            verdict = Verdict(*after_edit(root, args, event))
+    except BaseException as exc:
+        verdict = Verdict(FAILED, "hook_gate: %s: %s" % (type(exc).__name__, exc), "")
+    if root is None:
+        try:
+            root = find_root(event)
+        except (GateError, OSError):
+            pass
+    report_saved = False
     if root:
-        log(root, args.mode, verdict, detail)
-    return verdict
+        base_detail = ("base %s (%s)" % (view.base.ref, view.base.source)
+                       if view is not None and view.base.ref else "base none")
+        detail = base_detail + ("; " + verdict.detail if verdict.detail else "")
+        full_message = hook_profiles.message(profile, args.mode, verdict.result, verdict.text, verdict.give_up)
+        if len(full_message) > hook_profiles.CAPS[profile]:
+            try:
+                path = git_path(root, "up-hooks-report.txt")
+                if path is None:
+                    raise OSError("cannot locate the git folder")
+                with open(path, "w", encoding="utf-8") as handle:
+                    handle.write(full_message)
+                report_saved = True
+            except (OSError, UnicodeError) as exc:
+                detail = "%s; could not write up-hooks-report.txt: %s%s" % (
+                    base_detail, exc, "; " + verdict.detail if verdict.detail else "")
+        log(root, args.mode, verdict.result, detail)
+    output = hook_profiles.render(profile, args.mode, verdict.result, verdict.text, verdict.give_up, report_saved=report_saved)
+    sys.stdout.write(output.stdout)
+    sys.stderr.write(output.stderr)
+    return output.code
 
 
 if __name__ == "__main__":

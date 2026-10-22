@@ -1,0 +1,61 @@
+{
+  "scripts": {
+    "change_view.py": [],
+    "finish_change.py": [
+      "5314270232b22c8f37dc5e8b8c8bef147a06f32b5a14256b623d006381f08a91",
+      "d03842f0507a1155f27bf134bba031691c7fadce1d27f046a85e56777e3df9d2"
+    ],
+    "hook_gate.py": [
+      "0396d870a8c9103bfd0602a245395bd95ddfeb4730ff627400c788116479f9b5",
+      "9b129ac86583c4a88f8fd00270d4e86bfe4a1a82dc1c59309ae43c18bd67aa87"
+    ],
+    "hook_profiles.py": [],
+    "scope_audit.py": [
+      "31c24135ac6fa645db67fb34d8d1b2069684f308600c8d25ae4aefaf7d6a4949",
+      "fb0489399fa68fd6b40cc9d9b90fed34be4cea411ea73f1a53af9a7a392913d1"
+    ],
+    "spec_first_guard.py": [
+      "150c1913e6a65f70271db9da1ec925114a4fd78db2a6c4d0fdcd78918fc0f7c4",
+      "a1123e8f5d5b894b5e8dfb4805e9980d942c89bd0f86ea4a9a44c272cf60c951"
+    ],
+    "spec_lint.py": [
+      "4d51309e8f33a67fb49d2da5050f2530e11a23f5603b9eecae15847ebf421ba6",
+      "ca0360cec50717125813e8faee2c669f12fb53375a8350d13ed661d714f2f6e4"
+    ],
+    "spec_model.py": [
+      "03fc66e751042ba4f94fd977a5800ed5a92065119c077091eae61870831d75a6",
+      "6b70b2ea14b5815ecdb75a0bf915cbf1a53bdfae4dcb4cea6cf1cdb08430da15",
+      "a98d99853b68508f18f150cc9a32df0256be1068f44357c463952b38629ee2a2"
+    ],
+    "uc_change_list.py": [
+      "32bbf128bf87033c917175098975c7afada8651fee9320b4db31cd36ea5f0eea",
+      "3e0fb9bd194c3364ee9c6abfcbedec960ef43319919cada959acdf993bd827ba"
+    ],
+    "unrecorded_changes.py": [
+      "c4a2603673cda3d5da2a5eb79ce2dc2cdafd1fc392723d50c599d5a9fba00237",
+      "eb42db7c80572bba300da3bae3eac3f6551c770f38dc05dccdbb8e1525f65f6a"
+    ],
+    "use_case_map.py": [
+      "1da5f647d65cb026a7857f5166885f13be8d62e3f72e9a1e15832052ac305751"
+    ],
+    "validate_use_case.py": [
+      "0bbd0f6bbc2ee9c2bb08a926f4a2787d3269c7cec29908d8a232688332f6b257",
+      "540da305efa531341884bd8a195d5236dd8c56a064acc1163a4da56f30a7a38f"
+    ],
+    "workflow_state.py": [
+      "17a1df33a8ac1c4a792fb745cb84ee2ca3e9b40cc9405e301635bebbbc614f84",
+      "4ea298302b87fb1f7173813a54cbfc826e5070db7161052e8732c17fb64e2cf1",
+      "90dc0b675ae7db6a5a1b793187bbb683294489f7db344af203e9486b5ab08799"
+    ]
+  },
+  "versions": [
+    "0.1.0",
+    "0.2.0",
+    "0.2.1",
+    "1.0.0",
+    "1.0.1",
+    "1.0.2",
+    "1.0.3",
+    "1.0.4"
+  ]
+}
