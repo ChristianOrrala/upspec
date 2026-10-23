@@ -18,9 +18,12 @@ import sys
 from typing import Optional
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.1.0"
+UPSPEC_VERSION = "1.2.0"
 
 # --- vocabulary -------------------------------------------------------------
+
+# These artifact kinds can support a behavior change in the spec-first guard.
+SPEC_KINDS = ("use_case", "test_case", "process", "overview", "requirements", "entity_model")
 
 UC_STATUSES = ("Draft", "Reviewed", "Approved", "Implemented", "Tested", "Done", "Obsolete")
 TC_STATUSES = ("Draft", "Reviewed", "Approved", "Automated", "Obsolete")
@@ -752,21 +755,24 @@ def closure_problems(root, entry):
 
 # --- locating the artifacts -------------------------------------------------
 
+# Both discovery and classification accept these root file spellings.
+DOC_FILES = {"vision": ("vision.md",), "requirements": ("requirements.md", "requirements_catalog.md"),
+             "entity_model": ("entity_model.md", "entity-model.md"), "overview": ("use_cases.md",)}
+# Classifying removed paths must use the same folder spellings as discovery.
+DOC_FOLDERS = {"use_case_dir": ("use_cases", "use-cases", "usecases"),
+               "test_case_dir": ("test_cases", "test-cases"), "process_dir": ("processes",),
+               "recovery_dir": ("recovery",), "reviews_dir": ("reviews",)}
+
 class Docs:
     """Paths of the specification artifacts under a docs folder, with tolerated older spellings."""
 
     def __init__(self, docs_dir):
         self.root = docs_dir
         self.notes = []          # (path, message) for tolerated spellings
-        self.vision = self._first("vision.md")
-        self.requirements = self._first("requirements.md", "requirements_catalog.md")
-        self.entity_model = self._first("entity_model.md", "entity-model.md")
-        self.overview = self._first("use_cases.md")
-        self.use_case_dir = self._first("use_cases", "use-cases", "usecases", want_dir=True)
-        self.test_case_dir = self._first("test_cases", "test-cases", want_dir=True)
-        self.process_dir = self._first("processes", want_dir=True)
-        self.recovery_dir = self._first("recovery", want_dir=True)
-        self.reviews_dir = self._first("reviews", want_dir=True)
+        for attribute, names in DOC_FILES.items():
+            setattr(self, attribute, self._first(*names))
+        for attribute, names in DOC_FOLDERS.items():
+            setattr(self, attribute, self._first(*names, want_dir=True))
 
     def _first(self, *names, **options):
         want_dir = options.get("want_dir", False)
@@ -780,6 +786,33 @@ class Docs:
 
     def use_case_files(self):
         return _matching(self.use_case_dir, r"^UC-\d{3}.*\.md$")
+
+    def kind(self, path: str) -> Optional[str]:
+        """Classify existing or missing paths by spelling, resolving aliases on both sides."""
+        full, root = os.path.realpath(path), os.path.realpath(self.root)
+        try:
+            if os.path.commonpath([full, root]) != root:
+                return None
+        except ValueError:  # Paths on different drives cannot share a docs folder.
+            return None
+        parent, name = os.path.dirname(full), os.path.basename(full)
+        if os.path.basename(parent) == "change-records" and name.endswith(".md"):
+            return "change_record"
+        for kind, attribute, pattern in (("use_case", "use_case_dir", r"UC-\d{3}.*\.md"),
+                                          ("test_case", "test_case_dir", r"TC-\d{3}.*\.md"),
+                                          ("process", "process_dir", r".*\.bpmn")):
+            if re.fullmatch(pattern, name) and any(
+                    parent == os.path.realpath(os.path.join(root, spelling)) for spelling in DOC_FOLDERS[attribute]):
+                return kind
+        for kind, attribute in (("review", "reviews_dir"), ("recovery", "recovery_dir")):
+            for spelling in DOC_FOLDERS[attribute]:
+                directory = os.path.realpath(os.path.join(root, spelling))
+                if os.path.commonpath([full, directory]) == directory:
+                    return kind
+        for kind, spellings in DOC_FILES.items():
+            if any(full == os.path.realpath(os.path.join(root, spelling)) for spelling in spellings):
+                return kind
+        return "other"
 
     def test_case_files(self):
         return _matching(self.test_case_dir, r"^TC-\d{3}.*\.md$")
@@ -1359,6 +1392,12 @@ def iter_source_files(root, globs=None, skip=SOURCE_SKIP):
 def _marker_patterns(uc_id):
     return tuple(re.compile(r"(?<![A-Za-z0-9])%s(?!\d)" % re.escape(value))
                  for value in (uc_id, compact_id(uc_id)))
+
+
+def ids_named_by_path(path: str) -> set[str]:
+    """Use case ids in a path, with the same boundaries as source markers."""
+    return {"UC-" + match.group(1) for match in
+            re.finditer(r"(?<![A-Za-z0-9])UC-?(\d{3})(?!\d)", path, re.IGNORECASE)}
 
 
 def _marker_paths(root, ids, suffixes=None):

@@ -22,7 +22,8 @@ Usage:
     spec_first_guard.py --staged [--message-file FILE] [--docs DIR] [--mode warn|block]
 
 --base defaults to HEAD~1 and --head to HEAD; the change set is what --head adds
-since it left --base. --staged looks at the index instead, for a commit hook that
+since it left --base. An empty tree is also accepted as --base to judge a
+root commit from nothing. --staged looks at the index instead, for a commit hook that
 passes the commit message file. --code limits behavior code to paths matching the
 given patterns (for example "src/*"); without it, files with a source code suffix
 outside the docs folder count, tests excluded.
@@ -39,15 +40,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.1.0"
+UPSPEC_VERSION = "1.2.0"
 
 SOURCE_SUFFIXES = (".py", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".java", ".kt", ".kts", ".go", ".rb", ".php",
                    ".cs", ".rs", ".swift", ".scala", ".c", ".h", ".cc", ".cpp", ".hpp", ".sql", ".vue", ".svelte",
                    ".ex", ".exs", ".dart", ".groovy")
 TEST_FOLDERS = {"test", "tests", "__tests__", "spec", "specs", "e2e", "testing", "fixtures"}
 TEST_NAME = re.compile(r"(^test_.*|.*_test|.*[.-](test|spec)|.*Tests?|.*IT)\.[A-Za-z0-9]+$")
-SPEC_FILES = ("requirements.md", "requirements_catalog.md", "entity_model.md", "entity-model.md", "use_cases.md")
-SPEC_FOLDERS = ("use_cases", "use-cases", "usecases", "test_cases", "test-cases", "processes")
 DECLARATION = re.compile(r"^\s*(?:[-*>]\s*)?no behaviou?r change\s*:\s*(.*)$", re.IGNORECASE)
 COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 NOT_YET = ("Draft", "Reviewed")
@@ -59,10 +58,7 @@ def is_test(path):
 
 
 def is_spec(path, docs):
-    if not path.startswith(docs + "/"):
-        return False
-    rest = path[len(docs) + 1:]
-    return rest in SPEC_FILES or rest.split("/")[0] in SPEC_FOLDERS
+    return docs.kind(path) in model.SPEC_KINDS
 
 
 def is_behavior_code(path, docs, patterns):
@@ -118,12 +114,21 @@ def main(argv):
         code, out = model.git(["diff", "--cached", "--name-only"], cwd=top)
     else:
         base = args.base or "HEAD~1"
-        for ref in (base, args.head):
+        # A first push has no parent; only an empty tree may stand in for its missing commit base.
+        kind_code, kind = model.git(["cat-file", "-t", base], cwd=top)
+        tree_code, entries = (model.git(["ls-tree", base], cwd=top)
+                              if kind_code == 0 and kind.strip() == "tree" else (1, ""))
+        empty_base = tree_code == 0 and not entries.strip()
+        for ref in ((args.head,) if empty_base else (base, args.head)):
             if model.git(["rev-parse", "--verify", "--quiet", ref + "^{commit}"], cwd=top)[0] != 0:
                 print("unknown revision: %s" % ref, file=sys.stderr)
                 return 2
-        code, out = model.git(["diff", "--name-only", "%s...%s" % (base, args.head)], cwd=top)
-        messages = model.git(["log", "--format=%B", "%s..%s" % (base, args.head)], cwd=top)[1]
+        if empty_base:
+            code, out = model.git(["diff", "--name-only", base, args.head], cwd=top)
+            messages = model.git(["log", "--format=%B", args.head], cwd=top)[1]
+        else:
+            code, out = model.git(["diff", "--name-only", "%s...%s" % (base, args.head)], cwd=top)
+            messages = model.git(["log", "--format=%B", "%s..%s" % (base, args.head)], cwd=top)[1]
     if code != 0:
         print("git could not list the changed files", file=sys.stderr)
         return 2
@@ -137,7 +142,7 @@ def main(argv):
 
     changed = [line.strip() for line in out.splitlines() if line.strip()]
     behavior = [p for p in changed if is_behavior_code(p, docs, args.code)]
-    specs = [p for p in changed if is_spec(p, docs)]
+    specs = [p for p in changed if is_spec(os.path.join(top, p), docs_model)]
     complete, incomplete = declarations(messages)
 
     report = model.Reporter(top)
@@ -154,7 +159,7 @@ def main(argv):
     if behavior:
         for path in specs:
             full = os.path.join(top, path)
-            if not re.match(r"UC-\d{3}", os.path.basename(path)) or not os.path.isfile(full):
+            if docs_model.kind(full) != "use_case" or not os.path.isfile(full):
                 continue
             try:
                 uc = model.parse_use_case(full)

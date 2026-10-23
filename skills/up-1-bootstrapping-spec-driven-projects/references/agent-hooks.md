@@ -5,31 +5,33 @@ files and each tool's delivery limits are in `agent-hook-examples.md`.
 
 ## Contents
 
-- The three hooks and results
+- The four hooks and results
 - Generate, review, approve
 - Integration branch
-- Stop-time validation and the loop guard
+- Status claims and the loop guard
 - Updating installed copies
 - Proving each hook
 - Recording what was wired
 - Other tools and limits
 
-## The three hooks and results
+## The four hooks and results
 
 | Moment | Gate command | What runs |
 |---|---|---|
-| Session starts or resumes | `hook_gate.py session-start` | The specification state and next step |
+| Session starts or resumes | `hook_gate.py session-start` | A session snapshot, the specification state, next step and open-work list |
 | After a file write or edit | `hook_gate.py after-edit` | Validation of the edited use case specifications |
-| Before the agent ends its turn | `hook_gate.py before-stop` | Validation of changed specifications; during implementation, the finish check for open change records |
+| Before the agent reads a prompt | `hook_gate.py turn-start` | The open-work list, only when it changed; always exits 0 |
+| Before the agent ends its turn | `hook_gate.py before-stop` | Evidence for Status claims owned by this session |
 
 One gate owns the policy. Each firing uses one view of the change and runs
 the checks in one process; a failed record does not prevent checking others.
+The open-work list reads git paths and specification artifacts only, never source files or the finish check.
 The tool configuration selects the moment and an explicit output profile,
 never reimplements a check or guesses the tool from environment variables.
 
 | Internal result | Meaning | Delivery |
 |---|---|---|
-| 0 | Pass | Session text becomes context where supported |
+| 0 | Pass | Session and turn-start text becomes context where supported |
 | 1 | Warn | Never blocks; shown only where a warning channel exists |
 | 2 | Act | Feedback after an edit, or keep working at the stop, where supported |
 | 3 | The gate could not run | Never blocks; shown where the tool permits a warning |
@@ -41,8 +43,8 @@ including capabilities and message caps. An unavailable warning channel
 cannot be created by changing an exit code. See the examples for the limits.
 
 Each firing logs its moment, internal result and base in `up-hooks.log` in
-the git folder (`git rev-parse --git-path up-hooks.log`). Stop entries also
-name the change records considered.
+the git folder (`git rev-parse --git-path up-hooks.log`). Stop entries name the baseline (`snapshot` or `HEAD`) and the open-list size.
+Turn-start failures log a reason, print nothing and always exit 0.
 A shortened message points to the full text in `up-hooks-report.txt` there;
 that report is replaced the next time output is shortened. If it cannot be
 saved, the shortened message says so.
@@ -119,39 +121,73 @@ base, only uncommitted changes count. Committed pins and tracking warnings
 compare against HEAD when it exists, while the header still names the base
 as `none`. The log names the selected ref and its source. Use an override when detection does not describe the change.
 
-## Stop-time validation and the loop guard
+## Status claims and the loop guard
 
-The stop validates changed use case specifications regardless of Status.
-Errors warn during specification work and block during implementation;
-validator warnings stay warnings. Work files are:
+Session start records each use case's Status by id and HEAD in its own
+git-folder file, `up-session-<key>.json`. The key is the first sixteen hex
+characters of the session id's SHA-256, or `none` without an id. Each file
+holds one session's baseline and cache, written by an atomic replacement
+without a lock. A resume keeps its baseline; after each write pruning targets
+the eight newest files by modification time. Files younger than one minute
+are retained even above the target. A pruning candidate is renamed aside,
+then its device, inode and modification time are compared with the selection.
+A match removes the renamed file. A refreshed file is restored with a hard
+link, which preserves a newer file already at the session name; the renamed
+copy is then removed. Temporary files older than one day are cleaned up. Each worktree keeps its own snapshots. If turn
+start finds no slot, it records a real snapshot before the agent acts. A null HEAD always means that the
+repository had no commit yet, including when no use cases existed then.
+An interrupted temporary write never prevents another session from saving.
+A write failure is logged and never changes the session hook's result.
 
-- the specification folder (`--docs`, otherwise the recorded folder);
-- `tools/specs/`;
-- the guideline file holding the rules block;
-- root `ACTIVE.md`, `ABILITIES.md`, `AHEAD.md` and `ATLAS.md`.
+The stop checks a Status raised to Implemented or above against that
+snapshot, or against HEAD without one. It considers working-tree changes
+(including untracked files) and local commits made after the snapshot that
+are on no remote. Pulled work is excluded. A checkout outside the snapshot's
+history falls back to HEAD. A rename alone is not a claim because use cases
+are keyed by id.
 
-Any other changed file makes the change implementation. Only then do open
-change records also run through the finish check. Ignored specifications
-count as changed at every stop; ignored records never open the finish check.
-Setup warns about both. A deleted file can be attributed by the use case id
-in its path or its text at the base, or by naming its exact repository-relative
-path in the change record. Root A-files count as tracking in scope checks.
+Implemented needs a ready finish check. Tested and Done also need every
+flow and rule named by a test. Open records select the units when they cover
+the use case; otherwise the whole use case is checked, including a raise
+already committed during the session. A missing piece of evidence gives 2,
+with the move and the problems: add the evidence, or restore the previous
+Status and tell the person what remains. A path naming an uncovered use case
+blocks only when it belongs to this session's changes; earlier spill warns.
+With no claim problem, the stop prints nothing and passes. Specification
+errors and unfinished records never block it. The early migration notice
+still warns at session start and at the stop.
 
-The loop guard counts distinct validation and finish problems, ignoring
-validator line numbers. It gives up when the third consecutive blocked stop
-has no fewer problems than the first, or on the sixth consecutive block even
-when the count falls. It delivers the instruction to stop and report once;
-the same problem set then only warns. A different set starts counting again.
-A pass or warning resets the count. A gate that could not run neither counts
-nor resets; a record whose check could not run warns, and a warning resets.
-A supplied session id starts fresh for a new session; without one the count
-can span sessions. If guard state cannot be stored, the gate warns instead
-of trapping the agent.
+The open-work list holds open records, changed use cases' finding counts and
+first error, raises against the change's base, and broken use cases at
+Reviewed or above marked "fails at push". Its instruction treats these as
+work in progress: fix an item only when it belongs to the current task; do
+not mark a use case Implemented or Tested until its items are clean, as the
+push check enforces. Fifteen items are shown, then a count of omitted items.
+Session context stays within sixty lines, keeping the next-step tail.
 
-The profile delivers give-up instructions through the available channel.
-A tool without a stop-time warning channel may need one final continuation
-to ask the agent to report and stop. Do not bypass the guard or invent
-specification content to satisfy a check: report unresolved problems.
+At turn start, a digest suppresses unchanged lists. When a shown list
+empties, "Nothing is open now." is delivered once. Validation is reused by
+content digest, including its specification dependencies. Completed cache
+updates are saved even when the shown list is unchanged; a capped run saves
+its completed entries without advancing the shown digest. Computation runs
+in a daemon thread with a three-second cap to limit per-prompt cost. A
+failure or timeout produces no output and always exits 0. The generated eight-second
+timeout includes stdin, computation and startup overhead.
+Unsupported tools
+receive the list at session start only. After-edit feedback contains only
+findings the edited file can resolve: cross-file requirements, mechanism
+vocabulary and another artifact's recognition errors stay in the open list.
+An edited use case in an earlier format still warns with the migration notice.
+
+The loop guard counts claim evidence problems, ignoring line numbers. It
+gives up when the third consecutive blocked stop has no fewer problems than
+the first, or on the sixth consecutive block even when the count falls. It
+delivers the instruction to stop and report once; the same problem set then
+only warns. A different set starts counting again. A pass or warning resets
+the count; a gate failure neither counts nor resets. A new session id starts
+fresh; without one the count can span sessions. If guard state cannot be
+stored, the gate warns instead of trapping the agent. Report unresolved
+problems rather than inventing specification content.
 
 ## Updating installed copies
 
@@ -183,7 +219,7 @@ An ordinary update also plans wiring for every tool recorded in the bundle.
 tools, select `--hooks --tool <tool>` when deciding a wiring moment. Use
 `--replace wiring:<moment>` to generate its replacement, or
 `--keep wiring:<moment>` to retain it and add nothing for that moment.
-Moments are `session-start`, `after-edit` and `before-stop`. Repeat
+Moments are `session-start`, `after-edit`, `before-stop` and `turn-start`. Repeat
 `--reason TEXT` in the order of the `--keep wiring:<moment>` arguments;
 reasons are recorded in the bundle (default: "kept by the person").
 A moment the profile no longer generates, but whose entry is still installed,
@@ -208,11 +244,14 @@ trusted, and check both the tool's behavior and the git-folder log:
 2. **Specification check:** temporarily give a use case an invalid Status,
    then restore it. The log shows `after-edit exit=2`. Confirm feedback
    reaches the agent or the person as the profile's capabilities state.
-3. **Stop check:** first change only work files with an invalid specification;
-   stopping warns. Then, with implementation changed and an unfinished open
-   record, stop: the log shows `before-stop exit=2` and the agent continues
-   where the profile supports it. Restore the proof edits and confirm a
-   clean stop shows `before-stop exit=0`.
+3. **Open work:** submit a prompt after changing an open item; confirm the
+   list reaches the agent. An unchanged list prints nothing; an emptied one
+   is announced once. Check `turn-start exit=0` and verify timeout or failure
+   also lets the prompt through.
+4. **Claim check:** raise an Approved use case to Implemented without its
+   evidence. The log shows `before-stop exit=2`, and the agent receives both
+   ways out. Restore the Status and confirm a quiet `before-stop exit=0`
+   even with a broken Draft spec and an unfinished record.
 
 The log records internal results, which can differ from the command's exit
 code. Verify the tool version, warning delivery and trust behavior too.
@@ -227,7 +266,7 @@ approved or not enabled.
 Under the profile line in the guideline's rules block, add:
 
 ```text
-**Hooks:** session state, specification check, stop check: <tool>, <configuration file>, seen firing <YYYY-MM-DD>
+**Hooks:** session state, specification check, open work, claim check: <tool>, <configuration file>, seen firing <YYYY-MM-DD>
 ```
 
 Name only moments seen firing, with any delivery limitation. Another agent

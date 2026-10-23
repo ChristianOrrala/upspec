@@ -185,6 +185,10 @@ rule is dropped, the marker goes with the code.
     python3 scripts/finish_change.py UC-012 --base <start>
     ```
 
+    `scripts/status_claims.py` checks a Status raise against the same evidence;
+    the agent hooks and the push check call it. Its specification validator is
+    `scripts/validate_use_case.py`.
+
     It and `scope_audit.py` import `scripts/change_view.py`.
     It checks scope, a marker for every rule in the change, a test naming every
     flow and rule in the change, a logged guard check that caught a break of

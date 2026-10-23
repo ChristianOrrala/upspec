@@ -203,7 +203,9 @@ case keeps its heading with a line saying where it went.
 | any → Obsolete | Superseded; the file stays | Owner |
 
 An agent proposes a move together with its evidence. It never sets Approved or
-Done.
+Done. The stop and push checks verify evidence for a raise to Implemented or
+Tested (Done uses Tested's check). Changed use cases at Reviewed or above must
+validate at push; Draft findings warn. An invalid Status still fails the lint.
 
 ### Markers
 
@@ -689,9 +691,12 @@ targets. Bytecode cache folders (`__pycache__`) never belong to a change.
 **The finish check** (`finish_change.py`) is the gate before an
 implementation is reported. It checks:
 
-- **Scope**: every changed file belongs to the use case or to another use case
-  the same record names. Root A-files count as tracking. Deleted files belong
-  when they carried an id at the base or the record names their exact path.
+- **Scope**: files outside the change warn as "changed, not part of this
+  change". A file changed in this session whose path names an uncovered use
+  case is a problem at the stop: undo it or name that use case in the change
+  record. Earlier unpushed work and every scope finding at push only warn.
+  Root A-files count as tracking. Deleted files belong when they carried an
+  id at the base or the record names their exact path.
 - **Markers**: every rule in the change has its marker in the code; a marker on
   a function nothing calls is warned about. Marker checks run only for changes
   with rules; callers count even in files without an id, including untracked files.
@@ -710,6 +715,22 @@ Run it with `--base` set to the branch or commit the change started from
 numbered list of problems. With the A-files, it also prints
 `Tracking: warning: …` when a use case's Status changed and neither
 `ACTIVE.md` nor `ABILITIES.md` did; the warning never changes the result.
+
+`--claim` checks the whole use case unless a changed, present change record
+names it in its metadata, differences or filename. Every such record must
+pass. A committed Status raise therefore still needs evidence even if the
+specification has no further changes.
+
+`status_claims.py --since REF [--base REF]` checks raises to Implemented or
+above and validates changed use cases. `--since` selects claims and changed
+use cases; `--base` selects the evidence view and defaults to the hook base
+resolution. Without `--since`, the resolved base selects both. Tested and
+Done also need a test naming every active flow and rule in the whole use
+case. Renames alone, downward moves and Obsolete are not claims. Validation
+errors fail at Reviewed or above; Draft findings warn. Scope findings warn
+in this range check. `--docs`, `--code`, `--tests` and `--format text|json`
+work as in the finish check. Exit codes are 0 clean, 1 problems, 2 usage or
+unknown revision, and 5 old formats.
 
 `--code` and `--tests` limit their sections to those folders, including folders
 in another repository or a submodule. Test names and test folders are recognized
@@ -756,20 +777,22 @@ codes, and the skill that writes the artifact, before any Status-based step.
 
 Use case checks stop with exit 5 and `OLD_FORMAT` on earlier specification
 formats. The router instead reports `MIGRATE` with `up-migrating-spec-formats`.
-Every agent hook mode shows one migration notice with result 1 (warn).
+Session start and the stop show a migration notice with result 1 (warn).
+After-edit feedback stays local; turn start always exits 0, silently on failure.
 Setup creates `use_cases.md`; `--skip overview` skips it, and `--skip diagram`
 is accepted as an alias with a note. Installed checks and hooks include the
 overview generator beside the model.
 
 ### Agent hooks (optional)
 
-Setup offers three checks through one gate, `tools/specs/hook_gate.py`:
+Setup offers four moments through one gate, `tools/specs/hook_gate.py`:
 
 | Moment | What runs |
 |---|---|
-| Session starts or resumes | The specification state and next step |
+| Session starts or resumes | A Status snapshot, specification state, next step and open-work list |
 | After a write or edit | The validator on the edited use case specifications |
-| Before the agent stops | Validation of changed specifications; during implementation, the finish check for open change records |
+| Before the agent reads a prompt | The open-work list only when it changed; always exits 0 |
+| Before the agent stops | Evidence for Status claims owned by the session |
 
 **Generate, review, approve.** Ask the setup skill for hooks. It runs
 `scaffold_docs.py --hooks --tool claude|codex|antigravity|kiro` from the plugin
@@ -784,7 +807,7 @@ hooks or widens permissions for them.
 |---|---|---|---|---|
 | Claude Code | `.claude/settings.json` | Agent | Yes | Person |
 | Codex CLI | `.codex/hooks.json` | Agent | Yes | Person |
-| Antigravity CLI | `.agents/hooks.json` | Nobody: not wired, since on 1.4.4 nothing reached the agent (per the tool's 1.4.3 changelog the failure is only logged); the stop carries the specification check | Yes | None documented |
+| Antigravity CLI | `.agents/hooks.json` | Nobody: not wired, since on 1.4.4 nothing reached the agent (per the tool's 1.4.3 changelog the failure is only logged); open work arrives at session start | Yes | None documented |
 | Kiro CLI V3 | `.kiro/hooks/upspec.json` | Person only, by Kiro's documentation; unproven in the TUI | Yes, once per prompt; prove the IDE runtime, since its docs differ | By Kiro's documentation, person at session start and after edits (unproven in the TUI); nobody at Stop |
 
 All four generated examples were seen firing on 2026-10-21: Claude Code
@@ -830,27 +853,68 @@ by hand if appropriate. `--no-integration-line` declines a proposal while
 accepting the rest of the plan. When detection finds no branch, setup prints
 a note; add the integration line by hand. Setup also warns when git ignores
 the spec folder or change records: ignored specifications are validated at
-every stop; ignored records never open the finish check.
+the open-work list; ignored records never open its record list.
 
-**Stop policy.** Specification errors warn while only work files change and
-block once implementation changes, whatever the use case's Status. Validator
-warnings stay warnings. Work files are the specification folder (`--docs`),
-`tools/specs/`, the guideline holding the rules block and the root A-files
-(`ACTIVE.md`, `ABILITIES.md`, `AHEAD.md`, `ATLAS.md`). Any other changed file
-means implementation, which also starts the finish checks for open records.
-The checks share one change view in one process. Each record's failure is
-reported independently so the remaining records are still checked.
+**Stop policy.** Session start records each use case's Status by id and HEAD
+in a separate git-folder `up-session-<key>.json` file for each session. The key
+is the first sixteen hex characters of the session id's SHA-256, or `none`
+without an id. Writes replace the file atomically without a lock; interrupted
+temporary writes never block later writes. After each write, pruning targets
+the eight newest session files. Files younger than one minute are kept even
+above that target. Pruning renames a candidate aside before comparing its
+device, inode and modification time with the selection. A matching file is
+removed; a refreshed file is restored with a hard link that never overwrites
+a newer file at the session name. The renamed copy is then removed. Abandoned
+temporary files older than one day are cleaned up. A first turn without a
+snapshot creates one before the agent acts; a null HEAD always means no
+commit existed yet. Resumes keep the same snapshot, and worktrees have
+separate files. A write failure is logged without failing session start.
+Without a snapshot, the stop compares against HEAD; checking out another history falls back to HEAD too.
 
-The loop guard counts distinct validation and finish problems, ignoring
-validator line numbers. It gives up when the third consecutive blocked stop
-has no fewer problems than the first, or on the sixth consecutive block even
-if the count falls. The give-up instruction is delivered once; that problem
-set then only warns. A different set after give-up starts counting again.
-A pass or warning clears the guard. A session id starts a new session's count;
-without one counting spans sessions. A gate that could not run neither
-counts nor resets; a record whose check could not run warns, and a warning
-resets. If state cannot be stored, the gate warns rather than trapping the
-agent. Report unresolved problems to the person.
+Only a Status raised to Implemented or above in the working tree or in local
+commits made since the snapshot and absent from remotes is a claim. Pulled
+raises and renames alone never count. Implemented needs a ready finish check;
+Tested and Done also need every flow and rule named by a test. A covering
+change record selects the units; otherwise the whole use case is checked.
+Missing evidence gives 2 with the move, problems and both ways out: add the
+evidence, or restore the previous Status and tell the person what remains.
+A file naming an uncovered use case blocks only when the session changed it;
+earlier unpushed spill warns. With no claim problems the stop passes quietly,
+even with broken specifications, implementation edits and unfinished records.
+Its log names the baseline and open-list size.
+
+**Open work.** Session context includes open records, changed specifications'
+finding counts and first error, raises against the change's base and broken
+use cases at Reviewed or above marked "fails at push". These are work in
+progress: fix an item only when it belongs to the current task. Do not mark
+a use case Implemented or Tested until its items are clean; the push check
+enforces it. The list reads docs and git paths only, never source files or
+the finish check, and caches validation by content. Completed cache updates
+are saved even when the shown list stays unchanged or computation hits its cap. It shows fifteen items
+plus an omitted count; session context stays within sixty lines.
+
+Turn start delivers a changed list, suppresses an unchanged one and announces
+"Nothing is open now." once when it empties. Its three-second computation cap
+keeps prompt work bounded; generated timeouts are eight seconds, covering
+stdin, computation and startup overhead. Every failure exits 0, prints nothing and logs its reason. Claude Code and Codex
+use `UserPromptSubmit` additional context; Kiro uses plain stdout below
+3,000 characters. These turn-start entries are **not yet proven** in live
+tools. Antigravity has no start-of-turn event: `PreInvocation` fires before
+every model call, so only session start delivers its open list.
+
+After-edit feedback leaves out cross-file requirements and mechanism
+findings, and recognition errors belonging to other files. An edited use case
+in an earlier format warns with the migration notice. Other in-file errors
+still block where the tool supports it.
+
+The loop guard counts distinct claim evidence problems, ignoring line
+numbers. It gives up when the third consecutive blocked stop has no fewer
+problems than the first, or on the sixth block even when the count falls.
+The instruction is delivered once; that set then only warns. A different set
+starts counting again. A pass or warning clears the guard; a gate failure
+neither counts nor resets. A session id starts fresh; without one counting
+can span sessions. If state cannot be stored, the gate warns. Report what
+remains unresolved to the person.
 
 **Generated wiring and conflicts.** Setup preserves unrelated hooks and
 settings, indentation, key order, Unicode and the final newline; inline
@@ -865,7 +929,7 @@ An unrecorded, customized or legacy adapter entry already covers its moment,
 even if only one of two expected edit entries exists. Setup refuses duplicate
 wiring. Choose `--replace wiring:<moment>` for generated replacements, or
 `--keep wiring:<moment>` to retain the existing entries and add nothing.
-Moments are `session-start`, `after-edit` and `before-stop`. Pass the reason
+Moments are `session-start`, `after-edit`, `before-stop` and `turn-start`. Pass the reason
 for each adaptation using repeated `--reason TEXT`, in the order of the kept
 wiring moments; the bundle records it (default: "kept by the person").
 A moment no longer generated for the tool (Antigravity's after-edit) whose
@@ -908,9 +972,11 @@ behavior change.
 
 **Proof and records.** After you enable hooks, the agent proves each moment
 in a new session, checking behavior and the git-folder `up-hooks.log`.
-Temporarily invalid specifications test after-edit delivery and the stop's
-warning during specification work; implementation with an unfinished record
-tests continuation. Restore every proof edit and confirm a clean stop. Add
+Temporarily invalid specifications test after-edit delivery. A Status raise
+without evidence tests the claim block and its two ways out. Restore the
+Status and confirm a quiet stop with unfinished work. Submit prompts with a
+changed, unchanged and then emptied open list to prove turn-start delivery.
+Restore every proof edit. Add
 only hooks seen firing to a `**Hooks:**` line below the profile in the rules
 block, with the tool, configuration, date and delivery limitations.
 The log records internal results rather than the tool command's exit code.
@@ -920,6 +986,40 @@ full text; that file is replaced on the next shortened message.
 Hooks provide feedback in the tool's sessions. The commit hook and the team's
 pipeline still apply to everyone. Hooks never approve specifications, and a
 passing finish check still needs a person to read the report.
+
+**The push gate.** The GitHub workflow checks Status claims and runs
+`spec_lint.py --gate` on every push and pull request. Draft findings warn;
+Reviewed or later specifications must validate. The spec-first guard blocks
+on pull requests and pushes to the integration branch from the rules block
+or the repository's default branch, and warns on other pushes. Push messages
+supply its declarations. The range is the pull request target or the push's
+previous commit when available; a first push selects from the integration
+fork, even when that fork equals HEAD. An empty baseline is used only for
+a first push to the integration or default branch, or when no integration
+ref exists. `--first-push` and `--since` are mutually exclusive; combining
+them is a usage error (exit 2). CI uses the range base for evidence on pull
+requests and integration or default branch pushes. Other pushes resolve the evidence base as the stop does. Without an available
+previous push tip, the guard checks the last commit and only its message;
+a root commit is checked from an empty tree.
+
+**Optional pre-push hook.** In either profile, plan with
+`scaffold_docs.py --pre-push`; add `--apply` to install. It uses git's hooks
+folder, honoring `core.hooksPath`, only inside the work tree or git folder,
+including the common Git folder shared by linked worktrees.
+The plan names a tracked folder as shared by every clone. An existing hook
+or outside folder gets the line to add by hand; setup never edits it. The
+hook checks pushed HEAD refs and skips deletions; other tips get a notice.
+Only problems block. Unavailable checks pass with a notice. Uncommitted docs
+edits are included and can differ from CI; `git push --no-verify` skips the
+hook. CI stays authoritative.
+
+The bundle records the rendered workflow and the package hook. `--update`
+adds the claims scripts wherever the workflow exists, and offers a new hook
+without writing it unless `--pre-push` is supplied. Recorded untouched files
+refresh. A hand-changed or unrecorded workflow needs
+`--replace ci:specifications` or `--keep ci:specifications`; an existing
+custom hook stays with its owner and gets the line to add. See setup's
+`references/profiles.md` for the command and placement details.
 
 ## 10. Rigor profiles: throwaway, solo, team
 
@@ -932,10 +1032,11 @@ over to someone else?
 | Requirements, entity model, use case map | — | Yes, unless you leave one out (recorded as skipped) | Yes |
 | Use case specifications | — | Yes | Yes |
 | Rules block in the guideline file | One line: the code is disposable | Yes | Yes |
-| Validator and lint | — | Run on each specification | Blocking in the pipeline |
+| Validator and lint | — | Run on each specification | Every push and pull request; Draft findings warn |
 | Review before Approved | — | Fresh-context review, your own sign-off | Independent reviewer and a named person's sign-off |
-| Spec-first guard | — | Warning in a commit hook | Blocking in the pipeline |
-| Agent hooks | — | Offered | Offered |
+| Spec-first guard | — | Warning in a commit hook | Blocks on pull requests and integration/default branch pushes; warns on other pushes |
+| Agent hooks | — | Offered: session state, after-edit findings, open work at turn start, claim evidence at stop | Offered; CI stays authoritative |
+| Push claims check | — | Optional pre-push hook | Every push and pull request in CI; optional pre-push hook |
 | Ownership of `docs/`, pull request template | — | — | Yes |
 | Spec dashboard | — | On demand | Each iteration |
 
@@ -1009,6 +1110,7 @@ desktop app it is unclear whether workspace hooks run.
 | The finish check lists hundreds of files | Set `**Integration branch:** <name>` in the rules block to the feature's integration branch, or override it with `--base`, `UP_BASE` or `git config up.base`; check the base and source in the hook log |
 | A deleted file is flagged | Name its exact repository-relative path in the change record, in backticks or as a Markdown link target, so the check can attribute the deletion |
 | A hook never writes to `up-hooks.log` | The tool did not run it: check that the person approved the hook (and trusted the folder), and that the tool runs hooks in this mode or engine |
+| The agent was not told what is open | Check the `turn-start` entry, the tool's start-of-turn support and `up-hooks.log`; Antigravity receives the list at session start only |
 | The stop hook warned and gave up | The loop guard saw no fall over three blocked stops, or reached six blocks. Read the findings and report what remains unresolved; the same problem set only warns after the one give-up instruction |
 | "unknown revision" from the finish check | Pass the branch or commit the change started from with `--base`, or `HEAD` while nothing is committed |
 | "rests on no source" | Add the flow or rule to the record's sources table: the request, a decision, today, or a listed assumption |

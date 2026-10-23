@@ -47,7 +47,7 @@ import use_case_map
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.1.0"
+UPSPEC_VERSION = "1.2.0"
 
 PLACEHOLDER = re.compile(r"\[[^\]\n]+\](?!\()")
 SOURCE_SUFFIXES = (".py", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".java", ".kt", ".kts", ".go", ".rb", ".php",
@@ -60,7 +60,7 @@ IN_PROGRESS = ("Implemented", "Tested")
 # Status values at which a use case can be audited for alignment: the hint names the report that would close it.
 READY = ("Tested", "Done")
 # Inspect both installation sets without depending on the plugin-only installed_copies module.
-INSTALLED_SCRIPTS = ("hook_gate.py", "workflow_state.py", "validate_use_case.py", "finish_change.py",
+INSTALLED_SCRIPTS = ("status_claims.py", "hook_gate.py", "workflow_state.py", "validate_use_case.py", "finish_change.py",
                      "scope_audit.py", "uc_change_list.py", "unrecorded_changes.py", "spec_model.py",
                      "use_case_map.py", "change_view.py", "hook_profiles.py", "spec_lint.py", "spec_first_guard.py")
 # Read a literal release line as data, using the same format as hook_gate and the release checks.
@@ -113,21 +113,12 @@ def update_notice(root: str) -> "str | None":
             "this plugin is %s: run scaffold_docs.py --update to see what changes." % (installed, UPSPEC_VERSION))
 
 
-def skill_for_artifact(path):
-    path = path.replace("\\", "/")
-    if any("/" + folder + "/" in "/" + path for folder in ("use_cases", "use-cases")):
-        return "up-5-writing-use-case-specs"
-    if path.endswith(("use_cases.md", "use-cases.md")):
-        return "up-4-mapping-use-cases"
-    if "requirements" in path:
-        return "up-2-cataloging-requirements"
-    if "entity_model" in path or "entity-model" in path:
-        return "up-3-modeling-domain-entities"
-    if any("/" + folder + "/" in "/" + path for folder in ("test_cases", "test-cases")):
-        return "up-writing-journey-test-cases"
-    if "change-records" in path or "change_records" in path:
-        return "up-triaging-change-requests"
-    return "up-6-reviewing-specifications"
+def skill_for_artifact(path, docs):
+    """Name the writing skill for a classified artifact, or the review skill."""
+    return {"use_case": "up-5-writing-use-case-specs", "overview": "up-4-mapping-use-cases",
+            "requirements": "up-2-cataloging-requirements", "entity_model": "up-3-modeling-domain-entities",
+            "test_case": "up-writing-journey-test-cases", "change_record": "up-triaging-change-requests"
+            }.get(docs.kind(path), "up-6-reviewing-specifications")
 
 
 def recovered_ids(docs):
@@ -380,7 +371,9 @@ def decide(state):
     findings = state.get("format_findings", [])
     if findings:
         finding = findings[0]
-        skill = skill_for_artifact(finding["path"])
+        docs = model.Docs(state["docs"])
+        path = os.path.join(model.project_root(state["docs"]), finding["path"])
+        skill = skill_for_artifact(path, docs)
         names_and_codes = ", ".join(sorted({"%s (%s)" % (f["path"], f["code"]) for f in findings}))
         return step("FIX_FORMAT", finding["path"],
                     "%d format finding(s): %s" % (len(findings), names_and_codes),

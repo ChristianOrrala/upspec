@@ -11,12 +11,12 @@ import re
 from typing import NamedTuple, Optional
 
 # The release these copies belong to; the gate rejects siblings of another release.
-UPSPEC_VERSION = "1.1.0"
+UPSPEC_VERSION = "1.2.0"
 
 # Explicit names prevent guessing the calling tool from an unreliable environment.
 PROFILES = ("raw", "claude", "codex", "antigravity", "kiro")
-# The three moments share one gate and differ only in the tool's output contract.
-MOMENTS = ("session-start", "after-edit", "before-stop")
+# The four moments share one gate and differ only in the tool's output contract.
+MOMENTS = ("session-start", "after-edit", "before-stop", "turn-start")
 # Caps apply to message text, before JSON encoding and its envelope.
 CAPS = {
     # Under Claude Code's 10,000-character cap, including for hand-written adapters.
@@ -33,14 +33,14 @@ CAPS = {
 # Research 12's delivery contracts, corrected by the proof runs of 2026-10-21 (trial 04); raw depends on an adapter.
 # On Antigravity CLI 1.4.4 nothing reached the agent; per the tool's 1.4.3 changelog the failure is only logged.
 CAPABILITIES = {
-    "raw": {"after_edit": "nobody", "stop_keeps_working": False, "warning_channel": False, "proven_on": ""},
-    "claude": {"after_edit": "agent", "stop_keeps_working": True, "warning_channel": True,
+    "raw": {"turn_start": "nobody", "after_edit": "nobody", "stop_keeps_working": False, "warning_channel": False, "proven_on": ""},
+    "claude": {"turn_start": "agent", "after_edit": "agent", "stop_keeps_working": True, "warning_channel": True,
                "proven_on": "Claude Code 2.1.307"},
-    "codex": {"after_edit": "agent", "stop_keeps_working": True, "warning_channel": True,
+    "codex": {"turn_start": "agent", "after_edit": "agent", "stop_keeps_working": True, "warning_channel": True,
               "proven_on": "Codex 0.159.2"},
-    "antigravity": {"after_edit": "nobody", "stop_keeps_working": True, "warning_channel": False,
+    "antigravity": {"turn_start": "nobody", "after_edit": "nobody", "stop_keeps_working": True, "warning_channel": False,
                     "proven_on": "Antigravity CLI 1.4.4"},
-    "kiro": {"after_edit": "person", "stop_keeps_working": True, "warning_channel": True,
+    "kiro": {"turn_start": "agent", "after_edit": "person", "stop_keeps_working": True, "warning_channel": True,
              "proven_on": "Kiro CLI 2.33.1 (V3 engine)"},
 }
 # Preserve the gate's edited-file keys and add Antigravity's AbsolutePath.
@@ -146,10 +146,22 @@ def message(profile: str, moment: str, result: int, text: str, give_up: bool = F
     return _cut(text, cap, report_saved) if cap is not None else text
 
 
+def message_cap(profile, moment):
+    # Kiro cuts prompt context at 3,000; leave 100 characters for its final newline and wrapper.
+    return 2900 if profile == "kiro" and moment == "turn-start" else CAPS[profile]
+
+
 def render(profile: str, moment: str, result: int, text: str, give_up: bool = False, *, report_saved=True) -> Output:
     """Translate one internal result, cutting only the message, never the JSON."""
     _validate(profile, moment)
-    text = message(profile, moment, result, text, give_up, cap=CAPS[profile], report_saved=report_saved)
+    text = message(profile, moment, result, text, give_up,
+                   cap=message_cap(profile, moment), report_saved=report_saved)
+    if moment == "turn-start":
+        if result != 0 or not text:
+            return Output("", "", 0)
+        if profile in ("claude", "codex"):
+            return _json({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": text}})
+        return Output(text + "\n", "", 0)
     if profile == "kiro" and moment == "before-stop" and give_up and result != 0:
         return _json({"decision": "block", "reason": text})
     printed = text + "\n" if text else ""
@@ -181,9 +193,18 @@ def command(profile: str, moment: str) -> str:
     """The configuration line, with Kiro's entire invocation protected from exit 1."""
     _validate(profile, moment)
     invocation = "python3 tools/specs/hook_gate.py %s --emit %s" % (moment, profile)
+    if moment == "turn-start":
+        # A missing runner or failed root lookup must never reject the person's prompt.
+        return '{ root="$(git rev-parse --show-toplevel 2>/dev/null)" && cd "$root" && [ -f tools/specs/hook_gate.py ] && ' + invocation + '; } 2>/dev/null || exit 0'
     if profile == "kiro":
         return '{ root="$(git rev-parse --show-toplevel)" && cd "$root" && [ -f tools/specs/hook_gate.py ] && ' + invocation + '; } || exit 3'
     return 'cd "$(git rev-parse --show-toplevel)" && if [ -f tools/specs/hook_gate.py ]; then ' + invocation + '; fi'
+
+
+def turn_start_timeout():
+    """Use the gate's complete budget for generated tool timeouts, without duplicating constants."""
+    from hook_gate import TURN_START_TIMEOUT
+    return TURN_START_TIMEOUT
 
 
 def wiring(tool: str, use_case_dir: str) -> tuple[str, list[dict], bool]:
@@ -198,9 +219,11 @@ def wiring(tool: str, use_case_dir: str) -> tuple[str, list[dict], bool]:
     files = {"claude": ".claude/settings.json", "codex": ".codex/hooks.json",
              "antigravity": ".agents/hooks.json", "kiro": ".kiro/hooks/upspec.json"}
     # The tools share these event names; moments remain the gate's public names.
-    events = dict(zip(MOMENTS, ("SessionStart", "PostToolUse", "Stop")))
+    events = dict(zip(MOMENTS, ("SessionStart", "PostToolUse", "Stop", "UserPromptSubmit")))
     entries = []
     for moment in MOMENTS:
+        if moment == "turn-start" and CAPABILITIES[tool]["turn_start"] != "agent":
+            continue
         if moment == "after-edit" and CAPABILITIES[tool]["after_edit"] == "nobody":
             continue
         matchers = [None]
@@ -214,5 +237,7 @@ def wiring(tool: str, use_case_dir: str) -> tuple[str, list[dict], bool]:
                      "type": "command", "command": command(tool, moment)}
             if tool == "claude" and moment == "after-edit":
                 entry["if"] = "%s(%s/**)" % (matcher, use_case_dir.rstrip("/"))
+            if moment == "turn-start" and tool != "kiro":
+                entry["timeout"] = turn_start_timeout()
             entries.append(entry)
     return files[tool], entries, tool == "kiro"

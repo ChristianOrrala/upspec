@@ -63,6 +63,17 @@ recognized use case folder; in the other tools, the gate filters paths.
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{ root=\"$(git rev-parse --show-toplevel 2>/dev/null)\" && cd \"$root\" && [ -f tools/specs/hook_gate.py ] && python3 tools/specs/hook_gate.py turn-start --emit claude; } 2>/dev/null || exit 0",
+            "timeout": 8
+          }
+        ]
+      }
     ]
   }
 }
@@ -73,15 +84,20 @@ recognized use case folder; in the other tools, the gate filters paths.
 - Warning channel: yes.
 - Proof: Claude Code 2.1.307.
 
-Seen firing on Claude Code 2.1.307 on 2026-10-21, headless: session state
+The three 1.1.0 moments were seen firing on Claude Code 2.1.307 on 2026-10-21, headless: session state
 reached the agent as context, the after-edit block reached the agent, and the
-stop blocked twice before the give-up let the agent stop. A spec-only stop
+stop blocked twice before the give-up let the agent stop. In the 1.1.0 trial a spec-only stop
 warned through `systemMessage`; whether the person sees it was not observable
 headless, and the interactive trust dialog was not exercised.
 
 Contract read against Claude Code 2.1.306. The generated Edit and Write
 entries both narrow to the use case folder. Warnings reach the person through
 `systemMessage`; trust approval belongs to the person.
+
+Turn-start entry: **not yet proven**. `UserPromptSubmit` receives the open-work
+list with exit 0, using additional context in Claude Code and Codex, plain
+stdout below 3,000 characters in Kiro. Its eight-second timeout includes the
+gate's computation cap, stdin and startup overhead. Failures produce no output.
 
 ## Codex CLI
 
@@ -125,6 +141,17 @@ startup output quiet.
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{ root=\"$(git rev-parse --show-toplevel 2>/dev/null)\" && cd \"$root\" && [ -f tools/specs/hook_gate.py ] && python3 tools/specs/hook_gate.py turn-start --emit codex; } 2>/dev/null || exit 0",
+            "timeout": 8
+          }
+        ]
+      }
     ]
   }
 }
@@ -135,7 +162,7 @@ startup output quiet.
 - Warning channel: yes.
 - Proof: Codex 0.159.2.
 
-Seen firing on Codex 0.159.2 on 2026-10-21 (`codex exec`): session state
+The three 1.1.0 moments were seen firing on Codex 0.159.2 on 2026-10-21 (`codex exec`): session state
 reached the agent as context, the after-edit block on an `apply_patch` edit
 reached the agent, and the stop blocked twice before the give-up let the
 agent stop; a spec-only stop warned. The login shell printed nothing that
@@ -151,6 +178,11 @@ trust, renewed when the hook changes. Codex runs hooks in a login shell
 (`$SHELL -lc`): startup files that print can break the JSON. Check this in
 proof. The profile keeps blocking on `stop_hook_active`; the shared loop
 guard ends repeated attempts.
+
+Turn-start entry: **not yet proven**. `UserPromptSubmit` receives the open-work
+list with exit 0, using additional context in Claude Code and Codex, plain
+stdout below 3,000 characters in Kiro. Its eight-second timeout includes the
+gate's computation cap, stdin and startup overhead. Failures produce no output.
 
 ## Antigravity CLI
 
@@ -182,15 +214,19 @@ File: `.agents/hooks.json`, committed.
 - Warning channel: no.
 - Proof: Antigravity CLI 1.4.4.
 
-Seen firing on Antigravity CLI 1.4.4 on 2026-10-21: session state reached
+The three 1.1.0 moments were seen firing on Antigravity CLI 1.4.4 on 2026-10-21: session state reached
 the agent, and the stop blocked twice, reaching the agent, before the give-up
 let it stop. An after-edit hook fired only with a hand-edited matcher, and
 nothing reached the agent.
 
 After-edit is not wired. On 1.4.4 nothing reached the agent; per the tool's
 1.4.3 changelog the failure is only logged and the tool keeps its result. The
-stop carries the specification check. No warning channel is documented. Prove desktop
-workspace hooks separately from the CLI.
+stop checks only the session's Status claims for evidence. Open work arrives at
+session start only. No warning channel is documented. Prove desktop workspace
+hooks separately from the CLI.
+
+No start-of-turn event exists. `PreInvocation` runs before every model call,
+so it is not wired as a per-prompt event. Open work arrives at session start only.
 
 ## Kiro (CLI V3 and IDE 1.x)
 
@@ -230,6 +266,16 @@ File: `.kiro/hooks/upspec.json`, committed.
         "type": "command",
         "command": "{ root=\"$(git rev-parse --show-toplevel)\" && cd \"$root\" && [ -f tools/specs/hook_gate.py ] && python3 tools/specs/hook_gate.py before-stop --emit kiro; } || exit 3"
       }
+    },
+    {
+      "name": "up-open-work",
+      "trigger": "UserPromptSubmit",
+      "enabled": true,
+      "timeout": 8,
+      "action": {
+        "type": "command",
+        "command": "{ root=\"$(git rev-parse --show-toplevel 2>/dev/null)\" && cd \"$root\" && [ -f tools/specs/hook_gate.py ] && python3 tools/specs/hook_gate.py turn-start --emit kiro; } 2>/dev/null || exit 0"
+      }
     }
   ]
 }
@@ -240,7 +286,7 @@ File: `.kiro/hooks/upspec.json`, committed.
 - Warning channel: yes.
 - Proof: Kiro CLI 2.33.1 (V3 engine).
 
-Seen firing on Kiro CLI 2.33.1 with the V3 engine on 2026-10-21: session
+The three 1.1.0 moments were seen firing on Kiro CLI 2.33.1 with the V3 engine on 2026-10-21: session
 state reached the agent, the stop block reached the agent and the give-up
 was delivered once, and the after-edit result reached neither the agent nor,
 in `--no-interactive` mode, the person.
@@ -270,6 +316,11 @@ so prove the actual runtime. File-trigger paths arrive on stdin as
 `file_path`; `{{filePath}}` is not substituted. The generated example uses
 PostToolUse with `write`; the hook file's location and its `timeout` field
 were accepted in the proof.
+
+Turn-start entry: **not yet proven**. `UserPromptSubmit` receives the open-work
+list with exit 0, using additional context in Claude Code and Codex, plain
+stdout below 3,000 characters in Kiro. Its eight-second timeout includes the
+gate's computation cap, stdin and startup overhead. Failures produce no output.
 
 ## Other tools
 

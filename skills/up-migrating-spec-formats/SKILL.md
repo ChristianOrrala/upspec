@@ -31,7 +31,7 @@ each written script's baseline. Current and kept copies stay as they are.
 The replacement set includes `scripts/spec_model.py`,
 `scripts/validate_use_case.py`, `scripts/spec_lint.py`, `scripts/use_case_map.py`,
 `scripts/spec_first_guard.py`, `scripts/hook_gate.py`, `scripts/hook_profiles.py`,
-`scripts/workflow_state.py`,
+`scripts/workflow_state.py`, `scripts/status_claims.py`,
 `scripts/finish_change.py`, `scripts/scope_audit.py` (both import
 `scripts/change_view.py`), `scripts/uc_change_list.py`
 and `scripts/unrecorded_changes.py`. `scripts/known_scripts.json` holds released

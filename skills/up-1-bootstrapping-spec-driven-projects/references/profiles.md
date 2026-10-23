@@ -48,7 +48,7 @@ One person, one agent at a time. The order is kept by habit and by a warning.
 | Validator | After every specification edit |
 | Review | A fresh context reads the specification before the developer signs it off |
 | Guard | Warning, from a commit hook or run by hand |
-| Agent hooks | Offered: session state, specification check, finish check (agent hooks reference) |
+| Agent hooks | Offered: session state, after-edit findings, open work at turn start, claim evidence at the stop (agent hooks reference) |
 
 **Leaving artifacts out.** A solo project may leave out the requirements
 catalog and the use case diagram while it has only a handful of use cases, and
@@ -92,10 +92,52 @@ specification, an approval nobody gave. The order is enforced.
 | Ownership of `docs/` | The host's code owner rule; a named requirements owner |
 | Review | An independent reviewer and a named person's sign-off before `Approved` |
 | Pull request template | One use case per pull request; specification first |
-| Lint and guard | Blocking in the pipeline |
+| Pipeline | Claims and lint on every push and pull request; Draft findings warn. The guard blocks on pull requests and pushes to the integration or default branch; it warns on other pushes |
 | Dashboard | Generated each iteration |
 | Refinement | A short recurring session on upcoming use cases |
 | Agent hooks | Offered; the pipeline stays the check that holds for everyone |
+
+## Optional local push check (solo and team)
+
+Offer `scaffold_docs.py --pre-push`, then add `--apply` after the plan is
+accepted. It installs the claims script and its dependencies and a POSIX
+`pre-push` hook in the folder returned by `git rev-parse --git-path hooks`,
+which honors `core.hooksPath`. Setup writes only inside the work tree or git
+folder, including the common Git folder shared by linked worktrees. If git tracks the hooks folder, the plan says the hook will be
+committed for every clone. An outside folder or an existing hook is never
+edited: the plan gives this line for its owner to add:
+
+```sh
+python3 tools/specs/status_claims.py --pre-push "$@" || exit 1
+```
+
+For each pushed ref whose tip is HEAD, the hook checks Status claims since
+its remote tip (the resolved integration base for a new branch). Deletions
+are skipped; other tips get a notice. It blocks only on problems. Missing
+Python, missing scripts, an unknown revision or a crash lets the push through
+with a notice. Uncommitted specification edits are included, with a notice
+that the answer may differ from CI. `git push --no-verify` skips the hook.
+CI stays the backstop and the authority.
+
+The GitHub workflow is rendered with the integration branch in the rules
+block. With no shared branch line, only the default branch blocks on push.
+Pull requests compare against their target; pushes compare against the event's
+previous commit when available. First pushes select from the integration
+fork, or an empty baseline without an earlier fork. For evidence, pull requests
+and integration or default branch pushes use the range base; other pushes
+resolve the base as the stop does. Push commit messages
+form the guard's declaration text; pull requests use their body. When a push
+has no available previous tip, the guard judges only the last commit and
+reads only that commit's message. A root commit is compared with an empty
+tree rather than an absent parent.
+
+`scaffold_docs.py --update` adds the claims dependencies wherever the workflow
+exists, and offers the hook without installing it. Add `--pre-push --apply` to
+install it. The bundle `tools/specs/upspec-installed.json` records both files.
+An untouched workflow refreshes; a customized or unrecorded workflow needs
+`--replace ci:specifications` or `--keep ci:specifications` before any write.
+A recorded pristine package hook refreshes; a customized or unrecorded hook
+stays with its owner and gets the line above. Agent wiring is still optional.
 
 ## Moving up
 

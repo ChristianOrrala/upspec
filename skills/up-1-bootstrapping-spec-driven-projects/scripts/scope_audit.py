@@ -8,7 +8,7 @@ with a base revision and sorts every changed file into one of five groups:
   attributed     a path or text carrying the id, or a deletion named in the record
   tracking       an A-file at the repository root
   other-spec     another file under the docs folder
-  unattributed   anything else: explain it, split it out, or revert it
+  unattributed   changed, not part of this change (a warning to the finish check)
 
 A file-level answer is a starting point, not a verdict: read the hunks of
 attributed files against the plan as well.
@@ -37,7 +37,7 @@ import spec_model as model  # noqa: E402  (local module, same folder)
 import change_view  # noqa: E402
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.1.0"
+UPSPEC_VERSION = "1.2.0"
 
 
 def attribute(view: change_view.ChangeView, uc_ids: set[str], record: str | None = None) -> dict[str, list[dict]]:
@@ -54,12 +54,14 @@ def attribute(view: change_view.ChangeView, uc_ids: set[str], record: str | None
     for path, status in sorted(view.changed.items()):
         entry = {"path": path, "status": {"A": "added", "M": "modified", "D": "deleted", "R": "renamed"}.get(status, status)}
         name = os.path.basename(path)
-        if path.startswith(view.docs_rel + "/"):
-            own = any(name == uc_id + ".md" or name.startswith(uc_id + "-") for uc_id in uc_ids)
+        kind = view.kind(path)
+        if kind is not None:
+            identifier = model.RE_UC_ID.match(name)
+            own = kind == "use_case" and identifier is not None and identifier.group() in uc_ids
             group = "specification" if own else "other-spec"
         elif path in change_view.A_FILES:
             group = "tracking"
-        elif any(pattern.search(path) for pattern in patterns):
+        elif model.ids_named_by_path(path) & uc_ids:
             group = "attributed"
         elif status != "D" and any(pattern.search(view.text(path) or "") for pattern in patterns):
             group = "attributed"
@@ -112,7 +114,7 @@ def main(argv):
                  "attributed": "carries the use case id or names a deletion in the record; check each hunk against the plan",
                  "tracking": "root A-files kept in step with the change",
                  "other-spec": "another specification changed; is that part of this change?",
-                 "unattributed": "no use case id; explain, split out, or revert"}
+                 "unattributed": "changed, not part of this change"}
         for group in groups:
             print("\n%s (%d): %s" % (group, len(groups[group]), notes[group]))
             for entry in groups[group]:

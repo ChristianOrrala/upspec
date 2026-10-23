@@ -26,7 +26,7 @@ Exit code 0 when clean, 1 on any ERROR (with --strict also on any WARN), 2 on us
 --trace always exits 0.
 
 Usage:
-    spec_lint.py [--docs DIR] [--only ID] [--strict] [--format text|json]
+    spec_lint.py [--docs DIR] [--only ID] [--strict] [--gate] [--format text|json]
                  [--baseline FILE | --no-baseline] [--update-baseline]
     spec_lint.py --trace [--docs DIR] [--only ID] [--format text|json]
 
@@ -50,7 +50,7 @@ import use_case_map
 import validate_use_case  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.1.0"
+UPSPEC_VERSION = "1.2.0"
 
 BASELINE_NAME = ".spec-lint-baseline.json"
 
@@ -319,6 +319,7 @@ def main(argv):
     parser = argparse.ArgumentParser(description="Lint a specification set across files.")
     parser.add_argument("--docs", help="the specification folder (default: the one the rules block records, else docs)")
     parser.add_argument("--only", help="report only findings about this identifier (UC-001, TC-001, FR-001)")
+    parser.add_argument("--gate", action="store_true", help="Draft findings warn without failing, even with --strict")
     parser.add_argument("--strict", action="store_true", help="fail on warnings too")
     parser.add_argument("--format", choices=("text", "json"), default="text")
     parser.add_argument("--trace", action="store_true", help="print the traceability matrix instead of findings")
@@ -380,6 +381,15 @@ def main(argv):
             report.info(baseline_path, 0, "BASELINE_STALE", "-", "accepted finding no longer occurs: %s" % entry.split("|")[0])
     if args.only:
         report.findings = [f for f in report.findings if args.only in f["element"] or args.only in f["path"]]
+    draft_findings = set()
+    if args.gate:
+        drafts = {os.path.relpath(uc.path, report.root).replace(os.sep, "/")
+                  for uc in project.use_cases if uc.status == "Draft"}
+        for finding in report.findings:
+            if finding["path"] in drafts and finding["code"] != "STATUS_INVALID":
+                if finding["severity"] == "ERROR":
+                    finding["severity"] = "WARN"
+                draft_findings.add(id(finding))
     if args.format == "json":
         print(json.dumps({"findings": report.sorted(), "suppressed": suppressed,
                           "summary": {s: report.count(s) for s in ("ERROR", "WARN", "INFO")}}, indent=2, ensure_ascii=False))
@@ -387,7 +397,9 @@ def main(argv):
         report.print_text()
         if suppressed:
             print("%d finding(s) suppressed by the baseline" % suppressed)
-    return report.exit_code(args.strict)
+    return int(any(f["severity"] == "ERROR" or
+                   args.strict and f["severity"] == "WARN" and id(f) not in draft_findings
+                   for f in report.findings))
 
 
 if __name__ == "__main__":

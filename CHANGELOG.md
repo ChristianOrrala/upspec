@@ -2,6 +2,46 @@
 
 All notable changes to upspec. Versions follow semantic versioning.
 
+## 1.2.0
+
+Claims, not progress. The stop hook no longer blocks work in progress. It blocks only when the session raised a use case to Implemented or Tested without the evidence a script can check. The agent hears what is still open as information, and the push becomes the hard gate.
+
+- **The stop blocks only on a claim.**
+  - At session start the hooks take a snapshot of each use case's Status.
+  - The stop blocks when this session raised a use case to Implemented or above without its evidence: the finish check on the whole use case (or on the open change record that covers it), and for Tested a test naming every flow and rule.
+  - Only the session's own raises count, in the working tree or in local commits. A pull, a merge of remote work, or a teammate's commit never makes a claim.
+  - Specification errors and open change records no longer block at the stop, and the stop no longer warns at every turn during specification work.
+  - Unpushed commits on the integration branch no longer turn a design session into implementation.
+- **The open-work list.**
+  - At session start, the state report ends with a short list: the open change records, the changed use cases with their errors, the use cases raised in the change, and those at Reviewed or above that would fail at the push.
+  - Its heading says these are work in progress: fix one only when it belongs to the current task.
+  - A fourth hook moment, `turn-start`, repeats the list when it has changed, and never blocks or delays a prompt. It is wired for Claude Code, Codex and Kiro CLI; Antigravity CLI has no such event and gets the list at session start only.
+- **The push is the hard gate.**
+  - The team pipeline now runs on every push as well as on pull requests. It checks the same claims (`status_claims.py`) and runs spec lint with `--gate`: findings in a Draft use case warn, and those at Reviewed or above fail.
+  - The spec-first guard blocks on pull requests and on pushes to the integration or default branch, and warns on other branches.
+  - `scaffold_docs.py --pre-push` installs an optional pre-push hook with the same check. It is written only to a hooks folder inside the repository, never into an existing `pre-push`, and a check that cannot run lets the push through.
+  - The team profile now installs `status_claims.py` and the finish-check helpers with the check scripts.
+- **The finish check's scope.**
+  - A changed file that is not part of the change is a warning, not a problem.
+  - At the stop, a file this session changed whose path names a use case the change does not cover is still a problem.
+- **One answer for what a file is.**
+  - Every script asks one classifier. A file named after a use case outside the use case folder is never a use case, so review reports named `UC-…-review-N.md` are no longer validated as use cases.
+  - A file in a subfolder of the use case folder is no longer a use case to the after-edit check.
+  - A README in the use case folder no longer counts as a specification change for the spec-first guard.
+  - The state reader no longer accepts a `change_records` folder; the convention is `change-records`.
+- **After an edit.** The check reports only findings about the edited file. A finding that depends on another file (a requirements link, the entity model) goes to the open list.
+- **Session state.** The hooks keep one small state file per session in the git folder, written atomically, with no lock.
+- **Updates.** `--update` adds the `turn-start` entry to each tool's wiring, brings the pipeline workflow under the name `ci:specifications` (a hand-changed or unrecorded workflow needs `--replace` or `--keep`), and offers the pre-push hook.
+- **Seen firing** on Claude Code 2.1.309, Codex 0.159.2, Kiro CLI 2.33.1 (V3 engine) and Antigravity CLI 1.4.4 (trial 05).
+
+**How to migrate:**
+1. Update the plugin.
+2. In each project with installed copies, run `scaffold_docs.py --update` and read the plan. Name every copy changed by hand in `--replace` or `--keep`, including a hand-patched `change_view.py`, then add `--apply`.
+3. Accept the new `turn-start` entry in your tool's wiring. Codex asks you to approve the new hook in `/hooks`.
+4. For the team profile, decide `ci:specifications`: `--replace` takes the new workflow, `--keep` keeps yours.
+5. Optionally run `scaffold_docs.py --pre-push --apply`.
+6. Commit `tools/specs/`, the wiring and the workflow on their own.
+
 ## 1.1.0
 
 Portable agent hooks. The hooks now run as one process that builds one view of the change. They find the branch a change is integrated into, and each tool gets output in the form it reads: Claude Code, Codex, Antigravity CLI and Kiro CLI.

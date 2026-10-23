@@ -34,7 +34,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.1.0"
+UPSPEC_VERSION = "1.2.0"
 
 REQUIRED_SECTIONS = ("Main Success Scenario", "Alternative Flows", "Postconditions")
 EXPECTED_SECTIONS = ("Preconditions", "Business Rules")
@@ -253,7 +253,33 @@ def check_use_case(uc, report, entity_nouns=(), catalog_exists=False):
                             "a quotation of %d words; say what the message tells the actor, and quote exact words only where a rule depends on them" % len(quoted.split()))
 
 
-def validate_files(paths, docs_dir=None, report=None):
+def _edited_old_formats(paths, docs_dir, stream):
+    """Recognize edited use cases without reading another artifact's possibly broken body."""
+    found = []
+    edited = {os.path.realpath(path) for path in paths}
+    for path in paths:
+        docs = model.Docs(docs_dir)
+        docs.use_case_files = lambda path=path: [path]
+        docs.test_case_files = lambda: []
+        docs.change_record_files = lambda: []
+        docs.entity_model = docs.requirements = None
+        try:
+            found.extend(finding for finding in model.old_formats(docs)
+                         if os.path.realpath(finding[0]) in edited)
+        except (OSError, UnicodeDecodeError):
+            # Normal per-file validation reports unreadable edited paths below.
+            continue
+    if not found:
+        return None
+    stream = sys.stderr if stream is None else stream
+    for path, line, what in found:
+        stream.write("%s:%d: ERROR OLD_FORMAT: %s\n" % (path, line, what))
+    stream.write("The edited use case uses an earlier format. Migrate it with up-migrating-spec-formats "
+                 "(scripts/migrate_formats.py plan).\n")
+    return model.OLD_FORMAT_EXIT
+
+
+def validate_files(paths, docs_dir=None, report=None, *, local=False, stream=None):
     report = report or model.Reporter(os.getcwd())
     nouns, catalog = set(), False
     if not paths:
@@ -264,7 +290,8 @@ def validate_files(paths, docs_dir=None, report=None):
         supplied = sorted(set(docs.use_case_files() + [os.path.abspath(p) for p in paths if os.path.isfile(p)]))
         docs.use_case_files = lambda: supplied
         try:
-            old = model.stop_if_old(docs, report=report)
+            old = (_edited_old_formats(paths, docs_dir, stream) if local else
+                   model.stop_if_old(docs, report=report, stream=stream))
         except (OSError, UnicodeDecodeError) as exc:
             report.error(docs.root, 0, "UNREADABLE", "-",
                          "cannot read specification artifacts for old-format recognition: %s" % exc)

@@ -3,8 +3,8 @@
 
 One command for the steps that are easy to skip. It checks:
 
-  scope    every changed file belongs to the use case, or to another use case
-           the same change record names (the scope audit)
+  scope    unattributed files warn; a file changed in this session whose path
+           names a use case outside this change blocks (the scope audit)
   markers  every rule in the change carries its marker UC-XXX BR-YYY in the code
   tests    every flow and rule in the change is named by a test of the use case
   guard    every rule in the change has a break that a test caught, in the guard-check
@@ -48,7 +48,7 @@ could not be checked, 2 on usage errors.
 
 Usage:
     finish_change.py UC-012 [--base REF] [--docs DIR] [--code DIR] [--tests DIR]
-                     [--record FILE] [--format text|json]
+                     [--record FILE] [--claim] [--format text|json]
 
 --base defaults to HEAD (uncommitted work); on a feature branch pass the branch
 it started from. --code and --tests default to the repository; test files are
@@ -57,11 +57,16 @@ tests/, __tests__/). --record defaults to the newest file in a change-records
 folder under docs that is named after the use case or names it in its element
 metadata or its differences table (one change may cover several use cases).
 
+With --claim, the whole use case is checked unless changed, present change
+records name it. Every such record must be ready. Imported callers can pass
+a spill set to identify this session's paths; otherwise it is the working tree.
+
 Requires Python 3.9+, standard library only, and git for the scope audit. Reads only.
 """
 from __future__ import annotations
 
 import argparse
+import copy
 import io
 import json
 import os
@@ -76,7 +81,7 @@ import uc_change_list  # noqa: E402
 import unrecorded_changes  # noqa: E402
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.1.0"
+UPSPEC_VERSION = "1.2.0"
 
 def is_test_path(path):
     return model.is_test_path(path)
@@ -427,17 +432,97 @@ def tracking_warning(repo, base, rel, uc):
             "names it, and the current work, in the same commit" % (uc.id, previous, uc.status))
 
 
+def untested_units(args, view, uc) -> list[str]:
+    """Every active flow and rule not named by a test outside the docs folder."""
+    test_root = args.tests or (view.root if view is not None else None) or "."
+    test_view = section_view(view, test_root)
+    if test_view is not None:
+        candidates = model._marker_paths(test_view.root, {uc.id})
+        files = view_sources(test_view, test_root, args.docs, tests=True, paths=candidates)
+        patterns = model._marker_patterns(uc.id)
+
+        def tests_with_id():
+            for path in files:
+                text = test_view.text(path)
+                if text is not None and any(pattern.search(text) for pattern in patterns):
+                    yield path, text.split("\n")
+
+        named = set(model.scan_unit_lines(uc, tests_with_id()))
+    else:
+        _, hits = model.scan_units(test_root, uc)
+        named = {label for label, places in hits.items()
+                 if any(is_test_path(os.path.relpath(p, test_root)) and
+                        not os.path.abspath(p).startswith(os.path.abspath(args.docs) + os.sep)
+                        for p, _, _ in places)}
+    return [u for u in whole_units(uc) if u not in named]
+
+
+def working_tree_paths(repo):
+    """Staged, unstaged and untracked paths, without rebuilding the evidence view."""
+    code, changed = model.git(["diff", "--name-only", "-z", "HEAD", "--"], cwd=repo)
+    if code:
+        _, changed = model.git(["ls-files", "-z", "--cached"], cwd=repo)
+    _, untracked = model.git(["ls-files", "-z", "--others", "--exclude-standard"], cwd=repo)
+    return {path for path in (changed + "\0" + untracked).split("\0") if path}
+
+
+def whole_units(uc):
+    return [f.label for f in uc.flows if not f.retired] + [r.id for r in uc.rules if not r.retired]
+
+
+def open_records(view, uc_id):
+    """Changed, present change records whose metadata, rows or file name name the use case."""
+    return [os.path.join(view.root, path) for path, status in sorted(view.changed.items())
+            if status != "D" and view.kind(path) == "change_record" and
+            os.path.isfile(os.path.join(view.root, path)) and
+            (uc_id in model.ids_named_by_path(os.path.basename(path)) or
+             uc_id in record_use_cases(os.path.join(view.root, path)))]
+
+
 def check(args, view: change_view.ChangeView | None = None) -> dict:
+    """Check a change, checking every open record separately for a claim."""
+    if not getattr(args, "claim", False):
+        return _check_one(args, view)
+    if view is None:
+        code, top = model.git(["rev-parse", "--show-toplevel"], cwd=os.path.abspath(args.docs))
+        if code == 0:
+            repo = top.strip()
+            docs_rel = os.path.relpath(os.path.realpath(args.docs), os.path.realpath(repo)).replace(os.sep, "/")
+            try:
+                view = change_view.view_for(repo, args.base, docs_rel)
+            except change_view.BaseError as exc:
+                raise SystemExit(str(exc))
+    records = open_records(view, args.use_case) if view is not None else []
+    covered = {args.use_case}
+    for record in records:
+        covered.update(record_use_cases(record))
+        covered.update(model.ids_named_by_path(os.path.basename(record)))
+    reports = []
+    for record in records or [None]:
+        selected = copy.copy(args)
+        selected.record = record
+        reports.append(_check_one(selected, view, covered=covered))
+    result = reports[0]
+    if len(reports) > 1:
+        # Preserve each record's evidence, while readiness requires all reports to pass.
+        result = dict(result, records=reports)
+        for field in ("problems", "warnings", "units"):
+            result[field] = list(dict.fromkeys(item for report in reports for item in report[field]))
+        result["units_from"] = "all open change records: " + ", ".join(records)
+    return result
+
+
+def _check_one(args, view: change_view.ChangeView | None = None, covered=None) -> dict:
     problems, result = [], {}
     docs = model.Docs(args.docs)
-    path = uc_change_list.find_spec(docs, args.use_case)
+    path = getattr(args, "spec_path", None) or uc_change_list.find_spec(docs, args.use_case)
     if not path:
         raise SystemExit("no specification file for %s under %s" % (args.use_case, args.docs))
     uc = model.parse_use_case(path)
     code, top = model.git(["rev-parse", "--show-toplevel"], cwd=os.path.dirname(os.path.abspath(path)))
     repo = top.strip() if code == 0 else None
     rel = os.path.relpath(os.path.realpath(path), os.path.realpath(repo)).replace(os.sep, "/") if repo else None
-    record = args.record or find_record(docs, uc.id)
+    record = args.record if getattr(args, "claim", False) else args.record or find_record(docs, uc.id)
     record = os.path.abspath(record) if record else None
     formats = []
     if record:
@@ -446,7 +531,10 @@ def check(args, view: change_view.ChangeView | None = None) -> dict:
         formats = model.format_findings(record_docs, kinds=("record",))
         problems += ["record format %s: %s" % (code, message) for _, _, code, message in formats]
     result["formats"] = formats
-    units, origin = units_in_change(uc, repo, rel, record)
+    if getattr(args, "claim", False) and not record:
+        units, origin = whole_units(uc), "the whole use case (Status claim without an open change record)"
+    else:
+        units, origin = units_in_change(uc, repo, rel, record)
     result.update({"use_case": uc.id, "units": units, "units_from": origin, "record": os.path.relpath(record) if record else None})
 
     docs_rel = os.path.relpath(os.path.realpath(args.docs), os.path.realpath(repo)).replace(os.sep, "/") if repo else None
@@ -502,11 +590,20 @@ def check(args, view: change_view.ChangeView | None = None) -> dict:
         result["scope"] = "not run: git is not available here"
         problems.append("the scope audit could not run (no git); compare the changed files with the plan by hand and say so")
     else:
-        ids = sorted({uc.id} | (record_use_cases(record) if record else set()))
+        ids = sorted({uc.id} | set(covered or ()) |
+                     (record_use_cases(record) | model.ids_named_by_path(os.path.basename(record)) if record else set()))
         groups = scope_audit.attribute(view, set(ids), record)
         unattributed = [entry["path"] for entry in groups["unattributed"]]
         result["scope"] = {"changed": len(view.changed), "unattributed": unattributed, "use_cases": ids}
-        problems += ["%s changed but carries no %s: explain it, split it out or revert it" % (p, " or ".join(ids)) for p in unattributed]
+        result["warnings"] = ["%s changed, not part of this change" % p for p in unattributed]
+        spill = getattr(args, "spill", None)
+        if spill is None:
+            spill = working_tree_paths(repo)
+        for path in sorted(spill):
+            outside = model.ids_named_by_path(path) - set(ids)
+            if outside:
+                problems.append("%s changed in this session and names %s, which this change does not cover: "
+                                "undo it or name the use case in the change record" % (path, ", ".join(sorted(outside))))
 
     # markers
     code_root = args.code or (view.root if view is not None else repo) or "."
@@ -551,24 +648,8 @@ def check(args, view: change_view.ChangeView | None = None) -> dict:
     # tests
     test_root = args.tests or (view.root if view is not None else repo) or "."
     test_view = section_view(view, test_root)
-    if test_view is not None:
-        candidates = marked if marked is not None else model._marker_paths(test_view.root, {uc.id})
-        files = view_sources(test_view, test_root, args.docs, tests=True, paths=candidates)
-        patterns = model._marker_patterns(uc.id)
-
-        def tests_with_id():
-            for path in files:
-                text = test_view.text(path)
-                if text is not None and any(pattern.search(text) for pattern in patterns):
-                    yield path, text.split("\n")
-
-        hits = model.scan_unit_lines(uc, tests_with_id())
-        named = set(hits)
-    else:
-        files, hits = model.scan_units(test_root, uc)
-        named = {label for label, places in hits.items()
-                 if any(is_test_path(os.path.relpath(p, test_root)) and not os.path.abspath(p).startswith(os.path.abspath(args.docs) + os.sep) for p, _, _ in places)}
-    untested = [u for u in units if u not in named]
+    missing_tests = set(untested_units(args, view, uc))
+    untested = [u for u in units if u in missing_tests or u not in whole_units(uc)]
     result["tests"] = {"checked": units, "missing": untested}
     problems += ["no test of %s names %s" % (uc.id, u) for u in untested]
 
@@ -620,6 +701,8 @@ def check(args, view: change_view.ChangeView | None = None) -> dict:
     problems += ["pin today's behavior before changing it: %s" % item for item in pin["unpinned"]]
     problems += ["a pin the change did not touch: %s" % item for item in pin["untouched"]]
     result["tracking"] = tracking_warning(repo, pin_base, rel, uc) if pin_base else None
+    result.setdefault("warnings", [])
+    result["warnings"] = list(dict.fromkeys(result["warnings"] + uncalled + ([result["tracking"]] if result["tracking"] else [])))
     result["problems"] = problems
     return result
 
@@ -637,6 +720,9 @@ def print_text(r, base):
     else:
         lines.append("Scope audit:  %s" % ("ok: %d changed file(s), all attributed" % scope["changed"] if not scope["unattributed"]
                                     else "%d unattributed: %s" % (len(scope["unattributed"]), ", ".join(scope["unattributed"]))))
+    for warning in r.get("warnings", []):
+        if warning not in r["markers"].get("uncalled", []) and warning != r.get("tracking"):
+            lines.append("  warning:    %s" % warning)
     m = r["markers"]
     lines.append("Markers:      %s" % ("ok: %s" % (", ".join(m["checked"]) or "no rule in the change") if not m["missing"] else "missing: %s" % ", ".join(m["missing"])))
     for warning in m.get("uncalled", []):
@@ -681,6 +767,7 @@ def main(argv):
     parser.add_argument("--docs", help="the specification folder (default: the one the rules block records, else docs)")
     parser.add_argument("--code", help="folder with the implementation (default: the repository)")
     parser.add_argument("--tests", help="folder with the tests (default: the repository)")
+    parser.add_argument("--claim", action="store_true", help="check the whole use case unless open change records cover it")
     parser.add_argument("--record", help="change record with the differences from today")
     parser.add_argument("--format", choices=("text", "json"), default="text")
     args = parser.parse_args(argv)

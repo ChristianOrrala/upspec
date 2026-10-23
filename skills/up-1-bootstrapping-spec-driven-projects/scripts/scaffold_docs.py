@@ -23,7 +23,7 @@ OpenSpec's openspec/) are named in a note; nothing is moved.
 
 Without --apply nothing is written: the plan is printed. Setup keeps existing
 documents and appends the rules block once. It proposes a missing integration
-branch line and joins the A-files once. --update refreshes installed scripts;
+branch line and joins the A-files once. --update refreshes installed scripts, the recorded CI workflow and the package pre-push hook;
 --hooks on an existing setup uses the same classification and update plan.
 Untouched copies are replaced. Customized copies show a diff and need an
 explicit --replace NAME or --keep NAME decision before any file is written.
@@ -43,7 +43,7 @@ Exit code 0, 1 when --apply meets undecided copies, 2 on usage errors.
 
 Usage:
     scaffold_docs.py [--root DIR] [--profile solo|team] [--host github|gitlab|none]
-                     [--guideline FILE] [--specs-folder DIR] [--skip requirements|overview|entity-model ...] [--hooks]
+                     [--guideline FILE] [--specs-folder DIR] [--skip requirements|overview|entity-model ...] [--hooks] [--pre-push]
                      [--update] [--replace NAME ...] [--keep NAME ...] [--no-integration-line] [--apply]
 
 --hooks --tool claude|codex|antigravity|kiro generates wiring from the tool's
@@ -88,9 +88,12 @@ import hook_profiles  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES = os.path.join(os.path.dirname(HERE), "templates")
 RULES_HEADING = "## Working from specifications"
-CHECK_SCRIPTS = ("spec_model.py", "validate_use_case.py", "spec_lint.py", "use_case_map.py", "spec_first_guard.py")
+# CI claims need the finish check and its dependencies, without agent wiring.
+CHECK_SCRIPTS = ("spec_model.py", "validate_use_case.py", "spec_lint.py", "use_case_map.py", "spec_first_guard.py",
+                 "status_claims.py", "finish_change.py", "scope_audit.py", "uc_change_list.py",
+                 "unrecorded_changes.py", "change_view.py")
 # The gate of the agent hooks and every script it calls; copied together so that the gate runs from the project.
-HOOK_SCRIPTS = ("hook_gate.py", "workflow_state.py", "validate_use_case.py", "finish_change.py", "scope_audit.py",
+HOOK_SCRIPTS = ("status_claims.py", "hook_gate.py", "workflow_state.py", "validate_use_case.py", "finish_change.py", "scope_audit.py",
                 "uc_change_list.py", "unrecorded_changes.py", "spec_model.py", "use_case_map.py", "change_view.py", "hook_profiles.py")
 VISION_SECTIONS = ("Mission", "Target Users", "Goals", "Core Terms", "In Scope", "Out of Scope", "Neighboring Systems",
                    "Constraints", "Success Measures")
@@ -117,10 +120,10 @@ SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "dist", "build", "target",
 HOT_CAP = 100
 # Event names are the tool contracts in research 12, including Kiro's file variant.
 WIRING_MOMENTS = {"SessionStart": "session-start", "PostToolUse": "after-edit",
-                  "PostFileSave": "after-edit", "PostFileCreate": "after-edit", "Stop": "before-stop"}
+                  "PostFileSave": "after-edit", "PostFileCreate": "after-edit", "Stop": "before-stop", "UserPromptSubmit": "turn-start"}
 # These names preserve the established named groups and Kiro hook names.
 WIRING_NAMES = {"session-start": "up-session-state", "after-edit": "up-specification-check",
-                "before-stop": "up-finish-check"}
+                "before-stop": "up-finish-check", "turn-start": "up-open-work"}
 # Why a moment is not generated: trial 04 saw only what reached the agent, and its runs were headless.
 NOT_GENERATED_WHY = {"antigravity": "nothing reached the agent on Antigravity CLI 1.4.4; per the tool's 1.4.3 "
                                     "changelog the failure is only logged"}
@@ -348,7 +351,92 @@ def branch_plan(root, guideline, no_integration_line=False):
     return branch, steps
 
 
-def update_plan(root: str, replace=(), keep=(), requested=(), no_integration_line=False) -> tuple[list, list[str]]:
+def workflow_text(root, proposed_branch=None):
+    """Render the shared integration branch as a quoted YAML value, never shell code."""
+    _, block = spec_model._rules_block_text(root)
+    match = spec_model.RE_INTEGRATION_BRANCH.search(block or "")
+    branch = match.group(1) if match else proposed_branch or ""
+    return read(os.path.join(TEMPLATES, "ci-github.yml")).replace(
+        "__UP_INTEGRATION_BRANCH__", json.dumps(branch))
+
+
+def workflow_plan(root, bundle, replace=(), keep=(), proposed_branch=None):
+    """Treat a recorded workflow like a script; unrecorded files need a decision."""
+    name, rel = "ci:specifications", HOST_FILES["github"]["ci-github.yml"]
+    path = Path(root) / rel
+    if not path.is_file():
+        if name in replace or name in keep:
+            raise ValueError("%s is not an installed workflow" % name)
+        return []
+    text = workflow_text(root, proposed_branch)
+    state = installed_copies.classify(path, text.encode("utf-8"), {}, bundle,
+                                      name=name, section="files", require_record=True)
+    if name in replace and name in keep:
+        raise ValueError("%s is named in both --replace and --keep" % name)
+    if name in set(replace) | set(keep) and not (state == "changed" or state == "kept" and name in replace):
+        raise ValueError("%s is not undecided" % name)
+    steps = []
+    if state in ("untouched", "changed") or state == "kept" and name in replace:
+        diff = "".join(difflib.unified_diff(read(path).splitlines(keepends=True), text.splitlines(keepends=True),
+                                         fromfile=rel, tofile="this release/" + rel))
+        steps.append(("diff", rel, diff, state))
+        action = ("replace" if state == "untouched" or name in replace else
+                  "keep" if name in keep else "changed")
+        steps.append((action, rel, (None, text), state))
+    else:
+        steps.append(("skip", rel, None, state))
+    steps.append(("file-record", rel, (name, text), "package baseline"))
+    return steps
+
+
+def pre_push_plan(root, bundle, requested=False):
+    """Install only in repository-owned hooks; refresh only a recorded pristine copy."""
+    command = 'python3 tools/specs/status_claims.py --pre-push "$@" || exit 1'
+    offer = ("info", "", None, "Optional local push check: add --pre-push --apply; CI stays authoritative.")
+    records = bundle.get("files", {})
+    entry = records.get("pre-push", {}) if isinstance(records, dict) else {}
+    if not isinstance(entry, dict):
+        entry = {}
+    if not requested and not entry:
+        return [offer]
+    code, hooks = spec_model.git(("rev-parse", "--git-path", "hooks"), cwd=root)
+    git_code, git_dir = spec_model.git(("rev-parse", "--absolute-git-dir"), cwd=root)
+    common_code, common_dir = spec_model.git(("rev-parse", "--git-common-dir"), cwd=root)
+    if code or git_code or common_code:
+        return [("info", "", None, "No repository hooks folder; add this line to your pre-push hook: " + command)]
+    root_path = Path(root).resolve()
+    folder = (root_path / hooks.strip()).resolve()
+    git_path = (root_path / git_dir.strip()).resolve()
+    # Linked worktrees share the repository's own hooks in the common Git folder.
+    common_path = (root_path / common_dir.strip()).resolve()
+    path = folder / "pre-push"
+    resolved = path.resolve()
+    inside = any(resolved == base or base in resolved.parents for base in (root_path, git_path, common_path))
+    if not inside:
+        return [("info", "", None, "Hooks folder is outside the repository; add this line there: " + command)]
+    rel = os.path.relpath(path, root_path).replace(os.sep, "/")
+    text = read(os.path.join(TEMPLATES, "pre-push.sh"))
+    steps = []
+    if root_path in folder.parents or folder == root_path:
+        tracked_code, tracked = spec_model.git(("ls-files", "--", os.path.relpath(folder, root_path)), cwd=root)
+        if tracked_code == 0 and tracked.strip():
+            steps.append(("info", rel, None, "Tracked hooks folder %s: this hook will be committed for every clone." % hooks.strip()))
+    if path.exists() or path.is_symlink():
+        # Existing hooks belong to their owner; only our exact recorded package baseline may refresh.
+        managed = isinstance(entry, dict) and entry.get("path") == rel and not path.is_symlink()
+        state = (installed_copies.classify(path, text.encode("utf-8"), {}, bundle,
+                                          name="pre-push", section="files", require_record=True)
+                 if managed and path.is_file() else "changed")
+        if state not in ("current", "untouched"):
+            return steps + [("info", rel, None, "Existing pre-push (changed by hand or unrecorded), never edited; add: " + command)]
+        steps.append(("replace" if state == "untouched" else "skip", rel, (None, text), state))
+    else:
+        steps.append(("create", rel, (None, text), "optional local check; CI stays authoritative"))
+    steps.append(("file-record", rel, ("pre-push", text), "executable package hook"))
+    return steps
+
+
+def update_plan(root: str, replace=(), keep=(), requested=(), no_integration_line=False, pre_push=False) -> tuple[list, list[str]]:
     """Classify every known script; return steps and undecided names without writing.
 
     Requested sets ("hook" or "check") add their missing copies alongside any
@@ -359,12 +447,14 @@ def update_plan(root: str, replace=(), keep=(), requested=(), no_integration_lin
     bundle = installed_copies.read_bundle(folder)
     known = json.loads(read(os.path.join(HERE, "known_scripts.json")))["scripts"]
     installed = installed_copies.sets_installed(folder) | set(requested)
+    if (Path(root) / HOST_FILES["github"]["ci-github.yml"]).is_file() or pre_push:
+        installed.add("check")
     names = sorted(set(installed_copies.HOOK_SET + installed_copies.CHECK_SET))
     states = {name: installed_copies.classify(folder / name, (Path(HERE) / name).read_bytes(), known, bundle)
               for name in names}
     replace, keep = set(replace), set(keep)
     for name in sorted(replace | keep):
-        if name.startswith("wiring:"):
+        if name.startswith("wiring:") or name == "ci:specifications":
             continue
         if name in replace & keep:
             raise ValueError("%s is named in both --replace and --keep" % name)
@@ -373,7 +463,7 @@ def update_plan(root: str, replace=(), keep=(), requested=(), no_integration_lin
         if states[name] != "changed" and not (states[name] == "kept" and name in replace):
             raise ValueError("%s is not undecided" % name)
     guideline = spec_model.read_rules_block(root)[0]
-    _, steps = branch_plan(root, guideline, no_integration_line)
+    branch, steps = branch_plan(root, guideline, no_integration_line)
     undecided = []
     entries = bundle.get("scripts", {})
     if not isinstance(entries, dict):
@@ -404,6 +494,11 @@ def update_plan(root: str, replace=(), keep=(), requested=(), no_integration_lin
             steps.append(("replace", rel, (source, None), state))
         else:
             steps.append(("skip", rel, None, state))
+    steps.extend(workflow_plan(root, bundle, replace, keep, branch))
+    steps.extend(pre_push_plan(root, bundle, pre_push))
+    if any(action == "changed" and rel == HOST_FILES["github"]["ci-github.yml"]
+           for action, rel, _, _ in steps):
+        undecided.append("ci:specifications")
     return steps, undecided
 
 
@@ -429,9 +524,11 @@ def _wrapped_entry(tool, entry):
     """Include every field setup generates that can change a hook's behavior."""
     inner, matcher = _inner(entry), entry["matcher"]
     if tool == "kiro":
-        # The stop runs the finish check, so it gets twice the other hooks' minute.
+        # Claim evidence can take two minutes; turn-start uses the gate's complete
+        # stdin, computation and startup budget, shared with the other tools.
         wrapped = {"name": WIRING_NAMES[entry["moment"]], "trigger": entry["event"], "enabled": True,
-                   "timeout": 120 if entry["moment"] == "before-stop" else 60, "action": inner}
+                   "timeout": (hook_profiles.turn_start_timeout() if entry["moment"] == "turn-start" else
+                               120 if entry["moment"] == "before-stop" else 60), "action": inner}
     else:
         wrapped = {"hook": inner}
     if matcher is not None:
@@ -655,8 +752,9 @@ def wiring_plan(root, tool, replace=(), keep=(), reasons=(), use_case_dir=None) 
         adaptations = [entry for entry in adapted if isinstance(entry, dict) and entry.get("moment") == moment
                        and isinstance(entry.get("fingerprint"), str)]
         if not expected:
-            why = "%s: %s is not generated (%s), so the stop carries the specification check" % (
-                tool, moment, NOT_GENERATED_WHY.get(tool, "its feedback reaches nobody on this tool"))
+            reason = ("no start-of-turn event; PreInvocation runs before every model call"
+                      if moment == "turn-start" else NOT_GENERATED_WHY.get(tool, "its feedback reaches nobody on this tool"))
+            why = "%s: %s is not generated (%s); open work is available at session start" % (tool, moment, reason)
             if not found:
                 steps.append(("info", rel, None, why))
                 if name in selected:
@@ -793,14 +891,14 @@ def unrecorded_wiring_notes(root):
 
 def ignored_notes(root, folder):
     """Ignored paths are informational; git failures never block setup."""
-    for rel, sentence in ((folder, "Ignored specifications are validated at every stop."),
+    for rel, sentence in ((folder, "Ignored specifications are checked locally; CI cannot read ignored files."),
                           (folder + "/change-records", "Ignored change records never open the finish check.")):
         code, _ = spec_model.git(("check-ignore", "-q", "--no-index", "--", rel + "/"), cwd=root)
         if code == 0:
             yield "warning: git ignores %s/. %s" % (rel, sentence)
 
 
-def plan(root, profile, host, guideline, skipped=(), hooks=False, folder="docs", replace=(), keep=(), no_integration_line=False):
+def plan(root, profile, host, guideline, skipped=(), hooks=False, folder="docs", replace=(), keep=(), no_integration_line=False, pre_push=False):
     """Return a list of (action, relative path, source or text, note)."""
     steps = []
     product_doc = first_existing(root, PRODUCT_DOCS)
@@ -824,7 +922,7 @@ def plan(root, profile, host, guideline, skipped=(), hooks=False, folder="docs",
         else:
             steps.append(("create", sub + "/.gitkeep", (None, ""), "keeps the empty folder under version control"))
 
-    _, branch_steps = branch_plan(root, guideline, no_integration_line)
+    branch, branch_steps = branch_plan(root, guideline, no_integration_line)
     block = rules_block(profile, skipped, folder)
     target = os.path.join(root, guideline)
     if not os.path.exists(target):
@@ -835,11 +933,11 @@ def plan(root, profile, host, guideline, skipped=(), hooks=False, folder="docs",
         steps.append(("append", guideline, (None, block), "rules block added at the end; existing content untouched"))
     steps.extend(branch_steps)
 
-    copies = list(CHECK_SCRIPTS) if profile == "team" else []
+    copies = list(CHECK_SCRIPTS) if profile == "team" or pre_push else []
     if hooks:
         copies += [name for name in HOOK_SCRIPTS if name not in copies]
     if os.path.isdir(os.path.join(root, "tools/specs")):
-        requested = ({"check"} if profile == "team" else set()) | ({"hook"} if hooks else set())
+        requested = ({"check"} if profile == "team" or pre_push else set()) | ({"hook"} if hooks else set())
         updates, _ = update_plan(root, replace, keep, requested=requested, no_integration_line=no_integration_line)
         steps.extend(step for step in updates if step[1].startswith("tools/specs/"))
     else:
@@ -849,7 +947,12 @@ def plan(root, profile, host, guideline, skipped=(), hooks=False, folder="docs",
             file_step("tools/specs/" + name, source=os.path.join(HERE, name))
     if profile == "team":
         for template, rel in HOST_FILES[host].items():
-            file_step(rel, source=os.path.join(TEMPLATES, template))
+            if template == "ci-github.yml":
+                file_step(rel, text=workflow_text(root, branch))
+                if not os.path.exists(os.path.join(root, rel)):
+                    steps.append(("file-record", rel, ("ci:specifications", workflow_text(root, branch)), "rendered baseline"))
+            else:
+                file_step(rel, source=os.path.join(TEMPLATES, template))
     if spec_model.a_files_present(root):
         agents = os.path.join(root, "AGENTS.md")
         if os.path.isfile(agents):
@@ -869,6 +972,7 @@ def plan(root, profile, host, guideline, skipped=(), hooks=False, folder="docs",
                 steps.append(("skip", "ATLAS.md", None, "; ".join(notes)))
             else:
                 steps.append(("join", "ATLAS.md", row, "one row for the specifications (A-files)"))
+    steps.extend(pre_push_plan(root, installed_copies.read_bundle(Path(root) / "tools/specs"), pre_push))
     return steps
 
 
@@ -878,7 +982,7 @@ def apply(root, steps):
         raise ValueError("undecided installed copies: " + ", ".join(undecided))
     written = set()
     for action, rel, payload, _ in steps:
-        if action in ("skip", "info", "diff", "keep", "wiring-record"):
+        if action in ("skip", "info", "diff", "keep", "wiring-record", "file-record"):
             continue
         target = os.path.join(root, rel)
         os.makedirs(os.path.dirname(target), exist_ok=True)
@@ -895,8 +999,14 @@ def apply(root, steps):
             else:
                 with open(target, "x", encoding="utf-8") as handle:
                     handle.write(text)
+                written.add(rel)
         elif action == "replace":
-            shutil.copyfile(payload[0], target)
+            source, text = payload
+            if source:
+                shutil.copyfile(source, target)
+            else:
+                with open(target, "w", encoding="utf-8") as handle:
+                    handle.write(text)
             written.add(rel)
         elif action == "line":
             current = read(target)
@@ -930,7 +1040,8 @@ def apply(root, steps):
 
     folder = Path(root) / "tools/specs"
     wiring_records = [payload for action, _, payload, _ in steps if action == "wiring-record"]
-    if wiring_records:
+    file_records = [(rel, payload) for action, rel, payload, _ in steps if action == "file-record"]
+    if wiring_records or file_records:
         folder.mkdir(parents=True, exist_ok=True)
     if folder.is_dir():
         bundle = installed_copies.read_bundle(folder)
@@ -955,7 +1066,25 @@ def apply(root, steps):
             for record in wiring_records:
                 wiring[record["tool"]] = record
             bundle["wiring"] = wiring
-        if scripts or wiring_records:
+        files = bundle.get("files", {})
+        if not isinstance(files, dict):
+            files = {}
+        for rel, (name, text) in file_records:
+            path = Path(root) / rel
+            if not path.is_file():
+                continue
+            baseline = installed_copies.fingerprint(text.encode("utf-8"))
+            installed = installed_copies.fingerprint(path.read_bytes())
+            if rel in written or installed == baseline or rel in kept:
+                files[name] = {"path": rel, "baseline": baseline}
+                if rel in kept:
+                    files[name]["kept"] = installed
+                if name == "pre-push" and rel in written:
+                    # Git ignores non-executable hooks; preserve permissions and add executable bits.
+                    path.chmod(path.stat().st_mode | 0o111)
+        if files:
+            bundle["files"] = files
+        if scripts or wiring_records or files:
             bundle.update(version=installed_copies.UPSPEC_VERSION, scripts=scripts)
             installed_copies.write_bundle(folder, bundle)
 
@@ -995,6 +1124,7 @@ def main(argv):
                         help="solo profile only: an artifact of the chain the owner decided to leave out (repeatable)")
     parser.add_argument("--hooks", action="store_true",
                         help="also copy the gate of the agent hooks and the scripts it calls into tools/specs/")
+    parser.add_argument("--pre-push", action="store_true", help="offer a local claims check in the repository hooks folder")
     parser.add_argument("--tool", choices=hook_profiles.PROFILES[1:], help="generate the chosen tool's project hooks (with --hooks)")
     parser.add_argument("--update", action="store_true", help="plan an update of installed script copies")
     parser.add_argument("--replace", action="append", default=[], metavar="NAME", help="replace a customized copy (repeatable)")
@@ -1059,13 +1189,15 @@ def main(argv):
         if args.update:
             steps, undecided = update_plan(root, args.replace, args.keep,
                                             requested=("hook",) if args.hooks else (),
-                                            no_integration_line=args.no_integration_line)
+                                            no_integration_line=args.no_integration_line, pre_push=args.pre_push)
         else:
             steps = plan(root, args.profile, args.host, guideline, [SKIPPABLE[name] for name in sorted(set(args.skip))],
                          args.hooks, folder=folder, replace=args.replace, keep=args.keep,
-                         no_integration_line=args.no_integration_line)
+                         no_integration_line=args.no_integration_line, pre_push=args.pre_push)
             undecided = [rel.rsplit("/", 1)[-1] for action, rel, _, _ in steps if action == "changed"]
-        branch_info = any(step[0] == "info" for step in steps)
+        # Optional hook offers are informational too; only a branch note resolves this question.
+        branch_info = any(action == "info" and "integration branch" in note
+                          for action, _, _, note in steps)
         if tools:
             for tool in tools:
                 steps.extend(wiring_plan(root, tool, args.replace, args.keep, args.reason, _use_case_dir(root, folder)))
@@ -1073,7 +1205,8 @@ def main(argv):
             steps.extend(("info", "", None, note) for note in unrecorded_wiring_notes(root))
         elif args.hooks:
             steps.append(("info", "", None, "Scripts only; add --tool claude|codex|antigravity|kiro to plan wiring."))
-        undecided = [rel if rel.startswith("wiring:") or action == "refused" else rel.rsplit("/", 1)[-1]
+        undecided = [rel if rel.startswith("wiring:") or action == "refused" else
+                     "ci:specifications" if rel == HOST_FILES["github"]["ci-github.yml"] else rel.rsplit("/", 1)[-1]
                      for action, rel, _, _ in steps if action in ("changed", "refused")]
         existing_rules = read(os.path.join(root, guideline)) if os.path.isfile(os.path.join(root, guideline)) else ""
         branch_unknown = not branch_info and not spec_model.RE_INTEGRATION_BRANCH.search(
@@ -1097,6 +1230,8 @@ def main(argv):
     for action, rel, payload, note in steps:
         if action == "info":
             print(note)
+        elif action == "file-record":
+            continue
         elif action == "diff":
             if note:
                 print("  %s: %s" % (rel, note))

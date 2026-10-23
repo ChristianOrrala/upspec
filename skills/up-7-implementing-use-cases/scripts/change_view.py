@@ -12,7 +12,7 @@ from typing import NamedTuple
 import spec_model
 
 # The release these shared copies belong to, checked alongside installed scripts.
-UPSPEC_VERSION = "1.1.0"
+UPSPEC_VERSION = "1.2.0"
 
 # The integration branches the common hosts and branching models use.
 INTEGRATION_NAMES = ("main", "master", "dev", "develop")
@@ -145,6 +145,7 @@ class ChangeView:
         self.root = os.path.abspath(root)
         self.base = base
         self.docs_rel = docs_rel.replace(os.sep, "/").rstrip("/")
+        self.docs = spec_model.Docs(os.path.join(self.root, self.docs_rel))
         self._texts = {}
         self._files = None
         self.changed: dict[str, str] = self._changed()
@@ -189,7 +190,7 @@ class ChangeView:
                             "--", self.docs_rel + "/")
         if code == 0:
             for path in output.split("\0"):
-                if path.endswith(".md") and "change-records" not in path.split("/"):
+                if path.endswith(".md") and self.kind(path) != "change_record":
                     changed.setdefault(path, "A")
         # Running installed checks produces bytecode caches; they never belong to a change.
         return {path: status for path, status in sorted(changed.items())
@@ -283,9 +284,12 @@ class ChangeView:
         return found
 
     def changed_specs(self) -> list[str]:
-        return [path for path, status in self.changed.items() if status != "D" and self._in_docs(path)
-                and "change-records" not in path.split("/")
-                and re.fullmatch(r"UC-\d{3}.*\.md", os.path.basename(path))]
+        return [path for path, status in self.changed.items()
+                if status != "D" and self.kind(path) == "use_case"]
+
+    def kind(self, path: str) -> str | None:
+        """Classify a repository-relative path with the shared docs rules."""
+        return self.docs.kind(os.path.join(self.root, path))
 
     def work_files(self) -> set[str]:
         guideline, _ = spec_model._rules_block_text(self.root)

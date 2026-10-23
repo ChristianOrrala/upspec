@@ -1,50 +1,65 @@
 {
   "scripts": {
-    "change_view.py": [],
+    "change_view.py": [
+      "4efb2906c5864f672569c711828ed942703b33ef301674f88d4a1bd25ff08e94"
+    ],
     "finish_change.py": [
       "5314270232b22c8f37dc5e8b8c8bef147a06f32b5a14256b623d006381f08a91",
+      "683eea0367df7487ea2de81723f8af04051baceddc634485a4c2907781ac6ffe",
       "d03842f0507a1155f27bf134bba031691c7fadce1d27f046a85e56777e3df9d2"
     ],
     "hook_gate.py": [
       "0396d870a8c9103bfd0602a245395bd95ddfeb4730ff627400c788116479f9b5",
+      "3b2bd820ede85eba0c337f6eb0dd504e343bb53db3d0276e6af73022f1aa60c7",
       "9b129ac86583c4a88f8fd00270d4e86bfe4a1a82dc1c59309ae43c18bd67aa87"
     ],
-    "hook_profiles.py": [],
+    "hook_profiles.py": [
+      "3564477e29b964ea6b409c7b691203c1023814a523be2955089ab50a482d88af"
+    ],
     "scope_audit.py": [
       "31c24135ac6fa645db67fb34d8d1b2069684f308600c8d25ae4aefaf7d6a4949",
-      "fb0489399fa68fd6b40cc9d9b90fed34be4cea411ea73f1a53af9a7a392913d1"
+      "fb0489399fa68fd6b40cc9d9b90fed34be4cea411ea73f1a53af9a7a392913d1",
+      "fcb894f481ecc9d0ff21eeea7c6a9b4cb3bf70aa744a5d72708fdf5660549fd7"
     ],
     "spec_first_guard.py": [
       "150c1913e6a65f70271db9da1ec925114a4fd78db2a6c4d0fdcd78918fc0f7c4",
+      "4f98bc7873f39fb924d6d96319a88ef7f9ae6aa5da572b5a2e01a6fed27ba03e",
       "a1123e8f5d5b894b5e8dfb4805e9980d942c89bd0f86ea4a9a44c272cf60c951"
     ],
     "spec_lint.py": [
+      "01b072c96e3066ce8351ab670797fde8775717bc8dc45114a68f4aa5924942de",
       "4d51309e8f33a67fb49d2da5050f2530e11a23f5603b9eecae15847ebf421ba6",
       "ca0360cec50717125813e8faee2c669f12fb53375a8350d13ed661d714f2f6e4"
     ],
     "spec_model.py": [
       "03fc66e751042ba4f94fd977a5800ed5a92065119c077091eae61870831d75a6",
+      "424ee323a4ba82f671f3701f5ed83a6838dbd6880cc2924adbb8aa275bb79315",
       "6b70b2ea14b5815ecdb75a0bf915cbf1a53bdfae4dcb4cea6cf1cdb08430da15",
       "a98d99853b68508f18f150cc9a32df0256be1068f44357c463952b38629ee2a2"
     ],
     "uc_change_list.py": [
       "32bbf128bf87033c917175098975c7afada8651fee9320b4db31cd36ea5f0eea",
-      "3e0fb9bd194c3364ee9c6abfcbedec960ef43319919cada959acdf993bd827ba"
+      "3e0fb9bd194c3364ee9c6abfcbedec960ef43319919cada959acdf993bd827ba",
+      "ac6219a5257538283150da6f2b32a6f07cf4cc4bd725e91d5145f76817cfd337"
     ],
     "unrecorded_changes.py": [
+      "0d7143967cfa7d741cd9d6320d4bd23801d34fc20ef29f1a0b90a82b2cb19a03",
       "c4a2603673cda3d5da2a5eb79ce2dc2cdafd1fc392723d50c599d5a9fba00237",
       "eb42db7c80572bba300da3bae3eac3f6551c770f38dc05dccdbb8e1525f65f6a"
     ],
     "use_case_map.py": [
-      "1da5f647d65cb026a7857f5166885f13be8d62e3f72e9a1e15832052ac305751"
+      "1da5f647d65cb026a7857f5166885f13be8d62e3f72e9a1e15832052ac305751",
+      "487d109049f9f9acde104e48aeb9eec6c03080a68bf32a50e60111afb4b3526d"
     ],
     "validate_use_case.py": [
       "0bbd0f6bbc2ee9c2bb08a926f4a2787d3269c7cec29908d8a232688332f6b257",
-      "540da305efa531341884bd8a195d5236dd8c56a064acc1163a4da56f30a7a38f"
+      "540da305efa531341884bd8a195d5236dd8c56a064acc1163a4da56f30a7a38f",
+      "de17ffe1d96aaf9351f318fef7a189b446e7b628949943c665312fa2cb2977c4"
     ],
     "workflow_state.py": [
       "17a1df33a8ac1c4a792fb745cb84ee2ca3e9b40cc9405e301635bebbbc614f84",
       "4ea298302b87fb1f7173813a54cbfc826e5070db7161052e8732c17fb64e2cf1",
+      "5dc508a7c709f560ac9bceb1d883d9f1b7b6e311a794e8b819db8783cf48ce0a",
       "90dc0b675ae7db6a5a1b793187bbb683294489f7db344af203e9486b5ab08799"
     ]
   },
@@ -56,6 +71,7 @@
     "1.0.1",
     "1.0.2",
     "1.0.3",
-    "1.0.4"
+    "1.0.4",
+    "1.1.0"
   ]
 }

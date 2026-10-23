@@ -82,16 +82,14 @@ agents will actually read: `AGENTS.md` when it stands alone or `CLAUDE.md`
 imports it, otherwise the existing `CLAUDE.md`. Name another with
 `--guideline`, and pass on any note it prints about a second guideline file.
 
-For the team profile it also copies the check scripts into `tools/specs/` of
-the project (`scripts/spec_lint.py`, `scripts/validate_use_case.py` and the
-guard), so the pipeline runs without anything installed.
+For the team profile it also copies `scripts/spec_lint.py`, `scripts/validate_use_case.py`,
+the guard, `scripts/status_claims.py` and its finish-check helpers into `tools/specs/`,
+so the pipeline runs without anything installed.
 
-It also carries identical copies of the state reader and the finish check
-(`scripts/workflow_state.py`, `scripts/finish_change.py`, `scripts/change_view.py`,
-`scripts/scope_audit.py`, `scripts/uc_change_list.py` and
-`scripts/unrecorded_changes.py`), which it installs into the project for the
-agent hooks, with their entry point `scripts/hook_gate.py` and its module
-`scripts/hook_profiles.py`.
+The identical copies of `scripts/finish_change.py`, `scripts/change_view.py`, `scripts/scope_audit.py`,
+`scripts/uc_change_list.py` and `scripts/unrecorded_changes.py` serve for CI and the agent hooks.
+The hooks also install `scripts/workflow_state.py`, their entry point `scripts/hook_gate.py`
+and its module `scripts/hook_profiles.py`.
 
 Setup and migration share the module `scripts/installed_copies.py` and released
 fingerprints in `scripts/known_scripts.json`; both stay in the plugin.
@@ -195,14 +193,13 @@ not install a hook without asking: hooks change how every commit behaves.
 
 ## Agent hooks
 
-With the solo and team profiles, offer three hooks: specification state when
-a session starts, validation after specification edits, and validation of
-changed specifications before stopping. At the stop, errors warn during
-specification work; once files beyond the work files change, they block and
-each open record runs the finish check. Work files are the specification
-folder, `tools/specs/`, the guideline holding the rules block and root A-files.
-All three call `scripts/hook_gate.py`; `scripts/scaffold_docs.py --hooks`
-copies it into `tools/specs/` with the scripts it calls.
+With the solo and team profiles, offer four hooks: session state and the
+open-work list at session start, validation after specification edits, the
+open-work list at turn start, and a stop that blocks only on a use case raised
+to Implemented or Tested without its evidence. All four call
+`scripts/hook_gate.py`; `scripts/scaffold_docs.py --hooks` copies it into
+`tools/specs/` with the scripts it calls.
+Offer `--pre-push` in either profile, using [templates/pre-push.sh](templates/pre-push.sh); [references/profiles.md](references/profiles.md) explains placement and CI's authority.
 
 Generate with `--hooks --tool <tool>`, review, then approve `--apply`, following
 [references/agent-hooks.md](references/agent-hooks.md); labeled examples for

@@ -13,13 +13,15 @@ import tempfile
 
 # Identify the release whose installed copies this module helps update.
 # Keep the installation record beside the scripts it describes.
-UPSPEC_VERSION = "1.1.0"
+UPSPEC_VERSION = "1.2.0"
 BUNDLE_NAME = "upspec-installed.json"
 # Match setup's hook copies without importing a module absent from the migration skill.
-HOOK_SET = ("hook_gate.py", "workflow_state.py", "validate_use_case.py", "finish_change.py", "scope_audit.py",
+HOOK_SET = ("status_claims.py", "hook_gate.py", "workflow_state.py", "validate_use_case.py", "finish_change.py", "scope_audit.py",
             "uc_change_list.py", "unrecorded_changes.py", "spec_model.py", "use_case_map.py", "change_view.py", "hook_profiles.py")
 # Match setup's pipeline copies; tests pin both tuples to setup's installation lists.
-CHECK_SET = ("spec_model.py", "validate_use_case.py", "spec_lint.py", "use_case_map.py", "spec_first_guard.py")
+CHECK_SET = ("spec_model.py", "validate_use_case.py", "spec_lint.py", "use_case_map.py", "spec_first_guard.py",
+             "status_claims.py", "finish_change.py", "scope_audit.py", "uc_change_list.py",
+             "unrecorded_changes.py", "change_view.py")
 
 
 def fingerprint(data):
@@ -72,22 +74,28 @@ def write_bundle(folder, bundle):
             temporary.unlink(missing_ok=True)
 
 
-def classify(path, current, known, bundle):
-    """Return missing, current, kept, untouched or changed, without writing anything."""
+def classify(path, current, known, bundle, name=None, section="scripts", require_record=False):
+    """Return missing, current, kept, untouched or changed, without writing anything.
+
+    Scripts use their filename and released hashes. Managed files use their
+    bundle section and logical name; require_record keeps unrecorded files
+    undecided even when their contents match this release.
+    """
     path = Path(path)
     try:
         installed = path.read_bytes()
     except FileNotFoundError:
         return "missing"
-    if installed == current:
-        return "current"
-
-    scripts = bundle.get("scripts", {})
+    scripts = bundle.get(section, {})
     if not isinstance(scripts, dict):
         scripts = {}
-    entry = scripts.get(path.name, {})
+    entry = scripts.get(name or path.name, {})
     if not isinstance(entry, dict):
         entry = {}
+    if require_record and "baseline" not in entry:
+        return "changed"
+    if installed == current:
+        return "current"
     found = fingerprint(installed)
     if entry.get("kept") == found:
         return "kept" if entry.get("baseline") == fingerprint(current) else "changed"
