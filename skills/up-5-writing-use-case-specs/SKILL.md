@@ -1,16 +1,16 @@
 ---
 name: up-5-writing-use-case-specs
 description: >-
-  Writes or revises one use case specification (docs/use_cases/UC-XXX-name.md) that a stakeholder
-  can validate, an engineer can review against and an AI agent can implement without inventing
-  behavior: goal and trigger, preconditions, a 3 to 9 step main success scenario, alternative
-  flows found in three passes with explicit endings, success and failure postconditions, and
-  numbered business rules with Examples tables with boundary rows. Asks at most five decisive
-  questions, keeps observable behavior concrete and mechanism out, and finishes with an invention
-  pass and a structural lint. Use when the user asks to write, draft, specify, extend or fix a use
-  case, scenario, alternative flow, business rule or acceptance behavior, asks to specify step by
-  step what happens when an actor does something, mentions UC-XXX with a writing request, or wants
-  a spec an agent can implement from. Also covers use cases for APIs, scheduled jobs and events.
+  Writes or revises one use case specification (docs/use_cases/UC-XXX-name.md) that a stakeholder can
+  validate, an engineer can review against and an AI agent can implement without inventing behavior:
+  goal and trigger, preconditions, a 3 to 9 step main success scenario, alternative flows found in
+  three passes with explicit endings, success and failure postconditions, and numbered business rules
+  with Examples tables with boundary rows. Asks at most five decisive questions, keeps observable
+  behavior concrete and mechanism out, and finishes with an invention pass and a structural lint. Use
+  when the user asks to write, draft, specify, extend or fix a use case, scenario, alternative flow,
+  business rule or acceptance behavior, asks to specify step by step what happens when an actor does
+  something, mentions UC-XXX with a writing request, or wants a spec an agent can implement from. Also
+  covers use cases for APIs, scheduled jobs and events.
 ---
 
 # Writing use case specifications

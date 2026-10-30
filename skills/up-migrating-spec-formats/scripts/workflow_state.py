@@ -11,9 +11,11 @@ State comes from the files, never from memory:
   - journey test cases, and whether the repository holds code.
   - with the A-files (ACTIVE.md with a hot zone): the current work, what blocks it and
     what waits on the owner, AHEAD's Next up, the abilities and the use cases their
-    Specs lines name. The step for the current work comes before the others; a use
-    case in progress that the current work does not name, and an ability whose
-    status disagrees with its use cases, are listed.
+    Specs lines name. An ability's status comes from its row in any index table of
+    ABILITIES.md, else from an old entry's Status line. The step for the current work
+    comes before the others; a use case in progress that the current work does not
+    name, and an ability whose status disagrees with its use cases, are listed.
+    Without ABILITIES.md nothing is said about abilities.
   - the alignment backlog of a recovery (docs/recovery/change-log.md): entries decided
     later or in change are open; aligned closes only when the shared closure check
     finds no errors in its audit reports, otherwise it stays open with warnings;
@@ -47,7 +49,7 @@ import use_case_map
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.2.0"
+UPSPEC_VERSION = "1.3.0"
 
 PLACEHOLDER = re.compile(r"\[[^\]\n]+\](?!\()")
 SOURCE_SUFFIXES = (".py", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".java", ".kt", ".kts", ".go", ".rb", ".php",
@@ -255,7 +257,7 @@ def tracking_view(root, use_cases, alignment=None):
                 for ahead in item["ahead"]:
                     if ahead not in tracking["items"]:
                         warnings.append("change log #%d names %s, which AHEAD.md does not list" % (item["number"], ahead))
-    if not tracking["abilities_home"]:
+    if tracking["abilities_present"] and not tracking["abilities_home"]:
         unnamed = [u["id"] for u in use_cases if u["id"] not in named_by and u["status"] != "Obsolete"]
         if unnamed:
             notes.append("named by no ability: %s" % ", ".join(unnamed))
@@ -268,10 +270,12 @@ def tracking_view(root, use_cases, alignment=None):
     focus, focus_from = focus_of(tracking)
     if focus and all(known.get(u, {}).get("status") == "Done" for u in focus):
         if focus_from == "ACTIVE.md current work":
-            notes.append("every use case of the current work is Done: close it out in ACTIVE.md and ABILITIES.md")
+            notes.append("every use case of the current work is Done: close it out in ACTIVE.md%s"
+                         % (" and ABILITIES.md" if tracking["abilities_present"] else ""))
         else:
             notes.append("every use case of %s is Done: the item can be closed in AHEAD.md" % tracking["next_up"][0])
-    if not focus and not tracking["current_work"] and not tracking["active_home"] and tracking["next_up"]:
+    if (not focus and not tracking["current_work"] and not tracking["active_home"] and tracking["next_up"]
+            and tracking["abilities_present"]):
         notes.append("AHEAD.md's Next up starts with %s, which names no ability with a Specs line" % tracking["next_up"][0])
     mentioned = focus if focus_from == "ACTIVE.md current work" else []
     mismatches = [] if tracking["active_home"] else [

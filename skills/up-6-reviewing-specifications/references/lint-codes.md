@@ -7,8 +7,10 @@ docs/use_cases/UC-004-book-room.md:12: ERROR DANGLING_REF [UC-004]: requirement 
 ```
 
 `path:line: SEVERITY CODE [element]: message`. Line 0 means the whole file.
-Exit code 0 when clean, 1 on any error (with `--strict` also on any warning),
-2 on a usage error, 5 on `OLD_FORMAT`.
+Exit code 0 when it ran, whatever it found: the findings are the output. With
+`--strict`, 1 on any error or warning (`--gate`: a Draft use case's findings
+never fail). A file that cannot be read is the finding `UNREADABLE`, under the
+same rule. 2 on a usage error, 5 on `OLD_FORMAT`.
 
 ## Contents
 
@@ -101,7 +103,7 @@ All per-file findings are fixed by `up-5-writing-use-case-specs`.
 |---|---|
 | `--docs DIR` | Documentation folder (default `docs`) |
 | `--only ID` | Only findings about this identifier or file |
-| `--strict` | Fail on warnings too |
+| `--strict` | Exit 1 on any error or warning (without it the lint exits 0) |
 | `--format json` | Findings and summary as JSON |
 | `--trace` | The traceability matrix instead of findings |
 | `--baseline FILE` | Use this baseline (default `DIR/.spec-lint-baseline.json` when present) |

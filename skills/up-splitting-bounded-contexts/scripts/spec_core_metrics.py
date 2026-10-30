@@ -14,7 +14,8 @@ Reports:
 
 The numbers describe; they do not decide. Whether to split is the owner's decision.
 
-Exit code 0, 2 on usage errors.
+Exit code 0, 1 when a file cannot be read, 2 on usage errors, 5 on earlier
+specification formats.
 
 Usage:
     spec_core_metrics.py [--docs DIR] [--format text|json] [--assign FILE]
@@ -231,7 +232,8 @@ def main(argv):
     args = parser.parse_args(argv)
     args.docs = args.docs or model.docs_default()
     docs_model = model.Docs(args.docs)
-    stop = model.stop_if_old(docs_model)
+    # A list or a measure cannot be made without the file: an unreadable one stops it with 1.
+    stop = model.stop_if_old(docs_model, strict=True)
     if stop:
         return stop
     if not os.path.isdir(args.docs):

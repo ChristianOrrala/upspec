@@ -9,9 +9,10 @@ list of behavior changes that code may be changed for when synchronizing.
 Without --base, the earlier revision is the most recent commit in which the
 file's Status was Implemented, Tested or Done.
 
-Exit code 0 with a list (possibly empty), 2 on usage errors (no such use case,
-not a git repository), 3 when no earlier implemented revision exists (treat the
-use case as new).
+Exit code 0 with a list (possibly empty), 1 when a file cannot be read, 2 on
+usage errors (no such use case, not a git repository), 3 when no earlier
+implemented revision exists (treat the use case as new), 5 on earlier
+specification formats.
 
 Usage:
     uc_change_list.py UC-012 [--docs DIR] [--base REF] [--format text|json]
@@ -28,16 +29,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.2.0"
+UPSPEC_VERSION = "1.3.0"
 
 IMPLEMENTED_RANK = model.STATUS_RANK["Implemented"]
-
-
-def find_spec(docs, uc_id):
-    for path in docs.use_case_files():
-        if os.path.basename(path).startswith(uc_id + "-") or os.path.basename(path) == uc_id + ".md":
-            return path
-    return None
 
 
 def revision_text(repo, ref, rel_path):
@@ -74,7 +68,8 @@ def main(argv):
     parser.add_argument("--format", choices=("text", "json"), default="text")
     args = parser.parse_args(argv)
     args.docs = args.docs or model.docs_default()
-    stop = model.stop_if_old(model.Docs(args.docs))
+    # A list cannot be made without the file: an unreadable one stops it with 1.
+    stop = model.stop_if_old(model.Docs(args.docs), strict=True)
     if stop is not None:
         return stop
     if not re.fullmatch(r"UC-\d{3}", args.use_case):
@@ -83,7 +78,7 @@ def main(argv):
     if not os.path.isdir(args.docs):
         print("no such folder: %s" % args.docs, file=sys.stderr)
         return 2
-    path = find_spec(model.Docs(args.docs), args.use_case)
+    path = model.find_use_case(model.Docs(args.docs), args.use_case)
     if not path:
         print("no specification file for %s under %s" % (args.use_case, args.docs), file=sys.stderr)
         return 2

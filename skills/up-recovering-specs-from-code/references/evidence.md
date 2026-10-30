@@ -6,7 +6,7 @@ What each kind of code tells you about intent, and what it cannot.
 
 - Entry points by kind
 - The project's own words
-- Specifications of another method
+- Specifications in another format, and other documents
 - From code to specification text
 - Actors
 - Entities
@@ -47,19 +47,24 @@ Where two documents name the same thing differently, or a document and the
 screens disagree, list the conflict as an open decision for the owner. Do not
 choose, and do not coin a third word.
 
-## Specifications of another method
+## Specifications in another format, and other documents
 
-Spec Kit's `specs/`, Kiro's `.kiro/specs/`, OpenSpec's `openspec/` and loose
-specification documents are evidence of the same rank as a product document:
-they say what someone meant the system to do, not what it does. Read them
-beside the code. Each recovered use case cites the document it drew on in
-the ledger, as it cites code. Where a document and the code disagree, list the conflict for the owner;
-where a document promises behavior the code does not have at all, it is a
-change log entry of kind `Claimed but not built`, citing the document's
-line. The old documents stay where they are until the
-baseline review is done and the owner says yes; then `scripts/relink.py`
-moves them to `docs/recovery/sources/` (for example
-`--move specs docs/recovery/sources/specs`), rewriting the ledger's citations
+Specifications in another format (a folder of feature specifications, loose
+specification documents) are not recovery's input: a system that has them is
+not without specifications. Send them to `up-migrating-spec-formats`, which
+converts them with an invention list and the owner's yes. Recovery keeps the
+systems that have code and no specifications.
+
+Other documents (a product document, design notes, a vision) are evidence of
+the same rank as the project's own words: they say what someone meant the
+system to do, not what it does. Read them beside the code. Each recovered use
+case cites the document it drew on in the ledger, as it cites code. Where a
+document and the code disagree, list the conflict for the owner; where a
+document promises behavior the code does not have at all, it is a change log
+entry of kind `Claimed but not built`, citing the document's line. A document
+stays where it is unless the owner retires it after the baseline review; then
+`scripts/relink.py` moves it to `docs/recovery/sources/` (for example
+`--move notes docs/recovery/sources/notes`), rewriting the ledger's citations
 (`path:line`) and every link, and `check_recovery_ledger.py` stays clean.
 
 ## From code to specification text

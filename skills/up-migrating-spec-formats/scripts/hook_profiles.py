@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Read hook events and render the gate's result for one named agent tool.
 
-The gate keeps results 0 pass, 1 warn, 2 act and 3 could not run. Profiles
+The gate keeps results 0 pass, 1 warn, 2 ask and 3 could not run. Profiles
 translate those results without running a check or writing the full report.
+Only the end of a turn asks: there each profile delivers the questions for the
+person by continuing the agent's turn once. At every other moment a result 2 is
+rendered as a warning, so no moment blocks or keeps the agent working.
 command() supplies the shell line used by generated hook configuration.
 Requires Python 3.9+, standard library only.
 """
@@ -11,7 +14,7 @@ import re
 from typing import NamedTuple, Optional
 
 # The release these copies belong to; the gate rejects siblings of another release.
-UPSPEC_VERSION = "1.2.0"
+UPSPEC_VERSION = "1.3.0"
 
 # Explicit names prevent guessing the calling tool from an unreliable environment.
 PROFILES = ("raw", "claude", "codex", "antigravity", "kiro")
@@ -55,8 +58,6 @@ SESSION_KEYS = ("session_id", "sessionId", "conversationId", "conversation_id")
 WORKSPACE_KEYS = ("workspacePaths", "workspace_roots")
 # The gate stores the uncut message here; this notice itself counts toward the cap.
 CUT_NOTICE = "\n... cut here; full report: up-hooks-report.txt in the git folder"
-# Every profile delivers this instruction once; Kiro needs a final block to reach the agent.
-GIVE_UP = "Please report these problems to the person and stop:\n\n"
 
 
 class Event(NamedTuple):
@@ -134,15 +135,13 @@ def _validate(profile, moment):
         raise ValueError("unknown hook moment: %s" % moment)
 
 
-def message(profile: str, moment: str, result: int, text: str, give_up: bool = False, *, cap=None, report_saved=True) -> str:
+def message(profile: str, moment: str, result: int, text: str, *, cap=None, report_saved=True) -> str:
     """Compose the complete message shared by rendering and report storage."""
     _validate(profile, moment)
     if result not in (0, 1, 2, 3):
         raise ValueError("unknown hook result: %s" % result)
     # Files decoded with surrogateescape can carry code points strict JSON readers reject.
     text = text.encode("utf-8", "replace").decode("utf-8")
-    if moment == "before-stop" and give_up and result != 0:
-        text = GIVE_UP + text
     return _cut(text, cap, report_saved) if cap is not None else text
 
 
@@ -151,19 +150,18 @@ def message_cap(profile, moment):
     return 2900 if profile == "kiro" and moment == "turn-start" else CAPS[profile]
 
 
-def render(profile: str, moment: str, result: int, text: str, give_up: bool = False, *, report_saved=True) -> Output:
+def render(profile: str, moment: str, result: int, text: str, *, report_saved=True) -> Output:
     """Translate one internal result, cutting only the message, never the JSON."""
     _validate(profile, moment)
-    text = message(profile, moment, result, text, give_up,
-                   cap=message_cap(profile, moment), report_saved=report_saved)
+    text = message(profile, moment, result, text, cap=message_cap(profile, moment), report_saved=report_saved)
+    if result == 2 and moment != "before-stop":
+        result = 1                  # only the end of a turn may ask; elsewhere the text is information
     if moment == "turn-start":
         if result != 0 or not text:
             return Output("", "", 0)
         if profile in ("claude", "codex"):
             return _json({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": text}})
         return Output(text + "\n", "", 0)
-    if profile == "kiro" and moment == "before-stop" and give_up and result != 0:
-        return _json({"decision": "block", "reason": text})
     printed = text + "\n" if text else ""
     if profile == "raw":
         return Output(printed, printed if result == 3 else "", result)
@@ -172,19 +170,24 @@ def render(profile: str, moment: str, result: int, text: str, give_up: bool = Fa
             if moment == "session-start" and text:
                 return _json({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}})
             return Output("", "", 0)
-        if result == 2 and moment != "session-start":
+        if result == 2:
+            # The one question at the end of a turn: the tool continues the agent's turn once, to ask it.
             return _json({"decision": "block", "reason": text})
+        if result == 1 and moment == "after-edit":
+            # Findings reach the agent as context to the edit, and the person as a warning.
+            return _json({"systemMessage": text,
+                          "hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": text}})
         return _json({"systemMessage": text})
     if profile == "antigravity":
         if moment == "session-start":
             return _json({"injectSteps": [{"ephemeralMessage": text}]} if result == 0 and text else {})
         if moment == "after-edit":
-            return Output("", printed, 2) if result == 2 else _json({})
+            return _json({})
         return _json({"decision": "continue", "reason": text} if result == 2 else {"decision": "allow"})
     # Kiro ignores nonzero exits other than 1 at Stop; 1 would accidentally continue it.
     if result == 0:
         return Output(printed if moment == "session-start" else "", "", 0)
-    if result == 2 and moment == "before-stop":
+    if result == 2:
         return _json({"decision": "block", "reason": text})
     return Output("", printed, 3)
 

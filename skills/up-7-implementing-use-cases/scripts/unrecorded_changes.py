@@ -17,13 +17,15 @@ while the record is not committed yet, the last commit (HEAD). --since overrides
 Only flows and rules are compared, the units the rest of the gate tracks; a
 changed main step, precondition or postcondition is left to the reviewer.
 
-Exit code 0 when every changed flow and rule is named in the record, 1 when some
-are not, 2 on usage errors, 3 when it cannot tell: no change record, no git, or a
+Exit code 0 when it ran, whether or not every changed flow and rule is named in
+the record, an unreadable file included (with --strict 1 when some are not or a
+file is unreadable), 2 on usage errors, 3 when it
+cannot tell: no change record, no git, or a
 specification that did not exist when the change began (a new use case is all
 change, and its sources table covers it).
 
 Usage:
-    unrecorded_changes.py UC-012 [--docs DIR] [--record FILE] [--since REF] [--format text|json]
+    unrecorded_changes.py UC-012 [--docs DIR] [--record FILE] [--since REF] [--format text|json] [--strict]
 
 Requires Python 3.9+, standard library only, and git. Reads only; changes nothing.
 """
@@ -37,21 +39,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.2.0"
+UPSPEC_VERSION = "1.3.0"
 
 UNIT = re.compile(r"\b(A\d+|BR-\d{3})\b")
 
 
 class Undecidable(Exception):
     """The comparison cannot be made; the message says why."""
-
-
-def find_spec(docs, uc_id):
-    for path in docs.use_case_files():
-        name = os.path.basename(path)
-        if name == uc_id + ".md" or name.startswith(uc_id + "-"):
-            return path
-    return None
 
 
 def units_for(text, uc_id):
@@ -126,7 +120,7 @@ def change_start(repo, record_rel):
 def check(docs_dir, uc_id, record=None, since=None):
     """{use_case, record, since, changed, recorded, unrecorded}; raises Undecidable."""
     docs = model.Docs(docs_dir)
-    path = find_spec(docs, uc_id)
+    path = model.find_use_case(docs, uc_id)
     if not path:
         raise SystemExit("no specification file for %s under %s" % (uc_id, docs_dir))
     record = record or find_record(docs_dir, uc_id)
@@ -170,6 +164,7 @@ def main(argv):
     parser.add_argument("--record", help="the change record (default: the newest one naming the use case)")
     parser.add_argument("--since", help="the commit the change began from (default: before the record was added)")
     parser.add_argument("--format", choices=("text", "json"), default="text")
+    parser.add_argument("--strict", action="store_true", help="exit 1 when it finds problems (default: exit 0, the findings are reported)")
     args = parser.parse_args(argv)
     args.docs = args.docs or model.docs_default()
     if not re.fullmatch(r"UC-\d{3}", args.use_case):
@@ -185,7 +180,7 @@ def main(argv):
     if args.record:
         records = docs.change_record_files()
         docs.change_record_files = lambda: sorted(set(records + [args.record]))
-    stop = model.stop_if_old(docs)
+    stop = model.stop_if_old(docs, strict=args.strict)
     if stop is not None:
         return stop
     try:
@@ -198,7 +193,8 @@ def main(argv):
         return 2
     except (OSError, UnicodeDecodeError) as exc:
         print("%s:0: ERROR UNREADABLE: cannot read: %s" % (args.record or args.docs, exc), file=sys.stderr)
-        return 1
+        # An unreadable file is a finding like the others.
+        return 1 if args.strict else 0
     if args.format == "json":
         print(json.dumps(result, indent=2, ensure_ascii=False))
     else:
@@ -213,7 +209,8 @@ def main(argv):
                   "with its source, or a correction with why) or undo it" % len(result["unrecorded"]))
         else:
             print("Result: every changed flow and rule is in the record")
-    return 1 if result["unrecorded"] else 0
+    # The unnamed changes are the output; only a strict run turns them into a failure.
+    return 1 if result["unrecorded"] and args.strict else 0
 
 
 if __name__ == "__main__":

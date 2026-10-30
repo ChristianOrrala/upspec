@@ -23,7 +23,8 @@ A marker is a claim, not proof. The matrix is finished by reading the code and
 the tests it points to; units without a label (steps, postconditions) can only
 be judged that way.
 
-Exit code 0, 2 on usage errors.
+Exit code 0, 1 when a file cannot be read, 2 on usage errors, 5 on earlier
+specification formats.
 
 Usage:
     coverage_matrix.py UC-001 [--docs DIR] [--code DIR] [--tests DIR] [--ledger FILE] [--format md|json]
@@ -44,14 +45,6 @@ import spec_model as model  # noqa: E402  (local module, same folder)
 
 def under(path, folder):
     return folder and os.path.abspath(path).startswith(os.path.abspath(folder) + os.sep)
-
-
-def find_spec(docs, uc_id):
-    for path in docs.use_case_files():
-        name = os.path.basename(path)
-        if name.startswith(uc_id + "-") or name == uc_id + ".md":
-            return path
-    return None
 
 
 def ledger_locations(path, uc_id):
@@ -166,7 +159,8 @@ def main(argv):
     args = parser.parse_args(argv)
     args.docs = args.docs or model.docs_default()
     docs_model = model.Docs(args.docs)
-    stop = model.stop_if_old(docs_model)
+    # A list or a measure cannot be made without the file: an unreadable one stops it with 1.
+    stop = model.stop_if_old(docs_model, strict=True)
     if stop:
         return stop
     if not re.fullmatch(r"UC-\d{3}", args.use_case):
@@ -176,7 +170,7 @@ def main(argv):
         if folder and not os.path.isdir(folder):
             print("no such folder: %s" % folder, file=sys.stderr)
             return 2
-    path = find_spec(model.Docs(args.docs), args.use_case)
+    path = model.find_use_case(model.Docs(args.docs), args.use_case)
     if not path:
         print("no specification file for %s under %s: an audit needs the specification, never one reconstructed from code" % (args.use_case, args.docs), file=sys.stderr)
         return 2

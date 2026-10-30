@@ -1,14 +1,14 @@
 ---
 name: up-4-mapping-use-cases
 description: >-
-  Finds the use cases a system needs and records them as the use case overview (docs/use_cases.md:
-  a scope list and delivery order written by people, and an actor-goal table and Mermaid diagram
-  generated from the use case files), creating a stub for each mapped use case. Tests user-goal
-  level, aggregates or splits Manage-X goals, moves multi-role or waiting flows to BPMN, and
-  checks functional requirement coverage. Use when the user asks which use cases exist or are
-  missing, whether a goal is a use case, for a diagram or actor-goal list, to split or merge use
-  cases, to decide scope, or to check requirement coverage. Not for writing one use case's steps,
-  bounded contexts or draw.io.
+  Finds the use cases a system needs and records them as the use case overview (docs/use_cases.md: a
+  scope list and delivery order written by people, and an actor-goal table and Mermaid diagram
+  generated from the use case files), creating a stub for each mapped use case. Tests user-goal level,
+  aggregates or splits Manage-X goals, moves multi-role or waiting flows to BPMN, and checks
+  functional requirement coverage. Use when the user asks which use cases exist or are missing,
+  whether a goal is a use case, for a diagram or actor-goal list, to split or merge use cases, to
+  decide scope, or to check requirement coverage. Not for writing one use case's steps, bounded
+  contexts or draw.io.
 ---
 
 # Mapping use cases
@@ -102,10 +102,11 @@ between the markers.
 - The overview shows actors and goals. Shared behavior is cited in the
   specifications; it is not an extra diagram relationship.
 
-When the project tracks its work in the A-files, end the mapping with a
-proposal: for each new use case, the ability in `ABILITIES.md` whose `Specs`
-line it joins, or a new ability when none fits. The owner accepts it; the
-pairing contract in the conventions has the rule.
+When the project tracks its work in the A-files and keeps `ABILITIES.md`,
+end the mapping with a proposal: for each new use case, the ability in
+`ABILITIES.md` whose `Specs` line it joins, or a new ability when none fits.
+The owner accepts it; the pairing contract in the conventions has the rule.
+Without `ABILITIES.md` (the small setup), propose no abilities.
 
 ## Workflow
 
@@ -148,7 +149,7 @@ planned here; they follow once the main scenario has been seen working.
 
 ## Validation
 
-- The check exits 0. Every mapped use case has a file, at least a Draft stub,
+- The check reports no error. Every mapped use case has a file, at least a Draft stub,
   and links the functional requirements it realizes. `STALE_OVERVIEW` means
   rerun the generator; `FRONT_MATTER` and `STUB` mean repair the file.
   `OLD_FORMAT` (exit 5) routes to `up-migrating-spec-formats`.

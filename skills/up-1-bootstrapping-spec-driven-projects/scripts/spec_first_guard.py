@@ -7,19 +7,27 @@ A change set passes when at least one of these holds:
     case, a journey test case, a process model) under the docs folder;
   - a commit message or the message file carries the declaration line
         No behavior change: UC-012
-    naming the use case the change stays within, or `none` with a reason.
+    naming the use case the change stays within, or `none` with a reason;
+  - a commit message or the message file carries the light path's note
+        Fixes: UC-012 BR-005
+    for a bug fixed against a clear specification. The note is read, never
+    checked: the guard does not ask whether the element exists or a test
+    fails.
 
 It also flags behavior code that arrives together with a use case whose Status
 is still Draft or Reviewed: nothing is implemented before approval.
 
-Findings: CODE_WITHOUT_SPEC, DECLARATION_INCOMPLETE, NOT_APPROVED.
+Findings: CODE_WITHOUT_SPEC, DECLARATION_INCOMPLETE, NOT_APPROVED, always as
+warnings: the guard informs and never stops the work.
 Output: path:line: SEVERITY CODE [element]: message
-Exit code 0 when clean or in warn mode, 1 in block mode with findings, 2 on usage errors.
+Exit code 0 when it ran, whatever it found (with --strict 1 on a finding), 2 on
+usage errors. --mode block is still accepted and behaves as warn, with one line
+saying that --strict is the explicit choice for a strict pipeline.
 
 Usage:
     spec_first_guard.py [--base REF] [--head REF] [--docs DIR] [--code GLOB ...]
-                        [--message-file FILE] [--mode warn|block]
-    spec_first_guard.py --staged [--message-file FILE] [--docs DIR] [--mode warn|block]
+                        [--message-file FILE] [--strict]
+    spec_first_guard.py --staged [--message-file FILE] [--docs DIR] [--strict]
 
 --base defaults to HEAD~1 and --head to HEAD; the change set is what --head adds
 since it left --base. An empty tree is also accepted as --base to judge a
@@ -31,57 +39,16 @@ outside the docs folder count, tests excluded.
 Requires Python 3.9+ and git, standard library only. Reads the repository; writes nothing.
 """
 import argparse
-import fnmatch
 import os
-import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.2.0"
+UPSPEC_VERSION = "1.3.0"
 
-SOURCE_SUFFIXES = (".py", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".java", ".kt", ".kts", ".go", ".rb", ".php",
-                   ".cs", ".rs", ".swift", ".scala", ".c", ".h", ".cc", ".cpp", ".hpp", ".sql", ".vue", ".svelte",
-                   ".ex", ".exs", ".dart", ".groovy")
-TEST_FOLDERS = {"test", "tests", "__tests__", "spec", "specs", "e2e", "testing", "fixtures"}
-TEST_NAME = re.compile(r"(^test_.*|.*_test|.*[.-](test|spec)|.*Tests?|.*IT)\.[A-Za-z0-9]+$")
-DECLARATION = re.compile(r"^\s*(?:[-*>]\s*)?no behaviou?r change\s*:\s*(.*)$", re.IGNORECASE)
-COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 NOT_YET = ("Draft", "Reviewed")
-
-
-def is_test(path):
-    parts = path.split("/")
-    return any(p.lower() in TEST_FOLDERS for p in parts[:-1]) or bool(TEST_NAME.match(parts[-1]))
-
-
-def is_spec(path, docs):
-    return docs.kind(path) in model.SPEC_KINDS
-
-
-def is_behavior_code(path, docs, patterns):
-    if path.startswith(docs + "/") or is_test(path):
-        return False
-    if patterns:
-        return any(fnmatch.fnmatch(path, p) for p in patterns)
-    return path.endswith(SOURCE_SUFFIXES)
-
-
-def declarations(text):
-    """Return (complete, incomplete) declaration values found at the start of a line, outside comments."""
-    complete, incomplete = [], []
-    for line in COMMENT.sub("", text).splitlines():
-        match = DECLARATION.match(line)
-        if not match:
-            continue
-        value = match.group(1).strip()
-        if model.RE_UC_ID.search(value) or re.match(r"none\b", value, re.IGNORECASE):
-            complete.append(value)
-        else:
-            incomplete.append(value)
-    return complete, incomplete
 
 
 def main(argv):
@@ -92,12 +59,14 @@ def main(argv):
     parser.add_argument("--docs", help="the specification folder (default: the one the rules block records, else docs)")
     parser.add_argument("--code", action="append", default=[], metavar="GLOB")
     parser.add_argument("--message-file", help="a commit message or pull request description to search for the declaration")
-    parser.add_argument("--mode", choices=("warn", "block"), default="warn")
+    parser.add_argument("--mode", choices=("warn", "block"), default="warn",
+                        help="accepted for older pipelines; both modes warn")
+    parser.add_argument("--strict", action="store_true", help="exit 1 on a finding (default: exit 0, findings are reported)")
     args = parser.parse_args(argv)
     args.docs = args.docs or model.docs_default()
     docs_model = model.Docs(args.docs)
-    stop = model.stop_if_old(docs_model)
-    if stop:
+    stop = model.stop_if_old(docs_model, strict=args.strict)
+    if stop is not None:
         return stop
     if args.staged and args.base:
         print("--staged and --base exclude each other", file=sys.stderr)
@@ -141,20 +110,16 @@ def main(argv):
             return 2
 
     changed = [line.strip() for line in out.splitlines() if line.strip()]
-    behavior = [p for p in changed if is_behavior_code(p, docs, args.code)]
-    specs = [p for p in changed if is_spec(os.path.join(top, p), docs_model)]
-    complete, incomplete = declarations(messages)
+    # The same reading as the hook gate's end-of-turn question (spec_model.read_change).
+    reading = model.read_change(changed, docs, lambda path: docs_model.kind(os.path.join(top, path)), messages, args.code)
+    behavior, specs, complete = reading.behavior, reading.specs, reading.complete
 
     report = model.Reporter(top)
-    flag = report.error if args.mode == "block" else report.warn
-    if behavior and not specs and not complete:
-        shown = ", ".join(behavior[:5]) + (" and %d more" % (len(behavior) - 5) if len(behavior) > 5 else "")
-        flag(os.path.join(top, behavior[0]), 0, "CODE_WITHOUT_SPEC", "-",
-             "%d behavior file(s) changed (%s) with no specification change under %s/ and no line 'No behavior change: UC-XXX'"
-             % (len(behavior), shown, docs))
-    for value in incomplete:
+    if reading.code_without_spec():
+        report.warn(os.path.join(top, behavior[0]), 0, "CODE_WITHOUT_SPEC", "-", reading.summary(docs))
+    for value in reading.incomplete:
         if not complete:
-            flag(os.path.join(top, behavior[0] if behavior else docs), 0, "DECLARATION_INCOMPLETE", "-",
+            report.warn(os.path.join(top, behavior[0] if behavior else docs), 0, "DECLARATION_INCOMPLETE", "-",
                  "'No behavior change: %s' names no use case; write the use case id, or 'none' and the reason" % value)
     if behavior:
         for path in specs:
@@ -166,12 +131,16 @@ def main(argv):
             except (OSError, UnicodeDecodeError):
                 continue
             if uc.status in NOT_YET:
-                flag(full, 0, "NOT_APPROVED", uc.id or "-",
+                report.warn(full, 0, "NOT_APPROVED", uc.id or "-",
                      "behavior code changes together with a use case whose Status is %s; implementation waits for Approved" % uc.status)
     report.print_text()
-    print("checked: %d changed file(s), %d behavior, %d specification, declaration %s"
-          % (len(changed), len(behavior), len(specs), "found" if complete else "not found"))
-    return 1 if args.mode == "block" and report.findings else 0
+    print("checked: %d changed file(s), %d behavior, %d specification, declaration %s, Fixes note %s"
+          % (len(changed), len(behavior), len(specs), "found" if complete else "not found",
+             "found" if reading.fixes else "not found"))
+    if args.mode == "block":
+        print("--mode block now warns like --mode warn; pass --strict to make findings fail a strict pipeline")
+    # The findings are the output; only a strict run turns them into a failure.
+    return 1 if args.strict and report.findings else 0
 
 
 if __name__ == "__main__":

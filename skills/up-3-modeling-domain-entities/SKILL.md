@@ -2,11 +2,11 @@
 name: up-3-modeling-domain-entities
 description: >-
   Creates or updates docs/entity_model.md: a Mermaid erDiagram of entities and relationships,
-  attribute tables with business meanings, types and rules, lifecycle states and avoided words.
-  Checks specification nouns and lists use cases affected by a model change. Use when the user
-  asks for an entity, domain or data model or glossary, changes an entity or attribute, asks to
-  resolve conflicting vocabulary, or a specification names a missing concept. Not for database
-  migrations or ORM code.
+  attribute tables with business meanings, types and rules, lifecycle states and avoided words. Checks
+  specification nouns and lists use cases affected by a model change. Use when the user asks for an
+  entity, domain or data model or glossary, changes an entity or attribute, asks to resolve
+  conflicting vocabulary, or a specification names a missing concept. Not for database migrations or
+  ORM code.
 ---
 
 # Modeling domain entities
@@ -22,6 +22,22 @@ It is not a schema. Table names, storage types, indexes and keys chosen for
 technical reasons do not appear. The model should read the same on any stack.
 
 Shared paths and identifiers: [references/conventions.md](references/conventions.md).
+
+## How much to model
+
+Read the profile in the rules block of the guideline file (`**Profile:**`).
+
+- **Team, or no profile recorded:** model every noun the catalog names.
+- **Solo:** the model may start thin. It holds only what the use cases written
+  so far and the next one need, starting with the first, and grows with each
+  use case. A whole model written before any behavior exists is a guess the
+  later steps inherit. Thin is not absent: the model still exists before the
+  first use case is written.
+
+The vocabulary check is the same in both: every business noun a specification
+uses is defined in the model. In a thin model, a noun of the catalog that no
+use case uses yet is not a finding; it joins the model with the first use case
+that needs it.
 
 ## The document
 
@@ -67,6 +83,8 @@ one use case says "loan", another "borrowing", and an agent builds two things.
   reports every place a specification uses one of them.
 - A noun that appears in a requirement or a use case and is not an entity, an
   attribute or a role is a finding: add it, map it to an existing entity, or ask.
+  In a thin model, only the nouns of the use cases count (see How much to
+  model).
 - Roles (Customer as an actor) and entities (CUSTOMER as data) may share a
   name. Generic words (system, data, list, screen) are not entities.
 
@@ -100,7 +118,8 @@ hand-off; do not write the rules here.
 1. Read `docs/requirements.md` and the existing model, if any. Read the use
    case specifications that exist, for their nouns.
 2. Collect nouns: roles, business objects, states, events. Merge synonyms;
-   choose one word; note the rejected ones.
+   choose one word; note the rejected ones. In solo, collect only the nouns
+   the use cases written so far and the next one need.
 3. Write the diagram: names and relationships only.
 4. Write one section per entity: description, `**Not:**` line where synonyms
    exist, attribute table.
@@ -134,13 +153,13 @@ old name to `**Not:**` and list every file that uses it.
 
 ## Validation
 
-The check must exit 0. `ENTITY_TYPE` refuses an unknown business type;
+The check must report no error. `ENTITY_TYPE` refuses an unknown business type;
 `REFERENCE_NO_RELATIONSHIP` refuses a reference without a diagram relationship.
 `OLD_FORMAT` (exit 5) calls for `up-migrating-spec-formats`. Then read the model once as a stakeholder would:
 
 - Could a business person confirm every description without knowing the system?
 - Does each noun in the requirements resolve to exactly one entity, attribute
-  or role?
+  or role? In a thin model: each noun in the use cases.
 - Would this document still be true on a different stack?
 
 A "no" is fixed in the model, not explained in the hand-off.

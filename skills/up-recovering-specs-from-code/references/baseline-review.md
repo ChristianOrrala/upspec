@@ -108,8 +108,9 @@ If one person holds both kinds of knowledge, split the review anyway:
 
 1. A pass with the system questions only, with the code open.
 2. A separate pass with the business questions only, with the code closed,
-   reading the specification as a stakeholder would. A fresh context that
-   receives only the specification and the business questions does this well.
+   reading the specification as a stakeholder would. A cold read (a fresh
+   context that receives only the specification and the business questions)
+   does this well.
 3. For every item you cannot answer from knowledge, name who can. If nobody
    can, it stays open in the change log; do not decide it by guess.
 

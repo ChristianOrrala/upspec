@@ -8,8 +8,9 @@ description: >-
   specification, marks rule-enforcing code with the rule identifier, audits the diff for out-of-scope
   changes and handles schema changes as a guarded sub-procedure. Use when the user says implement,
   build, generate, sync or synchronize UC-XXX, asks to bring code in line with a changed use case, or
-  asks for a database migration or schema change after the entity model changed. Not for work that
-  names no use case and not for deciding whether a report is a bug or a change.
+  asks for a database migration or schema change after the entity model changed, or for an index or
+  partitioning that changes no behavior. Not for work that names no use case and not for deciding
+  whether a report is a bug or a change.
 ---
 
 # Implementing use cases
@@ -53,8 +54,49 @@ row's Seen in, commit the pins, and run it again. Code waits until no pinning
 line is left; a pin written after the code changed proves the new code, not
 today's behavior. An existing test is a pin only if it asserts what the row's
 Today cell says: when the change alters that row, the pin has to change with
-it, and the finish check refuses a cited test the change left untouched. The
+it, and the finish check reports a cited test the change left untouched as a
+problem. The
 rest of its list is the checklist of the change.
+
+### A bug fix on the light path
+
+A bug that triage classified as code wrong against a clear specification
+(outcome 1) has no change record. The Status table above still applies; then
+the fix costs a test and a line:
+
+1. A failing test named after the use case and the element the code breaks
+   (a rule, a flow, a step, a precondition or a postcondition), run and seen
+   failing for the reason in the report.
+2. The fix, touching only what the element requires, with the rule's marker
+   where it enforces a rule. Then the project's tests, green.
+3. When the developer wants proof that the test guards the element, its guard
+   check (`scripts/guard_check.py "UC-012 BR-005" ...`, as in
+   `up-8-deriving-use-case-tests`). Its verdict is information.
+4. The commit message carries the note `Fixes: UC-012 BR-005`; the spec-first
+   guard and the agent hooks read it and do not report the change. Before
+   the commit the hooks ask once; answer "at the end of the session", not
+   "later": the commit with its note closes it.
+
+No change list, plan, scope audit or finish check, and Status stays where it
+is. If the fix needs a decision the specification does not make, it is not this
+path: send it back to `up-triaging-change-requests`.
+
+### A schema change no flow can observe
+
+An index or partitioning comes from an engineering decision, not from the
+entity model, and triage classifies it as no behavior change (outcome 7). It
+needs no approved use case: follow the technical path of
+[references/schema-changes.md](references/schema-changes.md), and the change
+carries the line `No behavior change: UC-012` (or `none` and the reason). No
+change list, plan or finish check. If a flow could observe it, it is not this
+path: it goes through the entity model.
+
+A foreign-key constraint added later, for a relationship the entity model
+already states, is the code catching up with the model (triage outcome 1). It
+follows the destructive path of the same reference, with its confirmation,
+and the model stays unchanged. The commit message names the relationship and
+carries `Fixes: UC-012`, naming the use case whose relationship it enforces,
+which the spec-first guard reads.
 
 ## What to read, and nothing else
 
@@ -136,7 +178,8 @@ rule is dropped, the marker goes with the code.
 
 ## Workflow
 
-1. Resolve the use case id to its file. Check the gate.
+1. Resolve the use case id to its file. Check the gate. A bug fix with no
+   change record takes the light path above instead of the steps below.
 2. Read the inputs listed above.
 3. Decide: generate or synchronize.
 4. Synchronizing: compute what changed in the specification.
@@ -158,9 +201,12 @@ rule is dropped, the marker goes with the code.
    finish check. Pins come before the failing test of the new behavior.
 6. Write the plan and the invention list. Stop on behavior items.
 7. Work on a branch for this use case. Never on the main branch.
-8. If the entity model changed, follow
+8. If the change touches the schema, follow
    [references/schema-changes.md](references/schema-changes.md) exactly. It has
-   confirmation steps you may not skip.
+   confirmation steps you may not skip. A schema change that adds or changes a
+   business concept (a key, a uniqueness constraint or a version column
+   included) starts from the entity model's difference; a column the model
+   does not have means the model changes first.
 9. Implement the slice, following the project's conventions, placing markers.
 10. Audit the scope:
 
@@ -192,7 +238,10 @@ rule is dropped, the marker goes with the code.
     It and `scope_audit.py` import `scripts/change_view.py`.
     It checks scope, a marker for every rule in the change, a test naming every
     flow and rule in the change, a logged guard check that caught a break of
-    every rule (`scripts/guard_check.py` writes the log), the owner's decisions
+    every rule (`scripts/guard_check.py` writes the log; the newest row of a
+    rule counts, only when it is `caught`, and it is stale when the rule's text,
+    its Examples table or the enforcing file changed since: run the guard check
+    again), the owner's decisions
     each carried by an element, every flow and rule the specification changed
     since the change began named in the record (`scripts/unrecorded_changes.py`
     lists the rest: record each, or undo it), and that every row of the change
@@ -206,7 +255,8 @@ rule is dropped, the marker goes with the code.
     When the project tracks its work in the A-files, the finish check also warns
     when the use case's Status moved and neither `ABILITIES.md` nor `ACTIVE.md`
     changed: update the ability whose `Specs` line names the use case, and the
-    current work, in the same commit. The warning does not change the result.
+    current work, in the same commit. In a project without `ABILITIES.md` it
+    names `ACTIVE.md` alone. The warning does not change the result.
     Like the rest of the check, it compares with `--base`: once the change is
     committed, pass the commit or branch the change started from.
 

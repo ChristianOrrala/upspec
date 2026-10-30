@@ -8,7 +8,12 @@ One command for the steps that are easy to skip. It checks:
   markers  every rule in the change carries its marker UC-XXX BR-YYY in the code
   tests    every flow and rule in the change is named by a test of the use case
   guard    every rule in the change has a break that a test caught, in the guard-check
-           log written by guard_check.py (DIR/reviews/guard-checks.md)
+           log written by guard_check.py (DIR/reviews/guard-checks.md): the newest
+           row of the rule counts, and only a caught one; it is stale when the
+           rule's text (with its Examples table) or the enforcing file changed
+           since it was logged, or when it is in the format before upspec 1.3.0,
+           and the report says to run the guard check again. Not detected: a
+           test weakened while the rule and its file stay unchanged
   decisions every owner decision in the change record names the specification
            element that carries it (Lives in), and that element exists; a
            decision kept only in the record is lost to the implementation
@@ -22,7 +27,8 @@ One command for the steps that are easy to skip. It checks:
   (warns)  a rule marker right above a function that no other code refers to:
            the marker sits on code nothing calls
   (warns)  with the A-files (ACTIVE.md with a hot zone): the use case's Status moved
-           since the base while ABILITIES.md and ACTIVE.md stayed unchanged
+           since the base while ABILITIES.md and ACTIVE.md stayed unchanged (ACTIVE.md
+           alone in a project without ABILITIES.md)
   pinning  every row of the change record whose today's behavior was only read
            from the code is pinned by a test that was there before the code
            changed: in the base, or in a commit that changed tests and documents
@@ -43,12 +49,13 @@ Requested by | Seen in. Seen in says how today's behavior is known: `code` (read
 from the code: pin it with a test before changing it), `test <name>` (pinned by
 that test), or `observed` (seen on the running system).
 
-Exit code 0 when everything it can check holds, 1 when something is missing or
-could not be checked, 2 on usage errors.
+Exit code 0 when it ran, ready or not, an unreadable file included: the report
+says which (with --strict 1 when something is missing or unreadable), 2 on usage
+errors.
 
 Usage:
     finish_change.py UC-012 [--base REF] [--docs DIR] [--code DIR] [--tests DIR]
-                     [--record FILE] [--claim] [--format text|json]
+                     [--record FILE] [--claim] [--format text|json] [--strict]
 
 --base defaults to HEAD (uncommitted work); on a feature branch pass the branch
 it started from. --code and --tests default to the repository; test files are
@@ -81,7 +88,7 @@ import uc_change_list  # noqa: E402
 import unrecorded_changes  # noqa: E402
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.2.0"
+UPSPEC_VERSION = "1.3.0"
 
 def is_test_path(path):
     return model.is_test_path(path)
@@ -246,18 +253,30 @@ NOWHERE = re.compile(r"^(?:out of scope|open|none|-|—)\b", re.IGNORECASE)
 
 
 def guard_log(docs_dir):
-    """Unit -> verdict of its newest row in the guard-check log; empty when there is no log."""
-    path = os.path.join(docs_dir, "reviews", "guard-checks.md")
+    """Element -> its newest row in the guard-check log (spec_model.read_guard_log); empty when there is no log."""
     latest = {}
-    if os.path.isfile(path):
-        for table in model.read_tables(model.read_lines(path)):
-            if "Unit" not in table["header"] or "Verdict" not in table["header"]:
-                continue
-            for _, row, _ in table["rows"]:
-                unit = row.get("Unit", "").strip()
-                if unit:
-                    latest[unit] = row.get("Verdict", "").strip()
+    for row in model.read_guard_log(os.path.join(docs_dir, model.GUARD_LOG_NAME)):
+        if row.element:
+            latest[row.element] = row
     return latest
+
+
+def guard_staleness(row, uc, element, root):
+    """Why a logged result (a spec_model.GuardRow) no longer speaks for the element (a spec_model.Element) and its
+    file; None when it is current."""
+    if not row.current:
+        return "it was logged in the format before upspec 1.3.0, which holds no fingerprints"
+    text = element.text(uc)
+    if text is None or model.fingerprint(text) != row.element_fingerprint:
+        return "its text or its Examples table changed since it was logged"
+    try:
+        with open(os.path.join(root, row.file), "rb") as handle:
+            data = handle.read()
+    except OSError:
+        return "%s no longer exists" % row.file
+    if model.fingerprint(data) != row.file_fingerprint:
+        return "%s changed since it was logged" % row.file
+    return None
 
 
 SOURCE = re.compile(r"^\s*(?:the\s+)?(?:(request)|(today)|decision\s+(\d+)|assumption\s+(\d+))\b", re.IGNORECASE)
@@ -327,7 +346,7 @@ def decision_problems(lines, docs):
                 continue
             for uc_id, part in refs:
                 if uc_id not in specs:
-                    path = uc_change_list.find_spec(docs, uc_id)
+                    path = model.find_use_case(docs, uc_id)
                     specs[uc_id] = model.parse_use_case(path) if path else None
                 spec = specs[uc_id]
                 if spec is None:
@@ -417,7 +436,8 @@ def section_view(view, root):
 
 def tracking_warning(repo, base, rel, uc):
     """P6 of the pairing: a Status move without ABILITIES.md or ACTIVE.md in step, as text; None when it does not apply."""
-    if not repo or not rel or not model.a_files_present(repo):
+    tracking = model.read_tracking(repo) if repo and rel else None
+    if tracking is None:
         return None
     code, before = model.git(["show", "%s:%s" % (base, rel)], cwd=repo)
     if code != 0:
@@ -428,6 +448,9 @@ def tracking_warning(repo, base, rel, uc):
     code, out = model.git(["diff", "--name-only", base, "--", "ABILITIES.md", "ACTIVE.md"], cwd=repo)
     if code == 0 and out.strip():
         return None
+    if not tracking["abilities_present"]:                          # the small setup: nothing about abilities
+        return ("%s moved from %s to %s and ACTIVE.md did not change: update the current work in the same commit"
+                % (uc.id, previous, uc.status))
     return ("%s moved from %s to %s and neither ABILITIES.md nor ACTIVE.md changed: update the ability whose Specs line "
             "names it, and the current work, in the same commit" % (uc.id, previous, uc.status))
 
@@ -515,7 +538,7 @@ def check(args, view: change_view.ChangeView | None = None) -> dict:
 def _check_one(args, view: change_view.ChangeView | None = None, covered=None) -> dict:
     problems, result = [], {}
     docs = model.Docs(args.docs)
-    path = getattr(args, "spec_path", None) or uc_change_list.find_spec(docs, args.use_case)
+    path = getattr(args, "spec_path", None) or model.find_use_case(docs, args.use_case)
     if not path:
         raise SystemExit("no specification file for %s under %s" % (args.use_case, args.docs))
     uc = model.parse_use_case(path)
@@ -552,13 +575,32 @@ def _check_one(args, view: change_view.ChangeView | None = None, covered=None) -
         pin_base = head.strip() if code == 0 else None
 
     # guard checks
-    log = guard_log(args.docs)
-    guard = {"checked": [u for u in units if u.startswith("BR-")], "caught": [], "missing": []}
+    # The newest row per element counts, and only when it is caught and logged against the element and the
+    # enforcing file as they are now.
+    try:
+        log = guard_log(args.docs)
+    except (OSError, UnicodeDecodeError) as exc:
+        log = {}
+        problems.append("%s:0: ERROR UNREADABLE: cannot read the guard-check log: %s"
+                        % (os.path.relpath(os.path.join(args.docs, model.GUARD_LOG_NAME)), exc))
+    guard = {"checked": [u for u in units if u.startswith("BR-")], "caught": [], "missing": [], "stale": []}
+    log_root = model.project_root(args.docs)
     for rule in guard["checked"]:
-        verdict = log.get("%s %s" % (uc.id, rule), "")
-        (guard["caught"] if verdict == "caught" else guard["missing"]).append(rule if not verdict else "%s (%s)" % (rule, verdict))
+        element = model.Element(uc.id, "BR-", int(rule[len("BR-"):]))
+        row = log.get(str(element))
+        if row is None:
+            guard["missing"].append(rule)
+        elif row.verdict != "caught":
+            guard["missing"].append("%s (%s)" % (rule, row.verdict))
+        else:
+            reason = guard_staleness(row, uc, element, log_root)
+            if reason:
+                guard["stale"].append("%s (%s)" % (rule, reason))
+            else:
+                guard["caught"].append(rule)
     result["guard"] = guard
     problems += ["no logged break of %s %s that a test caught: run scripts/guard_check.py" % (uc.id, m) for m in guard["missing"]]
+    problems += ["the guard check of %s %s is stale: run scripts/guard_check.py again" % (uc.id, s) for s in guard["stale"]]
 
     # sources of the flows and rules in the change
     record_lines = model.read_lines(record) if record else []
@@ -707,6 +749,21 @@ def _check_one(args, view: change_view.ChangeView | None = None, covered=None) -
     return result
 
 
+def guard_summary(guard):
+    """The report's Guard check line: caught, or what is missing and what is stale."""
+    missing, stale = guard.get("missing", []), guard.get("stale", [])
+    if not guard.get("checked"):
+        return "no rule in the change"
+    if not missing and not stale:
+        return "logged and caught: %s" % ", ".join(guard.get("caught", []))
+    parts = []
+    if missing:
+        parts.append("missing for %s (run scripts/guard_check.py)" % ", ".join(missing))
+    if stale:
+        parts.append("stale for %s (run scripts/guard_check.py again)" % ", ".join(stale))
+    return "; ".join(parts)
+
+
 def print_text(r, base):
     """Build the text report, including the final newline the CLI prints."""
     lines = []
@@ -741,10 +798,7 @@ def print_text(r, base):
     else:
         issues = p["unpinned"] + p.get("untouched", [])
         lines.append("Pinning:      %s" % ("ok: %d row(s)" % p["rows"] if not issues else "%d of %d row(s) not pinned (see below)" % (len(issues), p["rows"])))
-    g = r.get("guard", {"checked": [], "missing": [], "caught": []})
-    lines.append("Guard check:  %s" % ("logged and caught: %s" % ", ".join(g["caught"]) if g["checked"] and not g["missing"]
-                                  else "missing for %s (run scripts/guard_check.py)" % ", ".join(g["missing"]) if g["missing"]
-                                  else "no rule in the change"))
+    lines.append("Guard check:  %s" % guard_summary(r.get("guard", {})))
     if r.get("tracking"):
         lines.append("Tracking:     warning: %s" % r["tracking"])
     lines.append("To fill in by hand:")
@@ -770,10 +824,12 @@ def main(argv):
     parser.add_argument("--claim", action="store_true", help="check the whole use case unless open change records cover it")
     parser.add_argument("--record", help="change record with the differences from today")
     parser.add_argument("--format", choices=("text", "json"), default="text")
+    parser.add_argument("--strict", action="store_true", help="exit 1 when it finds problems (default: exit 0, the findings are reported)")
     args = parser.parse_args(argv)
     code, text, to_stderr = _finish_report(args)
     (sys.stderr if to_stderr else sys.stdout).write(text)
-    return code
+    # A report that is not ready, or a file it could not read, is the output; only a strict run turns it into a failure.
+    return 0 if code == 1 and not args.strict else code
 
 
 def finish_report(args, view: change_view.ChangeView | None = None) -> tuple[int, str]:
@@ -799,7 +855,8 @@ def _finish_report(args, view=None):
         records = docs.change_record_files()
         docs.change_record_files = lambda: sorted(set(records + [args.record]))
     notice = io.StringIO()
-    stop = model.stop_if_old(docs, stream=notice)
+    # The library's result is 1 on any problem, an unreadable file included; main applies --strict to it.
+    stop = model.stop_if_old(docs, stream=notice, strict=True)
     if stop is not None:
         return error(stop, notice.getvalue())
     try:

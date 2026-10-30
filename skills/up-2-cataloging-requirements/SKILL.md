@@ -2,14 +2,14 @@
 name: up-2-cataloging-requirements
 description: >-
   Turns a vision, workshop transcripts, notes or an interview into a requirements catalog
-  (docs/requirements.md) with functional requirements as role and need (FR), measurable
-  non-functional requirements (NFR) with a verification method, and constraints (C) under stable
-  identifiers, and returns a conflict ledger of contradictions, duplicates and open decisions for
-  the human review gate. Runs an elicitation interview when there is no workshop material. Use
-  when the user asks to gather, write, extract, classify or update requirements, user stories,
-  NFRs or constraints for a spec-driven or use-case-driven project, adds, defers or drops a
-  requirement in the catalog, or hands over meeting notes to consolidate. Not for the detailed
-  behavior of one feature (that is a use case specification) and not for brainstorming a design.
+  (docs/requirements.md) with functional requirements as role and need (FR), measurable non-functional
+  requirements (NFR) with a verification method, and constraints (C) under stable identifiers, and
+  returns a conflict ledger of contradictions, duplicates and open decisions for the human review
+  gate. Runs an elicitation interview when there is no workshop material. Use when the user asks to
+  gather, write, extract, classify or update requirements, user stories, NFRs or constraints for a
+  spec-driven or use-case-driven project, adds, defers or drops a requirement in the catalog, or hands
+  over meeting notes to consolidate. Not for the detailed behavior of one feature (that is a use case
+  specification) and not for brainstorming a design.
 ---
 
 # Cataloging requirements
@@ -77,6 +77,24 @@ article or section in the Source column. NFR and C tables use `Statement`.
 Each statement follows one EARS pattern: `The <system> shall …`,
 `When <trigger>, the <system> shall …`, `While <state>, …`,
 `If <condition>, then the <system> shall …`, or `Where <feature is present>, …`.
+The subject is whatever carries the boundary, as long as `shall` follows it.
+Two constraints that look as if they do not fit, worked through (the amount
+and the product are examples):
+
+```markdown
+| ID | Title | Statement | Category | Source | Priority | Status |
+|----|-------|-----------|----------|--------|----------|--------|
+| C-002 | Running Cost Budget | The system's hosting and licenses shall cost no more than 60 EUR a month in total. | Business |  | High | Open |
+| C-003 | Mandated Database | The system shall keep its data in the PostgreSQL database the shop already operates. | Technical |  | High | Open |
+```
+
+- **A budget** names the amount, the period and what it covers; the cost is
+  the subject. "Fits the approved budget" is not checkable until the amount is
+  in the row or in a ledger entry that asks for it.
+- **A mandated technology** names the product and says the system shall use
+  it. Only a mandate is a constraint: a technology someone merely prefers goes
+  to the guideline file, or nowhere.
+
 `NEED_FORM` reports a missing Role or Need, or a statement outside these forms.
 `OLD_FORMAT` (exit 5) calls for `up-migrating-spec-formats`.
 
@@ -150,7 +168,7 @@ uses the system.
 
 ## Validation
 
-The check must exit 0. Then confirm, and tell the reviewer to confirm:
+The check must report no error. Then confirm, and tell the reviewer to confirm:
 
 - **Correct and unambiguous:** no weak word, every NFR has a number or an open
   ledger entry.

@@ -40,7 +40,9 @@ the skill that writes the first affected artifact.
 Row 2 needs judgment the script cannot make: whether the code found is
 behavior worth recovering or only a fresh project skeleton. Look at it. A
 generated scaffold with no business logic is not an existing system: continue
-with row 4.
+with row 4. The script reads only the specification folder, so it still names
+row 2 when specifications in another format sit outside it; those go to the
+migration, not to recovery.
 
 Rows 2 and 3 come before the vision for an existing system. Recovery needs the
 code, not the vision; the baseline review then settles what the system does,

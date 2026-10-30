@@ -3,7 +3,8 @@
 literal data, business language, roles and postconditions.
 
 Output: path:line: SEVERITY CODE [element]: message
-Exit code 0 when clean, 1 on ERROR (with --strict also on WARN), 2 on usage errors,
+Exit code 0 when it ran, whatever it found, an unreadable file included (with --strict 1 on ERROR
+or WARN), 2 on usage errors,
 5 for earlier formats. Python 3.9+, standard library only; reads only.
 Usage: check_test_case.py [--docs DIR] [--strict] FILE...
 --docs defaults to the parent of the first file's folder.
@@ -53,7 +54,8 @@ def check(path, docs, report):
                 report.warn(path, line, "PLACEHOLDER_DATA", element, "use literal values; a placeholder cannot be automated")
             if SELECTOR.search(text) or model.pattern_hits(text, model.MECHANISM_TERMS):
                 report.warn(path, line, "MECHANISM_TERM", element, "describe the step in business language, without selectors or other mechanism")
-    if len(set(linked)) < 2:
+    # A list refused as a value on several lines names none; its refusal is the finding, not a short chain.
+    if "use_cases" not in tc.front_matter.refused and len(set(linked)) < 2:
         report.warn(path, tc.field_line("use_cases"), "SINGLE_USE_CASE", element, "a journey chains at least two use cases; the tests of one use case belong to that use case")
     if not verification:
         report.warn(path, 0, "NO_VERIFICATION", element, "add Then steps to verify the action's result and the closing state")
@@ -75,7 +77,7 @@ def main(argv):
     parser = argparse.ArgumentParser(description="Check journey test case documents.")
     parser.add_argument("files", nargs="+")
     parser.add_argument("--docs", help="docs folder (default: parent of the first file's folder)")
-    parser.add_argument("--strict", action="store_true", help="fail on warnings too")
+    parser.add_argument("--strict", action="store_true", help="exit 1 on any error or warning (default: exit 0, findings are reported)")
     args = parser.parse_args(argv)
     docs_dir = args.docs or os.path.dirname(os.path.dirname(os.path.abspath(args.files[0])))
     if not os.path.isdir(docs_dir):
@@ -90,7 +92,7 @@ def main(argv):
     # Inspect the supplied journeys, including files outside the conventional folder.
     journeys = sorted(set(docs.test_case_files() + args.files))
     docs.test_case_files = lambda: journeys
-    stop = model.stop_if_old(docs)
+    stop = model.stop_if_old(docs, strict=args.strict)
     if stop is not None:
         return stop
     docs.test_case_files = lambda: args.files

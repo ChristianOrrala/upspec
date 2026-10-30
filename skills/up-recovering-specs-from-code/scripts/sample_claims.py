@@ -25,7 +25,8 @@ claims, because that is where recovered guesses gather.
 Usage:
     sample_claims.py [--docs DIR] [--ledger FILE] [--count N] [--seed S] [--format md|json]
 
---ledger defaults to DIR/recovery/ledger.md. Exit code 0, 2 on usage errors.
+--ledger defaults to DIR/recovery/ledger.md. Exit code 0, 1 when a file cannot be
+read, 2 on usage errors, 5 on earlier specification formats.
 
 Requires Python 3.9+, standard library only. Reads files as data; writes nothing.
 """
@@ -142,7 +143,8 @@ def main(argv):
     args = parser.parse_args(argv)
     args.docs = args.docs or model.docs_default()
     docs_model = model.Docs(args.docs)
-    stop = model.stop_if_old(docs_model)
+    # A list or a measure cannot be made without the file: an unreadable one stops it with 1.
+    stop = model.stop_if_old(docs_model, strict=True)
     if stop:
         return stop
     if not os.path.isdir(args.docs):

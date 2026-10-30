@@ -2,9 +2,12 @@
 """Check lifecycle claims and validate changed use cases over a git range.
 
 The range selects claims; the resolved integration base selects their evidence.
-Exit 0 clean, 1 problems, 2 usage or unknown ref, 5 old specification formats.
-With --pre-push, read git ref lines and return 1 only for problems; unavailable
-checks pass with a notice. Requires Python 3.9+, standard library only. Reads only.
+Exit 0 when it ran, whatever it found, an unreadable file included (with --strict
+1 on problems), 2 usage or
+unknown ref, 5 old specification formats. With --pre-push, read git ref lines and
+report; the push goes ahead unless --strict is given and a problem is found;
+unavailable checks pass with a notice. Requires Python 3.9+,
+standard library only. Reads only.
 """
 from __future__ import annotations
 
@@ -28,7 +31,7 @@ except Exception as exc:
     raise
 
 # Installed siblings must belong to the same release as the hook gate.
-UPSPEC_VERSION = "1.2.0"
+UPSPEC_VERSION = "1.3.0"
 
 
 class Claim(NamedTuple):
@@ -121,7 +124,8 @@ def _main(argv) -> int:
     selection.add_argument("--first-push", action="store_true",
                            help="empty baseline for the integration or default branch, or without an integration ref; "
                                 "otherwise the fork with the integration branch")
-    parser.add_argument("--pre-push", action="store_true", help="read git pre-push refs; block only on problems")
+    parser.add_argument("--pre-push", action="store_true", help="read git pre-push refs and report; with --strict, stop the push on problems")
+    parser.add_argument("--strict", action="store_true", help="exit 1 when it finds problems (default: exit 0, the findings are reported)")
     parser.add_argument("remote", nargs="*", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.remote and not args.pre_push:
@@ -248,7 +252,7 @@ def check(args) -> int:
             print("unknown revision: %s" % since, file=sys.stderr)
             return 2
         since = resolved.strip()
-    stop = model.stop_if_old(model.Docs(docs))
+    stop = model.stop_if_old(model.Docs(docs), strict=getattr(args, "strict", False))
     if stop is not None:
         return stop
     selection = (view if since == view.base.commit else
@@ -286,7 +290,8 @@ def check(args) -> int:
                 print("%s: %s" % (label, line))
         if not result["problems"] and not result["warnings"]:
             print("Status claims: clean")
-    return 1 if result["problems"] else 0
+    # The problems are the output; only a strict run turns them into a failure.
+    return 1 if result["problems"] and getattr(args, "strict", False) else 0
 
 
 if __name__ == "__main__":

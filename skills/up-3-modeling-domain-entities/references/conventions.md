@@ -26,8 +26,10 @@ skills parse these names.
 | `docs/processes/<name>.bpmn` | Optional business process models | A human |
 | `docs/test_cases/TC-XXX-<kebab-name>.md` | One journey per file | up-writing-journey-test-cases |
 | `docs/recovery/` | Ledger, suspect list, change log and baseline review plan of a system recovered from code | up-recovering-specs-from-code |
-| `docs/change-records/UC-XXX-<kebab-name>.md` | One short change record per change: Context, Decision, Specification change, Consequences; the pull request links it | up-triaging-change-requests |
-| `docs/reviews/<scope>-review-<n>.md`, `<scope>-audit-<n>.md` | One report per review or audit run; scope is `UC-004`, `TC-001` or `all` | up-6-reviewing-specifications, up-9-auditing-spec-coverage |
+| `docs/change-records/UC-XXX-<kebab-name>.md` | One short change record per change to a specification (triage outcomes 2, 4, 5 and 6): Context, Decision, Specification change, Consequences; the pull request links it. A bug fixed against a clear specification, a wrong test and a change without a behavior change have none | up-triaging-change-requests |
+| `docs/reviews/<scope>-review.md` | One review report per scope, overwritten by each review; git keeps the history. A next review reads it, or the highest-numbered `<scope>-review-<n>.md` of an earlier release when it does not exist; scope is `UC-004`, `TC-001` or `all` | up-6-reviewing-specifications |
+| `docs/reviews/<scope>-audit-<n>.md` | One report per audit run, numbered, never overwritten: a recovery change-log entry cites one as its closing evidence | up-9-auditing-spec-coverage |
+| `docs/reviews/guard-checks.md` | The guard-check log, one row per check, appended | up-7-implementing-use-cases, up-8-deriving-use-case-tests |
 | `CLAUDE.md` or `AGENTS.md` | Guideline file; its rules block records `**Profile:**` (solo or team) and what a solo project `**Skipped:**` | up-1-bootstrapping-spec-driven-projects |
 
 In paths and commands of the skills, `docs/` stands for the specification folder: the one the rules block records as `**Specs folder:**`, else `docs`.
@@ -161,6 +163,8 @@ step with its Gherkin step number.
 
 Commits and pull requests name the use case in the subject. A change without a
 behavior change carries the line `No behavior change: UC-012` (or `none` and why).
+A bug fixed against a clear specification carries the note
+`Fixes: UC-012 BR-005`, naming the use case and the element.
 
 ## Where information lives
 
@@ -191,11 +195,17 @@ Gherkin keywords, flow labels (`**Trigger:**`), Status values and flow endings (
 ## Script output
 
 `path:line: SEVERITY CODE [element]: message` with `ERROR`, `WARN` or `INFO`.
-Exit 0 clean, 1 on an error (with `--strict` also on a warning), 2 on a usage
-error. Earlier specification formats stop with `OLD_FORMAT`, exit 5, and
-name `up-migrating-spec-formats`; the router reports `MIGRATE` as its next
-step. `UNREADABLE` reports a file that cannot be read. Scripts read project
-files as data and need Python 3.9 or later.
+A check reports: it exits 0 when it ran, whatever it found, and the findings
+are its output. With `--strict` it exits 1 on an error or a warning, for a
+team that chooses a strict pipeline. `UNREADABLE` reports a file that cannot
+be read; it is a finding like the others. Exit 2 is a usage error, and 3 says
+that a script could not run (git unavailable, a conflict). Earlier
+specification formats stop with `OLD_FORMAT`, exit 5, and name
+`up-migrating-spec-formats`; the router reports `MIGRATE` as its next step. A
+script that acts or lists instead of checking (one that writes the overview,
+moves files or lists changes) exits 1 when it cannot do its work: it refuses,
+cannot finish or cannot read a file. Scripts read project files as data and
+need Python 3.9 or later.
 
 ## Working with the A-files
 
@@ -208,7 +218,7 @@ by these rules; whichever is set up second makes the joining edits (P1, P5).
 <!-- pairing contract: start -->
 | # | Where | Rule |
 |---|---|---|
-| P1 | `AGENTS.md` | The specification rules section sits below the hot zone and is named in its `Below:` line. The keep-in-step list says that a use case changing Status is followed by the ability whose `Specs` line names it, and that a newly mapped use case joins an ability's `Specs` line. |
+| P1 | `AGENTS.md` | The specification rules section sits below the hot zone and is named in its `Below:` line. When the project keeps `ABILITIES.md` (the file exists or the index lists it), the keep-in-step list says that a use case changing Status is followed by the ability whose `Specs` line names it, and that a newly mapped use case joins an ability's `Specs` line; a small setup without it gets neither row. |
 | P2 | `ABILITIES.md` | An ability entry may carry `- **Specs:**` with use case identifiers (`UC-003, UC-007`) or relative links to specification files. An ability is `done` only when every use case it names is `Done`, and it is not `planned` while one of them is `Implemented`, `Tested` or `Done`. |
 | P3 | `ACTIVE.md`, `AHEAD.md` | The next step comes from the current work first: the use cases and abilities `ACTIVE.md` names; when there is no current work, the first item of AHEAD's Next up, through its ability's `Specs` line. A use case that is `Implemented` or `Tested` and not named by the current work is a mismatch to resolve. |
 | P4 | `AHEAD.md` | A deferred requirement keeps its row in the requirements catalog; an AHEAD item cites its identifier (`FR-012`). A change request accepted for later becomes an AHEAD item that links its change record. A recovery change log entry decided `later` becomes an AHEAD item that cites it; the entries of one use case share one item. Nothing is copied. |
@@ -216,6 +226,8 @@ by these rules; whichever is set up second makes the joining edits (P1, P5).
 | P6 | The finish check | A change that moves a use case's Status while `ABILITIES.md` and `ACTIVE.md` stay unchanged gets a warning. |
 | P7 | The session start | The state shown when a session starts includes the current work from `ACTIVE.md`. |
 | P8 | `docs/decisions/` | Decision records follow the A-files naming: four digits, then the subject. |
+| P9 | `AHEAD.md` | A drift the person chose to align later, when asked at the end of an agent's turn, becomes one AHEAD item: an index row with the next free identifier, the drift as its title, kind `idea`, state `open` and `—` in every other column, and an entry under `## Items` with **What** (the drift), **Why** (the person chose to align it later, with the date) and **Write-up** `none`. The same drift is recorded once. While `AHEAD.md` names a **Home:**, or has no index or no Items section, the drift goes to the specification side's own open-work list instead. |
+| P10 | `tools/check_tracking.py` | The specification side's end-of-turn question reads the A-files check only through its command line, so that command line is part of this contract: the question runs the check with `--strict`, and again without it when the check exits 2 (an earlier check that does not know the option); exit 0 means the A-files are clean and nothing is asked; exit 1 means problems, each printed as one line `path:line: ERROR CODE: message`; any other exit code means the check could not run, and nothing is asked. A message names its subject as an identifier, a quoted or bold name, or a path, and a number in it is a count or a position, so a finding whose count or position changes is the same finding. |
 <!-- pairing contract: end -->
 
 An agent never edits the A-files on its own initiative while it works on a

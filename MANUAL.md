@@ -126,12 +126,17 @@ record your answers.
 > owner, so ask me whatever only I can decide.
 
 **Specifications or tracking files already there.** When the project keeps
-specifications in another folder or another method's format, or tracks its
+specifications in another folder or another format, or tracks its
 work in files such as a board or a feature list, setup lists them and asks
 once: full alignment (everything moves into the root and `docs/`, and
 `scripts/relink.py` checks every reference to what moves, agent instructions
 included) or keep (a specification folder is recorded with `--specs-folder`,
-nested or not; another method's files stay as references). When the project
+nested or not; files in another format stay as references). Full alignment
+of specifications in another format goes through the migration
+(`up-migrating-spec-formats`): its plan converts mechanically only the parts
+that match an earlier upspec format, and the agent converts the rest by
+judgment, with an invention list and your yes before anything is committed. Recovery is for a system that has code and no
+specifications. When the project
 tracks its work in the A-files, setup joins them; when you ask for the
 A-files and they are not there yet, setup hands over to the A-files skill
 first and writes nothing.
@@ -203,9 +208,10 @@ case keeps its heading with a line saying where it went.
 | any → Obsolete | Superseded; the file stays | Owner |
 
 An agent proposes a move together with its evidence. It never sets Approved or
-Done. The stop and push checks verify evidence for a raise to Implemented or
-Tested (Done uses Tested's check). Changed use cases at Reviewed or above must
-validate at push; Draft findings warn. An invalid Status still fails the lint.
+Done. The stop and push checks report evidence missing for a raise to
+Implemented or Tested (Done uses Tested's check). Changed use cases at
+Reviewed or above that do not validate are reported as problems at push;
+Draft findings warn. An invalid Status is an error of the lint even in a Draft.
 
 ### Markers
 
@@ -252,7 +258,7 @@ docs/
 | `docs/processes/<name>.bpmn` | Optional business process models | A person |
 | `docs/test_cases/TC-XXX-<name>.md` | One end-to-end journey per file | `up-writing-journey-test-cases` |
 | `docs/change-records/UC-XXX-<name>.md` | One record per change | `up-triaging-change-requests` |
-| `docs/reviews/` | Review and audit reports; the guard-check log | `up-6`, `up-9`, guard checks |
+| `docs/reviews/` | One review report per scope (`<scope>-review.md`, overwritten by each review), numbered audit reports (`<scope>-audit-<n>.md`), the guard-check log | `up-6`, `up-9`, guard checks |
 | `docs/recovery/` | Ledger, suspects, baseline review plan, change log of a recovered system | `up-recovering-specs-from-code` |
 | `CLAUDE.md` or `AGENTS.md` | Guideline file with the rules block and the profile | `up-1` |
 
@@ -274,11 +280,19 @@ works). Every script reads it, and `--docs DIR` overrides it for one run.
 When the project also tracks its work in the A-files, the two join by files,
 and neither moves the other's:
 
-- `AGENTS.md` names the specification rules in its hot zone and keeps two
-  rows in step with the use cases (P1).
+- `AGENTS.md` names the specification rules in its hot zone and, when the
+  project keeps `ABILITIES.md`, keeps two rows in step with the use cases
+  (P1).
 - An ability in `ABILITIES.md` may name its use cases in a `Specs` line. The
   router warns when an ability is done while one of its use cases is not, or
-  planned while one is built, and notes use cases no ability names (P2).
+  planned while one is built, and notes use cases no ability names (P2). It
+  reads an ability's status from its row in any index table of
+  `ABILITIES.md`, so done rows may sit below the hot zone, and from an old
+  entry's Status line when the row has none.
+- A project with the small A-files setup (`AGENTS.md` and `ACTIVE.md`, no
+  `ABILITIES.md`) hears nothing about abilities: no unnamed use cases, the
+  close-out and the finish check's warning name `ACTIVE.md` alone, setup adds
+  no keep-in-step rows about abilities, and the use case map proposes none.
 - The router answers for the current work in `ACTIVE.md` first and says what
   blocks it; with no current work it takes AHEAD's first Next up item when
   that item's ability names use cases, and otherwise decides as usual
@@ -291,16 +305,49 @@ and neither moves the other's:
 - The finish check warns when a use case's Status changes while `ACTIVE.md`
   and `ABILITIES.md` stay as they were (P6).
 - The session-start hook passes the same view on (P7).
+- When you answer "later" to the end-of-turn question, the drift becomes one
+  AHEAD item: an index row with the next free identifier, kind `idea`, state
+  `open`, and an entry with What, Why and Write-up. The same drift is
+  recorded once (P9).
+- The end-of-turn question runs the A-files check as its command line
+  states (`--strict`, again without it when the check exits 2; exit 0 when
+  the A-files are clean; exit 1 and one `path:line: ERROR CODE: message` line
+  per problem), and knows a finding by
+  its path, code and subject, never by a count in its message (P10).
 
 A tracking file kept at adoption (the board, say) becomes the A-file's home:
 the A-file names it with `**Home:**`, and the router then guesses nothing from
 it. Without the A-files the skills behave as before.
+
+**Mixing versions.** These skills read the files of earlier and later A-files
+releases alike: the status from the row or from an old entry. Two limits
+belong to the earlier releases and stay:
+
+- upspec 1.2.0 reads an ability's status only from its entry, so with A-files
+  that keep it in the row alone it warns about no ability's status; on a small
+  setup it notes every use case as named by no ability. Upgrade the skills to
+  read the row and go quiet.
+- The A-files check of 1.2.4 needs at least one ability row in the hot zone of
+  `ABILITIES.md`: with every row below it, that check reports `NO_INDEX`. Keep
+  one open row in the hot zone, or upgrade the A-files with these skills.
 
 ### 5.2 The formats
 
 Front matter starts at the first line between `---` delimiters. The supported
 subset is top-level `key: value`, inline lists, quoted strings and comments.
 No nesting, anchors or multiline values; `FRONT_MATTER` reports violations.
+A value written over several lines is refused once, with what to do instead:
+write it on one line. For a goal the message adds that a goal needing more
+than one line is usually two goals. An `id` refused this way leaves its file
+unidentified until it is fixed: the lint reports nothing else about it. An
+`id` or a `goal` refused this way stops `use_case_map.py` from writing: it
+writes nothing rather than drop the use case from the overview or empty its
+goal, and exits 1. `use_case_map.py --check` reports each refusal as
+`FRONT_MATTER` with its line, judges the rest of the overview as it will read
+once the value is on one line, and exits 1 only with `--strict`. Until the
+value is on one line, the state report's text lists the `FRONT_MATTER`
+finding and names `FIX_FORMAT` as the next step, and `--format json` gives
+the overview `current: false`.
 
 | Artifact | Required keys | Optional keys |
 |---|---|---|
@@ -378,7 +425,7 @@ chain; the five without a number are side entries.
 | `up-recovering-specs-from-code` | Bring an existing system under specifications | Use cases, entities, specifications, an evidence ledger, suspects, a baseline review plan |
 | `up-splitting-bounded-contexts` | Split a specification set that has outgrown review | Proposed contexts, assignments and contracts; the move, on approval |
 | `up-writing-journey-test-cases` | Write an end-to-end journey across use cases | `docs/test_cases/TC-XXX-<name>.md` |
-| `up-migrating-spec-formats` | Move earlier specification formats to the current ones | A mechanical plan and judgment items; on approval, converted specifications in two commits |
+| `up-migrating-spec-formats` | Move earlier specification formats, or another format, to the current ones | A mechanical plan and judgment items; on approval, converted specifications in one or two commits |
 
 You rarely need to name a skill. Describe the work ("write the use case for
 resetting a forgotten password", "is UC-004 fully tested?") and the matching
@@ -402,13 +449,22 @@ coding agent with the skills.
 3. **Requirements.** "Turn the vision and these notes into requirements."
    Review the conflict ledger it returns and decide each open item.
 4. **Entity model.** "Model the entities." The model becomes the vocabulary
-   every specification must use.
+   every specification must use. In the solo profile it may start thin, with
+   only what the first use case needs, and grow with each use case; it still
+   comes before the first use case.
 5. **Use case map.** "Which use cases do we need?" Agree on the list and the
    delivery order of the first slices.
 6. **First specification.** "Write UC-001." Answer its questions (at most five
    per use case). Everything else it assumes is listed in its hand-off.
-7. **Review.** "Review UC-001." The reviewer works from the files alone and
-   reports a verdict.
+7. **Review.** "Review UC-001." The reviewer works from the files alone,
+   reports a verdict and saves it as `docs/reviews/UC-001-review.md`,
+   overwriting the last one. A later review compares with that report (or
+   with the newest numbered report of an earlier release). A warning it finds on
+   text that has not changed since was missed before: it is listed in its
+   own block and keeps the use case from ready for approval until it is
+   fixed or you decline it; you can decline them all in one answer, and a
+   declined finding is not raised again. Findings of severity `info` never
+   count.
 8. **Approve.** Read the specification and the review, then set
    `status: Approved` in the front matter yourself.
 9. **Implement and test.** "Implement UC-001 with its tests." See 7.4.
@@ -460,7 +516,8 @@ This is the most common workflow once a project is under specifications.
    outcome is one of seven (see [section 8](#8-the-change-record)). For a
    specification that is wrong, ambiguous or simply outgrown, it asks you to
    confirm.
-3. **The change record.** The agent writes
+3. **The change record.** For a change to the specification (outcomes 2,
+   4, 5 and 6), the agent writes
    `docs/change-records/UC-XXX-<name>.md`: what differs from today, your
    decisions and where each one lives in the specification, the source of
    every new flow and rule, and the assumptions you still have to confirm.
@@ -487,7 +544,19 @@ model and the guideline file. Then:
    open. Behavior decisions stop the run and become questions for you.
 2. It works on a branch for the use case, never on the main branch.
 3. Schema changes follow a guarded procedure with a rehearsal and your
-   confirmation; nothing destructive runs unconfirmed.
+   confirmation; nothing destructive runs unconfirmed. A schema change that
+   adds or changes a business concept, a key, a uniqueness constraint or a
+   version column included, starts in the entity model. Only an index or
+   partitioning, which no flow can observe, is a technical change: triage
+   classifies it as no behavior change, and it carries the line
+   `No behavior change: UC-012` (or `none` and the reason) instead of a
+   specification change. A foreign-key constraint added later, for a
+   relationship the entity model already states, is the code catching up
+   with the model (triage outcome 1, with no element): it takes the
+   destructive path, with your yes and a count of the rows that violate it,
+   the model stays unchanged, and the commit names the relationship and
+   carries `Fixes: UC-012`, naming the use case whose relationship it
+   enforces. The spec-first guard reads that note.
 4. It audits the scope: every changed file must belong to the use case.
 5. It runs the project's tests and reports failures as they are.
 6. It runs the finish check and pastes its report, filling in the three fields
@@ -496,9 +565,35 @@ model and the guideline file. Then:
 ### 7.5 Fixing a bug
 
 Report it as you see it: "Users say booking a full day still works." Triage
-decides whether the code, the specification or a test is wrong. For code that
-is wrong, the agent writes a failing test named after the flow or rule first,
-then fixes the code. For a specification that is wrong, the change goes
+decides whether the code, the specification or a test is wrong.
+
+Code that is wrong against a clear specification takes the light path, a test
+and a line:
+
+1. A failing test named after the use case and the element the code breaks (a
+   rule, a flow, a step, a precondition or a postcondition), for example
+   `test_uc001_br001_ninth_order_is_refused`.
+2. The fix, with the rule's marker where it enforces a rule.
+3. If you want proof that the test guards the element, its guard check
+   ([section 9](#9-the-checks)). Its verdict is information; nothing waits
+   for it.
+4. The note `Fixes: UC-001 BR-001` in the commit message. The spec-first
+   guard and the agent hooks read it and do not report the change as code
+   without a specification. Before the commit, the end-of-turn question
+   comes once for the fix, as for any code without a specification. Answer
+   "at the end of the session" (the commit with its note closes it) or align
+   it now; not "later", which would record work the commit closes. A fix
+   written and committed in one turn, before any stop, is asked only while
+   the change still holds that commit, as on a fix branch.
+   A `Fixes:` line that names no use case, such as `Fixes: #123`, is not the
+   note.
+
+No change record, finish check, test derivation or audit, and the Status
+stays where it is. A test that is wrong is fixed the same way, without a
+note: test files are never behavior code. A change with no behavior change
+carries its `No behavior change: UC-012` line and nothing else.
+
+For a specification that is wrong, the change goes
 through 7.3. An urgent production fix takes the urgent path, which keeps the
 same order at its smallest and takes minutes: the smallest specification edit,
 a failing test, the fix, one change set, one reviewer. A code-only fix with
@@ -540,9 +635,15 @@ single next step is `MIGRATE` → `up-migrating-spec-formats`.
 The migration first inventories old files and shows a mechanical dry run.
 A separate judgment pass lists choices and inventions for you to decide.
 After your approval it commits the mechanical conversion, then the judgment
-changes, replaces installed checks in `tools/specs/`, regenerates the overview
+changes (one commit when nothing is mechanical), replaces installed checks in `tools/specs/`, regenerates the overview
 and verifies the formats. Identifiers and Status stay unchanged; Approved use
 cases keep their approval. The change record uses `outcome: migration`.
+
+Specifications in another format take the same skill: ask for them to be
+moved to the current formats. The plan converts mechanically only the parts
+that match an earlier upspec format; the agent converts the rest in the
+judgment pass, lists every meaning it decided, and commits nothing before your
+yes. Then it asks whether the old files stay as references or move.
 
 Run the migration skill's `scripts/migrate_formats.py plan|apply|verify --docs DIR`.
 Plan is read-only and runs without git, with a warning that apply needs it.
@@ -575,17 +676,22 @@ The plan names each changed file and `scaffold_docs.py --update` with
 whole missing set is added, including hooks, when `tools/specs/` exists.
 Current and kept copies stay; each script written gets a bundle baseline.
 Verification checks all formats and the generated overview. Other lint findings are listed
-for you without changing the verification result; a lint that cannot run makes
-verification fail. Exit codes are 0 for done/nothing to do, 1 for verification
-or read errors, 2 for usage, and 3 for git or resume conflicts. The environment
+for you without changing the verification result. A file verification cannot
+read, and a lint that cannot run, are findings like the others. Exit codes are 0
+for done, nothing to do, or a verification that ran whatever it found (with
+`--strict`, 1 on a finding), 1 when plan or apply cannot read a file, 2 for
+usage, and 3 for git or resume conflicts. The environment
 variables `UPSPEC_MIGRATE_STOP_AFTER` and `UPSPEC_MIGRATE_CRASH_AFTER_WRITE`
 exercise interruptions in tests; leave them unset during ordinary migration.
 
 ## 8. The change record
 
-A change record is the agreement behind one change. Triage writes it; the
-specification writer, the reviewer, the implementer and the finish check all
-read it.
+A change record is the agreement behind one change to a specification.
+Triage writes one for outcomes 2, 4, 5 and 6; the specification writer, the
+reviewer, the implementer and the finish check all read it. Outcomes 1, 3 and
+7 change no specification and get no change record (outcome 1 takes the light
+path of [7.5](#75-fixing-a-bug)). A record of an earlier release with another
+outcome stays valid.
 
 Front matter holds `outcome` (1–7 or `migration`), `element`, and
 `decided_by` (required for outcomes 2, 4, 5 and 6). The record is found by path;
@@ -611,13 +717,13 @@ test), or `observed` (seen on the running system with its real services).
 
 | # | Outcome | It is when | What changes | Status |
 |---|---|---|---|---|
-| 1 | Code wrong | The specification is clear and right | Code, behind a failing test | Unchanged |
+| 1 | Code wrong | The specification is clear and right | Code, behind a failing test; the commit carries `Fixes: UC-012 BR-005`, no change record. A foreign-key constraint for a relationship the entity model states: the destructive path of the schema procedure, the model unchanged, and the commit carries `Fixes: UC-012`, the use case whose relationship it enforces | Unchanged |
 | 2 | Specification wrong | It says something nobody meant | The specification | Back to Reviewed |
 | 3 | Test wrong | Code and specification agree; a test does not | The test | Unchanged |
 | 4 | Specification ambiguous | Two readings; the code picked one | The specification, after you choose | Back to Reviewed |
 | 5 | Enhancement | The specification was right for what was wanted then | The specification | Back to Reviewed |
 | 6 | New use case | A goal no use case covers | Requirement, map, new specification | New file, Draft |
-| 7 | No behavior change | Refactoring, dependency update, infrastructure | Nothing | Unchanged |
+| 7 | No behavior change | Refactoring, dependency update, infrastructure | Nothing; the change carries `No behavior change: UC-012` | Unchanged |
 
 ## 9. The checks
 
@@ -627,8 +733,18 @@ the team profile, setup copies the lint, the validator and the guard into
 `tools/specs/` of the project, so the pipeline needs nothing installed.
 
 Output follows one format: `path:line: SEVERITY CODE [element]: message`,
-with `ERROR`, `WARN` or `INFO`. Exit code 0 means clean, 1 a problem (with
-`--strict`, warnings too), 2 a usage error, 5 `OLD_FORMAT`.
+with `ERROR`, `WARN` or `INFO`. The tools inform; they never stop the work.
+Every check exits 0 when it ran, whatever it found: the findings are its
+output. With `--strict` it exits 1 when it found problems (for the lint and
+the validators, an error or a warning), so a strict pipeline is a choice you
+make on purpose, in a command you run. A file the check cannot read is the
+finding `UNREADABLE`, under the same rule. Exit 2 means a usage error, 3 that
+the script could not run (git unavailable, a conflict), 5 `OLD_FORMAT`. A
+script that acts or lists instead of checking exits 1 when it cannot do its
+work: the overview writer refuses markers out of order, or an `id` or a
+`goal` it cannot read (`FRONT_MATTER`); the reference check's `apply` refuses
+or is interrupted; a lister or the dashboard cannot read a file. "The check
+reports no error" in a skill means its output names no `ERROR`.
 
 ### Format codes
 
@@ -674,8 +790,8 @@ files; references use business types, and functional rows use Role and Need.
 | `scope_audit.py` (`up-7`) | Every changed file belongs to the use case | `scope_audit.py UC-012 --base <start>` |
 | `finish_change.py` (`up-7`) | The implementer's gate (below) | `finish_change.py UC-012 --base <start>` |
 | `coverage_units.py` (`up-8`) | The coverage units of a use case and the tests that carry each label | `coverage_units.py UC-006 --tests tests` |
-| `guard_check.py` (`up-7`, `up-8`) | Breaks one rule on purpose, runs its test, restores the file and logs whether the test caught it | see below |
-| `spec_first_guard.py` (`up-1`) | A change set that changes behavior code with no specification behind it | `spec_first_guard.py --base <integration-branch>` |
+| `guard_check.py` (`up-7`, `up-8`) | Breaks one element on purpose, runs its test, restores the file and logs what happened: caught, crashed, not caught or unclear | see below |
+| `spec_first_guard.py` (`up-1`) | A change set that changes behavior code with no specification behind it, no `No behavior change:` line and no `Fixes:` note | `spec_first_guard.py --base <integration-branch>` |
 | `relink.py` (`up-1`, recovery) | Moves files and every reference to them: `plan` lists links, imports, settings paths and agent instructions that name them, `apply` moves and rewrites, `verify` finds what is left; `--keep FILE` leaves a record of the moves as written | `relink.py plan --move specs docs` |
 
 The scope audit groups root A-files as `tracking`; guideline files still need
@@ -702,7 +818,12 @@ implementation is reported. It checks:
   with rules; callers count even in files without an id, including untracked files.
 - **Tests named**: every flow and rule in the change is named by a test.
 - **Guard check**: every rule in the change has a logged break that a test
-  caught.
+  caught: the newest row of the rule counts, and only when it is `caught`. A
+  row is stale when the rule's text, its Examples table or the enforcing file
+  changed since it was logged, or when it is in the format before 1.3.0
+  (no fingerprints); the report then says
+  `the guard check of UC-012 BR-001 (...) is stale: run scripts/guard_check.py again`. A guard-check log it
+  cannot read is the finding `UNREADABLE`.
 - **Decisions**: every owner decision names an element that exists.
 - **Sources**: every flow and rule in the change rests on a source.
 - **Record**: nothing changed in the specification outside the change record.
@@ -714,7 +835,8 @@ Run it with `--base` set to the branch or commit the change started from
 (`HEAD` while nothing is committed). It ends with "ready to report" or with a
 numbered list of problems. With the A-files, it also prints
 `Tracking: warning: …` when a use case's Status changed and neither
-`ACTIVE.md` nor `ABILITIES.md` did; the warning never changes the result.
+`ACTIVE.md` nor `ABILITIES.md` did (`ACTIVE.md` alone in a project without
+`ABILITIES.md`); the warning never changes the result.
 
 `--claim` checks the whole use case unless a changed, present change record
 names it in its metadata, differences or filename. Every such record must
@@ -729,8 +851,9 @@ Done also need a test naming every active flow and rule in the whole use
 case. Renames alone, downward moves and Obsolete are not claims. Validation
 errors fail at Reviewed or above; Draft findings warn. Scope findings warn
 in this range check. `--docs`, `--code`, `--tests` and `--format text|json`
-work as in the finish check. Exit codes are 0 clean, 1 problems, 2 usage or
-unknown revision, and 5 old formats.
+work as in the finish check. Exit codes are 0 when it ran, whatever it found
+(with `--strict`, 1 on problems), 2 usage or unknown revision, and 5 old
+formats.
 
 `--code` and `--tests` limit their sections to those folders, including folders
 in another repository or a submodule. Test names and test folders are recognized
@@ -751,9 +874,104 @@ python3 guard_check.py "UC-012 BR-001" \
 
 It runs the test once (it must pass), applies the break (the text must occur
 exactly once), runs the test again, always restores the file and verifies it
-byte for byte, and appends a row to `docs/reviews/guard-checks.md`. The
-verdict is `caught`, `not caught` (the test does not guard the rule) or
-`invalid` (the test failed before the break, or timed out).
+byte for byte, and appends a row to `docs/reviews/guard-checks.md`. It
+checks any element of a use case, in the finish check's names: `UC-012 BR-001`,
+`UC-012 A2`, `UC-012 Step 3`, `UC-012 Pre-1`, `UC-012 Post-S-1`,
+`UC-012 Post-F-2`.
+
+It reads the test's output, both streams together, and gives one of four
+verdicts about the break:
+
+| Verdict | Meaning |
+|---|---|
+| `caught` | A test whose name holds both the use case and the element failed on an assertion |
+| `crashed` | The element's test stopped on an error rather than a failed assertion: a syntax error, a failed import, any exception the test did not expect (a bare `Error`, `StopIteration`, the project's own), a build that did not compile, or the runner marking the test as an error |
+| `not caught` | The test still passed: it does not guard the element |
+| `unclear` | The test failed, but the output does not say that the element's test failed on an assertion |
+
+Beside them, `invalid` says the check proved nothing: the test failed before
+the break, or ran past the time limit (`--timeout`, 600 seconds by default).
+
+Only lines new since the run before the break count, and the element's own
+report decides first: from the line that reports its test to the next test's
+report. An error there, or the runner's error mark on the test, gives
+`crashed`; otherwise `caught`, whatever another test printed. An error printed
+apart from every test's report (before the first one, or in a section of the
+whole run, as with pytest's `--tb=line`) gives `unclear` instead, because the
+output does not say whether the element's test crashed. Only when no line
+reports the element's test does an error anywhere give `crashed`. The
+explanation of a failed assertion is not an error: a pytest diff line, a
+field labeled `Error:` and padded to a column (Go's testify), or a line such
+as `Expected: 8`; an exception whose name does not end in `Error` or
+`Exception` counts only on the line right after a traceback's frame. For
+`crashed` and `unclear` the check prints the new lines of the output (the
+first 40, and how many there were). Its JSON report holds `element` (and
+`unit`, the same value under its earlier name), `file`, `verdict`,
+`evidence`, `failed_test`, `log` and `restored`, and for `crashed` and
+`unclear` the lines as `output` and their count as `output_lines`.
+
+Element numbers restart in every use case, so a failed test counts only when
+the line reporting it holds both the use case and the element, in a common
+spelling (`test_uc012_br001_...`, `UC012Test.test_br001_...`,
+`testUc012Br001`) or as a displayed name (`UC-012 BR-001 refuses a full
+day`). A failing test of another use case's BR-001 does not count. For a
+runner that prints no test names, `--expect TEXT` gives the text that shows
+the element's test failed; it counts when that text appears more often after
+the break than before it, and its part of the output is read as the element's
+report is.
+
+The signs the check reads follow the documented output of common runners,
+named in the script as examples (unittest, pytest, Go, .NET, Jest, Vitest,
+TAP, Mocha, RSpec, PHPUnit, JUnit with Maven or Gradle). The package's tests
+run only unittest, pytest and stand-in runners; Go's output with testify was
+captured from a real run by hand, and the others were not run.
+Known limits: the check sees only what the runner prints, so a mode that
+prints a failed test's name without its error reads a crash as `caught`.
+With pytest 9.1, `--tb=no` and `--tb=line` name the error only in the
+summary line, cut to the terminal's width; the check runs the test with a
+terminal 500 columns wide. A syntax error there, or any exception
+(`StopIteration`, the project's own), gives `crashed`, under a parametrized
+test's id too, spaces and brackets included (`test_br001_limit[a full day]`,
+`test_br001_limit[[8]]`); a test name too long even for that leaves no room,
+and a crash reads as `caught` (`unclear` under `--tb=line`). A parameter id
+that itself holds `] - ` ends the id early: a syntax error reads as `caught`
+under `--tb=no` and `unclear` under `--tb=line`, and an exception whose name
+ends neither in `Error` nor in `Exception` reads as `caught` under both; an
+id holding `] - File "` reads every failure as `crashed`, an assertion too.
+`--tb=no -rN` gives `unclear`. The default `--tb=auto` shows every error.
+The check runs the tests with `COLUMNS=500`, so a project test that depends
+on the terminal's width can fail before the break and give `invalid`. An
+assertion message holding the words "syntax error" reads as `crashed` in
+every runner and mode, since the check reads those words as a crash on any
+line.
+A query that throws its own error when an element is missing (for example,
+Testing Library's `getByText` under Vitest or Jest) makes a caught break read
+as `crashed`; write that test with a query that does not throw and an
+`expect` assertion (in the example, `expect(queryByText(…)).toBeInTheDocument()`).
+Mocha prints a test's group and title on separate lines, so it
+needs `--expect`.
+
+Each row keeps the element, the file, the find and replace texts whole, a
+fingerprint of the element's text (with its Examples table for a rule), a
+fingerprint of the file, the test command, the failed test and the verdict. A
+cell keeps every character: `\\` is a backslash, `\|` a pipe, `\n` a line
+break, `\r` a carriage return, `\t` a tab, `\s` a space at either end, and
+`\uXXXX` any other control character, line separator or blank at either end.
+A log of an earlier release keeps its table, and new rows go into a new table
+below it.
+
+The use case is found in any folder spelling the scripts accept (`use_cases`,
+`use-cases`, `usecases`); the change list, the unrecorded-changes check, the
+finish check and the guard check all read the same file. A specification,
+enforcing file or guard-check log the guard check cannot read is the finding
+`UNREADABLE`, and the check does not run; a log that becomes unreadable
+during the run is the same finding, with the verdict in the message and no
+row written. The script exits 0 whatever the verdict or finding;
+`--strict` exits 1 unless it is `caught`. It exits 1 when it cannot write the
+log, with the verdict in the message and the file restored, and 2 on a usage
+error or a failed restore. The verdict is information for you: nothing checks
+it for cheating, and a test weakened while the element and its file stay the
+same is not detected.
 
 ### Audit and recovery checks
 
@@ -790,9 +1008,12 @@ Setup offers four moments through one gate, `tools/specs/hook_gate.py`:
 | Moment | What runs |
 |---|---|
 | Session starts or resumes | A Status snapshot, specification state, next step and open-work list |
-| After a write or edit | The validator on the edited use case specifications |
+| After a write or edit | The validator on the edited use case specifications, as information |
 | Before the agent reads a prompt | The open-work list only when it changed; always exits 0 |
-| Before the agent stops | Evidence for Status claims owned by the session |
+| Before the agent stops | One question for you per drift, each asked once per session |
+
+No hook blocks, refuses or keeps the agent working, except to ask that one
+question at the end of a turn.
 
 **Generate, review, approve.** Ask the setup skill for hooks. It runs
 `scaffold_docs.py --hooks --tool claude|codex|antigravity|kiro` from the plugin
@@ -820,12 +1041,18 @@ shell (`$SHELL -lc`); startup output can corrupt the JSON, so check it in proof.
 Kiro's after-edit warnings never reach the agent; its documentation says they
 reach the person, which the proof did not see in `--no-interactive` mode and
 which is unproven in the TUI. Its stop cannot deliver an
-ordinary warning, so give-up uses one final block asking the agent to report
-and stop. Its generated command maps invocation failures to exit 3 and never
-returns exit 1, which would accidentally continue the agent.
+ordinary warning, so the question is its one block at the stop. Its generated
+command maps invocation failures to exit 3 and never returns exit 1, which
+would accidentally continue the agent. Those firings saw 1.1.0's blocking
+stop and after-edit; the question and the after-edit context of this release
+are **not yet proven** in any tool.
 
-Profiles translate the internal results (0 pass, 1 warn, 2 act, 3 could not
-run) into each tool's contract. Result 3 never blocks. Select
+Profiles translate the internal results (0 pass, 1 warn, 2 ask, 3 could not
+run) into each tool's contract. Only the stop asks: Claude Code, Codex and
+Kiro receive the question as one `decision: block`, Antigravity as one
+`decision: continue`, which continues the agent's turn once so it can ask
+you. After an edit, Claude Code and Codex receive the findings as additional
+context with a `systemMessage` for you. Result 3 never blocks. Select
 `--emit raw|claude|codex|antigravity|kiro`; the default is `raw`. Gemini CLI,
 Copilot CLI and Cursor have hook systems but no upspec profiles yet. A tool
 without a profile stays unwired until it has one. Profiles for Gemini CLI,
@@ -876,19 +1103,41 @@ commits made since the snapshot and absent from remotes is a claim. Pulled
 raises and renames alone never count. Implemented needs a ready finish check;
 Tested and Done also need every flow and rule named by a test. A covering
 change record selects the units; otherwise the whole use case is checked.
-Missing evidence gives 2 with the move, problems and both ways out: add the
-evidence, or restore the previous Status and tell the person what remains.
-A file naming an uncovered use case blocks only when the session changed it;
-earlier unpushed spill warns. With no claim problems the stop passes quietly,
-even with broken specifications, implementation edits and unfinished records.
-Its log names the baseline and open-list size.
+Missing evidence is a drift, with the move, the problems and both ways to
+align: add the evidence, or restore the previous Status and tell the person
+what remains. A file naming an uncovered use case counts only when the session
+changed it; earlier unpushed spill warns. The other drifts are an open change
+record, behavior code changed without a specification (read as the spec-first
+guard reads it, with the change's commit messages for the `No behavior
+change:` line and the `Fixes:` note; a light-path fix is asked once before
+its commit, like any other code, and code that reaches the session through a
+pull or a merge is not asked) and a broken A-files shape, as the project's own
+`tools/check_tracking.py --strict` reports it on its command line. Broken specifications are never a drift
+at the stop.
+
+**The one question.** Each drift not asked yet in this session becomes one
+question for you, all in one message: align it now, at the end of the
+session, or later? Now means the agent aligns it in this session; end of the
+session means it reminds you once when the session ends; later means it runs
+the item's `hook_gate.py later TEXT` command. With the A-files, that adds an
+`AHEAD.md` item (kind `idea`, state `open`, an entry under Items); otherwise
+it appends a line to `up-deferred.txt` in the git folder, which the open-work
+list shows at session start until you remove the line. A drift recorded
+before is not recorded again. The session snapshot
+remembers what was asked, so the same drift is never raised again in that
+session, whatever you answered; a new session asks again. When the git folder
+cannot be written, a file in the temporary folder remembers it, and such files
+untouched for a day are removed; when nothing
+can be written, the stop does not ask and only informs. With no new drift the
+stop passes quietly. Its log names the baseline, the open-list size and the
+drifts found and new.
 
 **Open work.** Session context includes open records, changed specifications'
 finding counts and first error, raises against the change's base and broken
-use cases at Reviewed or above marked "fails at push". These are work in
-progress: fix an item only when it belongs to the current task. Do not mark
-a use case Implemented or Tested until its items are clean; the push check
-enforces it. The list reads docs and git paths only, never source files or
+use cases at Reviewed or above marked "a problem at push". These are work in
+progress: fix an item only when it belongs to the current task. A use case
+is marked Implemented or Tested once its items are clean; the push check
+reports the rest. The list reads docs and git paths only, never source files or
 the finish check, and caches validation by content. Completed cache updates
 are saved even when the shown list stays unchanged or computation hits its cap. It shows fifteen items
 plus an omitted count; session context stays within sixty lines.
@@ -905,16 +1154,19 @@ every model call, so only session start delivers its open list.
 After-edit feedback leaves out cross-file requirements and mechanism
 findings, and recognition errors belonging to other files. An edited use case
 in an earlier format warns with the migration notice. Other in-file errors
-still block where the tool supports it.
+reach the agent as information, result 1; the agent goes on with its task.
 
-The loop guard counts distinct claim evidence problems, ignoring line
-numbers. It gives up when the third consecutive blocked stop has no fewer
-problems than the first, or on the sixth block even when the count falls.
-The instruction is delivered once; that set then only warns. A different set
-starts counting again. A pass or warning clears the guard; a gate failure
-neither counts nor resets. A session id starts fresh; without one counting
-can span sessions. If state cannot be stored, the gate warns. Report what
-remains unresolved to the person.
+A drift is known by its kind and subject (the use case and its new Status,
+the record's path, the change that code without a specification belongs to,
+known by the name of its base and the current branch (a base with no name by
+its commit), each A-files finding by its path, its code and what its message
+names: an identifier, a quoted or bold name, a path), never by its problem
+text, so changed line numbers, a count that grows, more code in the same
+change, more commits or pushes on the same branch, or a shorter problem list
+do not ask again, and a new record or
+finding of the same kind is asked about once. Without a session id the questions are
+remembered under one shared slot. There is no loop guard: nothing keeps the
+agent working, and nothing is asked twice in a session.
 
 **Generated wiring and conflicts.** Setup preserves unrelated hooks and
 settings, indentation, key order, Unicode and the final newline; inline
@@ -973,8 +1225,8 @@ behavior change.
 **Proof and records.** After you enable hooks, the agent proves each moment
 in a new session, checking behavior and the git-folder `up-hooks.log`.
 Temporarily invalid specifications test after-edit delivery. A Status raise
-without evidence tests the claim block and its two ways out. Restore the
-Status and confirm a quiet stop with unfinished work. Submit prompts with a
+without evidence tests the question and its three answers; a second stop
+asks nothing. Restore the Status. Submit prompts with a
 changed, unchanged and then emptied open list to prove turn-start delivery.
 Restore every proof edit. Add
 only hooks seen firing to a `**Hooks:**` line below the profile in the rules
@@ -984,15 +1236,16 @@ A shortened message names `up-hooks-report.txt` in the git folder for its
 full text; that file is replaced on the next shortened message.
 
 Hooks provide feedback in the tool's sessions. The commit hook and the team's
-pipeline still apply to everyone. Hooks never approve specifications, and a
+pipeline report to everyone, and pass unless the team added `--strict`. Hooks never approve specifications, and a
 passing finish check still needs a person to read the report.
 
-**The push gate.** The GitHub workflow checks Status claims and runs
-`spec_lint.py --gate` on every push and pull request. Draft findings warn;
-Reviewed or later specifications must validate. The spec-first guard blocks
-on pull requests and pushes to the integration branch from the rules block
-or the repository's default branch, and warns on other pushes. Push messages
-supply its declarations. The range is the pull request target or the push's
+**The push gate.** The GitHub workflow checks Status claims, runs
+`spec_lint.py --gate` and the spec-first guard on every push and pull
+request. Every step reports and passes: Draft findings warn, Reviewed or
+later specifications that do not validate are reported as problems, and the
+guard warns on every branch. A team that wants a strict pipeline adds
+`--strict` to a step, which then fails on its findings (the lint's Draft
+findings never fail). Push messages supply the guard's declarations and `Fixes:` notes. The range is the pull request target or the push's
 previous commit when available; a first push selects from the integration
 fork, even when that fork equals HEAD. An empty baseline is used only for
 a first push to the integration or default branch, or when no integration
@@ -1009,7 +1262,8 @@ including the common Git folder shared by linked worktrees.
 The plan names a tracked folder as shared by every clone. An existing hook
 or outside folder gets the line to add by hand; setup never edits it. The
 hook checks pushed HEAD refs and skips deletions; other tips get a notice.
-Only problems block. Unavailable checks pass with a notice. Uncommitted docs
+It reports problems and lets the push go ahead; add `--strict` to its claims
+line to stop a push on problems. Unavailable checks pass with a notice. Uncommitted docs
 edits are included and can differ from CI; `git push --no-verify` skips the
 hook. CI stays authoritative.
 
@@ -1032,10 +1286,10 @@ over to someone else?
 | Requirements, entity model, use case map | — | Yes, unless you leave one out (recorded as skipped) | Yes |
 | Use case specifications | — | Yes | Yes |
 | Rules block in the guideline file | One line: the code is disposable | Yes | Yes |
-| Validator and lint | — | Run on each specification | Every push and pull request; Draft findings warn |
-| Review before Approved | — | Fresh-context review, your own sign-off | Independent reviewer and a named person's sign-off |
-| Spec-first guard | — | Warning in a commit hook | Blocks on pull requests and integration/default branch pushes; warns on other pushes |
-| Agent hooks | — | Offered: session state, after-edit findings, open work at turn start, claim evidence at stop | Offered; CI stays authoritative |
+| Validator and lint | — | Run on each specification | Every push and pull request, reporting; Draft findings warn; `--strict` to fail |
+| Review before Approved | — | Cold read, your own sign-off | Independent reviewer and a named person's sign-off |
+| Spec-first guard | — | Warning in a commit hook | Warning on every push and pull request; `--strict` to fail |
+| Agent hooks | — | Offered: session state, after-edit findings, open work at turn start, one question per drift at the stop | Offered; the pipeline reports to everyone |
 | Push claims check | — | Optional pre-push hook | Every push and pull request in CI; optional pre-push hook |
 | Ownership of `docs/`, pull request template | — | — | Yes |
 | Spec dashboard | — | On demand | Each iteration |
@@ -1045,6 +1299,10 @@ names the event that ends that status (someone starts depending on it, or it
 outlives its planned end). Parallel work is the line between solo and team:
 one person keeps the order by habit; several people or agents in parallel
 cannot.
+
+The solo review is a cold read: a new session that receives only the
+specification and its neighbors, never the conversation that wrote it. Its
+limit: the same model catches sloppiness, not a misreading it shares.
 
 ## 11. Working with different agents and models
 
@@ -1111,13 +1369,19 @@ desktop app it is unclear whether workspace hooks run.
 | A deleted file is flagged | Name its exact repository-relative path in the change record, in backticks or as a Markdown link target, so the check can attribute the deletion |
 | A hook never writes to `up-hooks.log` | The tool did not run it: check that the person approved the hook (and trusted the folder), and that the tool runs hooks in this mode or engine |
 | The agent was not told what is open | Check the `turn-start` entry, the tool's start-of-turn support and `up-hooks.log`; Antigravity receives the list at session start only |
-| The stop hook warned and gave up | The loop guard saw no fall over three blocked stops, or reached six blocks. Read the findings and report what remains unresolved; the same problem set only warns after the one give-up instruction |
+| The stop asked about a drift once and then said nothing | That is the design: each drift is asked once per session. A "later" answer is in `AHEAD.md` or in `up-deferred.txt` in the git folder; the open-work list shows the deferred lines at session start |
+| The pipeline passed with findings | Every check reports and exits 0 by default; add `--strict` to a step for a strict pipeline |
 | "unknown revision" from the finish check | Pass the branch or commit the change started from with `--base`, or `HEAD` while nothing is committed |
 | "rests on no source" | Add the flow or rule to the record's sources table: the request, a decision, today, or a listed assumption |
 | "... the change record does not name it" | A flow or rule changed outside the record: add a row for it (with why), or undo the change |
 | "a pin the change did not touch" | The cited test does not pin what changed. Pin the row with a test that asserts its Today cell, commit it, then change the code and the test |
 | Guard check verdict `invalid` | The test fails before the break, or ran past the timeout: fix the test first |
 | Guard check verdict `not caught` | The test does not guard the rule: strengthen it until the break makes it fail |
+| Guard check verdict `crashed` | The element's test stopped on an error rather than an assertion (a syntax error, a failed import, an unexpected exception): read the output the check prints, then make a smaller break that keeps the code running, or make the test assert the element's outcome before anything else can fail |
+| Guard check verdict `unclear` | Read the output the check prints: another element's test may have caught the break, the name may lack the use case or the element, or an error was printed apart from every test's report. Name a test after the element, or pass `--expect TEXT` |
+| `UNREADABLE` from the guard check | It could not read the specification, the enforcing file or its log and did not run: fix the file's permissions or encoding, then run it again |
+| "the guard check of UC-012 BR-001 (...) is stale: run scripts/guard_check.py again" | The rule, its Examples table or the enforcing file changed since the row was logged, or the row is from before 1.3.0: run the guard check again |
+| The spec-first guard warns about a bug fix | Add the note `Fixes: UC-012 BR-005` to the commit message, naming the use case and the element the fix restores |
 | "the text to replace occurs N times" | Give a longer piece of text, so that it occurs exactly once |
 | Specifications live outside `docs/` | Record the folder as `**Specs folder:** DIR` in the rules block (setup's `--specs-folder`); every script reads it, and `--docs DIR` overrides it for one run |
 | The validator warns about emoji or long quotations | A specification says what a message tells the actor; it quotes exact screen words only where a rule depends on them |
@@ -1163,7 +1427,7 @@ desktop app it is unclear whether workspace hooks run.
 | Coverage unit | Something a test must cover: the main scenario, a flow, a rule boundary, a postcondition, a failure guarantee |
 | Evidence ledger | Recovery's record of where each recovered claim comes from, with its verification state |
 | Finish check | The implementer's gate before reporting a change |
-| Guard check | A deliberate break of a rule to prove its test fails |
+| Guard check | A deliberate break of an element to prove its test fails |
 | Guideline file | `CLAUDE.md` or `AGENTS.md`: the rules every agent session reads |
 | Invention list | The decisions an agent made that its inputs did not settle |
 | Journey test case | An end-to-end story across several use cases (`TC-001`) |

@@ -11,7 +11,8 @@ UC006) are scanned for unit labels (main, A1, BR-001) in test names,
 annotations and comments. A hit means a test claims the unit; whether it
 really covers it is judged by reading the test and by the guard check.
 
-Exit code 0, 2 on usage errors.
+Exit code 0, 1 when a file cannot be read, 2 on usage errors, 5 on earlier
+specification formats.
 
 Usage:
     coverage_units.py UC-006 [--docs DIR] [--tests DIR] [--format text|json]
@@ -32,14 +33,6 @@ import spec_model as model  # noqa: E402  (local module, same folder)
 LABELED = ("scenario", "flow", "rule")
 
 
-def find_spec(docs, uc_id):
-    for path in docs.use_case_files():
-        name = os.path.basename(path)
-        if name.startswith(uc_id + "-") or name == uc_id + ".md":
-            return path
-    return None
-
-
 def main(argv):
     parser = argparse.ArgumentParser(description="List the coverage units of a use case.")
     parser.add_argument("use_case", help="identifier, for example UC-006")
@@ -49,7 +42,8 @@ def main(argv):
     args = parser.parse_args(argv)
     args.docs = args.docs or model.docs_default()
     docs_model = model.Docs(args.docs)
-    stop = model.stop_if_old(docs_model)
+    # A list or a measure cannot be made without the file: an unreadable one stops it with 1.
+    stop = model.stop_if_old(docs_model, strict=True)
     if stop:
         return stop
     if not re.fullmatch(r"UC-\d{3}", args.use_case):
@@ -61,7 +55,7 @@ def main(argv):
     if args.tests and not os.path.isdir(args.tests):
         print("no such folder: %s" % args.tests, file=sys.stderr)
         return 2
-    path = find_spec(model.Docs(args.docs), args.use_case)
+    path = model.find_use_case(model.Docs(args.docs), args.use_case)
     if not path:
         print("no specification file for %s under %s" % (args.use_case, args.docs), file=sys.stderr)
         return 2

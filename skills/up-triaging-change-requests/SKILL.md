@@ -53,7 +53,7 @@ Then apply the sign-off test:
 
 | # | Outcome | It is when | Edit | Status of the use case | Then |
 |---|---|---|---|---|---|
-| 1 | Code wrong | The specification is clear and right; the system does something else | Nothing in the specification | Unchanged | Failing test named after the flow or rule, then `up-7-implementing-use-cases` |
+| 1 | Code wrong | The specification is clear and right; the system does something else | Nothing in the specification | Unchanged | The light path (below): a failing test named after the element, the fix, the note `Fixes: UC-012 BR-005`. A foreign-key constraint for a relationship the entity model states is the one exception: the destructive path of the schema procedure, with the owner's yes (The foreign-key exception, below) |
 | 2 | Specification wrong | It says something nobody meant | The specification | Back to `Reviewed` | Review, approval, then synchronize |
 | 3 | Test wrong | Code and specification agree; a test expects something else | The test | Unchanged | `up-8-deriving-use-case-tests` |
 | 4 | Specification ambiguous | Two readers defend two readings; the code picked one | The specification, after the owner chooses | Back to `Reviewed` | As 2 |
@@ -62,6 +62,57 @@ Then apply the sign-off test:
 | 7 | No behavior change | Refactoring, a dependency update, performance inside an existing threshold, infrastructure | Nothing | Unchanged | Proceed; the change carries the line `No behavior change: UC-012`, naming the use case it stays in |
 
 Details and examples for each: [references/outcomes.md](references/outcomes.md).
+
+## The light path
+
+Triage writes a change record for the outcomes that change a specification:
+2, 4, 5 and 6. The record is the agreement that the review, the
+implementation and its finish check read. The other three outcomes change no
+specification and get no change record.
+
+- **Outcome 1, code wrong.** The specification already says what the code
+  must do, so the fix costs a test and a line:
+  1. A failing test named after the use case and the element the code breaks:
+     a rule, a flow, a step, a precondition or a postcondition (for example
+     `test_uc002_br005_sixth_loan_is_refused`, or the element's name inside a
+     suite named after the use case). Run it and see it fail for the reason in
+     the report.
+  2. The fix, touching only what the element requires, with the rule's marker
+     where it enforces a rule (`up-7-implementing-use-cases`, its light path).
+  3. When the developer wants proof that the test guards the element, the
+     guard check of that element (`up-8-deriving-use-case-tests`). Its verdict
+     is information; nothing waits for it.
+  4. The note `Fixes: UC-002 BR-005` in the commit message, naming the use
+     case and the element. The spec-first guard and the agent hooks read it
+     and do not report the change as code without a specification. Before
+     the commit, the end-of-turn question comes once for the fix; the fitting
+     answer is "at the end of the session" (the commit with its note closes
+     it) or "now", not "later". A `Fixes:` line that names no use case, such
+     as an issue reference, is not the note.
+
+  No change record, finish check, test derivation or audit. Status stays where
+  it is.
+- **Outcome 7, no behavior change.** The line `No behavior change: UC-012`,
+  nothing else.
+- **Outcome 3, test wrong.** As before: `up-8-deriving-use-case-tests` fixes the
+  test. Test files never count as behavior code.
+
+If the failing test cannot be written because the specification does not
+decide the case, it is not outcome 1: classify again (usually 4).
+
+## The foreign-key exception
+
+One outcome 1 names no element and does not take the light path: a
+foreign-key constraint added later, for a relationship the entity model
+already states (a relationship in its diagram and a `Reference to`
+attribute). The code does not match the model, so it is code wrong, but
+existing rows may violate the constraint: it takes the destructive path of the
+schema procedure (`up-7-implementing-use-cases`, its schema changes reference),
+with the owner's yes and a count of the violating rows. The model stays
+unchanged. The commit names the relationship as the model writes it and
+carries the note `Fixes: UC-012`, naming the use case whose relationship it
+enforces (the one whose flow records the reference); the spec-first guard
+reads it as it reads the light path's note.
 
 ## When the system already does it
 
@@ -152,7 +203,10 @@ reviewer.
 
 If the code is simply wrong against a correct specification (outcome 1), no
 specification edit is needed at all. Say so: it is the fastest case, not an
-exception to the rule.
+exception to the rule, and it takes the light path. A foreign-key constraint
+for a relationship the entity model states is the one exception: it takes the
+destructive path of the schema procedure, with the owner's yes (The
+foreign-key exception), however urgent the fix.
 
 ## Workflow
 
@@ -165,8 +219,14 @@ exception to the rule.
 5. For outcomes 2, 4, 5: ask the owner to confirm the classification and the
    decision. For outcome 6: confirm it is in scope.
 6. For a defect (1, 2, 4): describe the failing test that reproduces it, named
-   after the flow or rule. If no flow or rule fits, it is not outcome 1.
-7. Write the change record from [templates/change-record.md](templates/change-record.md), with the
+   after the use case and the element (a rule, a flow, a step, a precondition
+   or a postcondition). If no element fits, it is not outcome 1, except a
+   foreign-key constraint added later for a relationship the entity model
+   states, which takes the destructive path of the schema procedure with the
+   owner's yes (The foreign-key exception). For any other outcome 1, hand
+   over on the light path with the note `Fixes: UC-XXX <element>` for the
+   commit; no change record.
+7. For outcomes 2, 4, 5 and 6, write the change record from [templates/change-record.md](templates/change-record.md), with the
    differences from today when the behavior already exists, and save it as
    `docs/change-records/UC-XXX-<kebab-name>.md`: the review, the
    implementation and its gate read it there, and the pull request links it. When the change starts from an entry of a recovery change log, the Report names it (`change log #3`), the entry's Decision becomes `in change: <this record's path>`, and its Use case column gains the change record's use case when it is not already there.
@@ -184,9 +244,14 @@ exception to the rule.
 
 Before handing over:
 
-- The classification names an outcome and an element, with the reason.
+- The classification names an outcome and an element (for a foreign-key
+  constraint, the relationship), with the reason.
 - For anything but outcomes 1, 3 and 7, the specification change is described
   and the Status reset is stated.
+- A change record exists for outcomes 2, 4, 5 and 6 only. For outcome 1 the
+  hand-over names the failing test and the note `Fixes: UC-XXX <element>`;
+  for a foreign-key constraint, the destructive path of the schema procedure
+  with the owner's yes (The foreign-key exception).
 - The impact list was produced, not assumed.
 - For behavior the system already has: today's behavior was written down
   before the change, and every difference from today is in the record.
@@ -204,9 +269,11 @@ Its Examples table has input `open loans before borrowing` and result rows
 - Sign-off test: nobody wants six. The specification is clear and right.
 - **Outcome 1, code wrong.** No specification edit.
 - Impact: `UC-002` only; journey `TC-001` includes it; tests carry `UC002`.
-- Failing test first: `br005_sixth_loan_is_refused` with five open loans,
-  expecting refusal and no loan recorded.
-- Hand over to `up-7-implementing-use-cases UC-002`.
+- Failing test first: `br005_sixth_loan_is_refused` in the suite of `UC-002`,
+  with five open loans, expecting refusal and no loan recorded.
+- The light path, no change record: the fix through
+  `up-7-implementing-use-cases UC-002`, the guard check of `UC-002 BR-005` if
+  wanted, and the commit carries `Fixes: UC-002 BR-005`.
 
 The same report with a different specification:
 

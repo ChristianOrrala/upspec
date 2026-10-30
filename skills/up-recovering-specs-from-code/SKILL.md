@@ -8,9 +8,9 @@ description: >-
   evidence ledger and a list of suspect behavior instead of correcting anything, prepares the two-role
   baseline review (what it does versus what it was meant to do) and its change log, and pins current
   behavior with tests before the first change. Use when the user wants to reverse-engineer, document,
-  baseline or onboard a legacy, inherited or brownfield codebase into use cases, bring an existing project under
-  spec-driven development, extract the business rules from existing code, even from a single class or
-  service, or carry the items a baseline review left for later forward.
+  baseline or onboard a legacy, inherited or brownfield codebase into use cases, bring an existing
+  project under spec-driven development, extract the business rules from existing code, even from a
+  single class or service, or carry the items a baseline review left for later forward.
 ---
 
 # Recovering specifications from code
@@ -111,9 +111,9 @@ What each kind of code suggests and what it does not prove:
 - **The project's own words come first.** Before naming anything, look for a
   glossary, a product document and the words on the screens. Use them. Where
   documents disagree, list the conflict for the owner; do not pick a winner.
-- **Specifications of another method** in the repository (Spec Kit, Kiro,
-  OpenSpec, loose documents) are evidence too: read them beside the code and
-  cite them in the ledger ([references/evidence.md](references/evidence.md)).
+- **Specifications in another format** are not recovery's input: a system
+  that has them goes to `up-migrating-spec-formats`. Other documents are
+  evidence, cited in the ledger ([references/evidence.md](references/evidence.md)).
 
 **Check the aggregation.** Count entry points and count use cases. If the two
 numbers are close, you mirrored the interface. A small service comes out at
@@ -132,10 +132,10 @@ or a report; name the file it lives in. A credential committed to the
 repository is a `decide` suspect: name the file and the kind of secret, never
 its value, and tell the owner it needs rotating.
 
-Converted specifications of another method are archived only after the
-baseline review and the owner's yes: `scripts/relink.py` moves them under
+A document the ledger cites moves only when the owner retires it after the
+baseline review: `scripts/relink.py` moves it under
 `docs/recovery/sources/` (`plan`, then `apply`, then `verify`), so that the
-ledger's citations and every link follow them.
+ledger's citations and every link follow it.
 
 ## The ledger and the suspect list
 
@@ -281,7 +281,7 @@ tests must pass against the code as it is.
 
 ## Validation
 
-- The ledger check exits 0: every recovered use case, flow and rule has a row,
+- The ledger check reports no error: every recovered use case, flow and rule has a row,
   every code location exists, every citation in the records resolves.
 - The validator reports no `IMPLEMENTATION_DETAIL` and no warning-level
   `SPEC_SIZE`; no specification contains mechanism vocabulary.

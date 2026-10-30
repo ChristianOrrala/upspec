@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check the use case files, generated overview and requirement coverage.
 
-Exit 0 clean, 1 findings, 2 usage, 5 old formats. Python 3.9+, standard library only.
+Exit 0 when it ran, an unreadable file included (with --strict 1 on findings), 2 usage, 5 old formats. Python 3.9+, standard library only.
 """
 import argparse
 import os
@@ -52,15 +52,15 @@ def check(docs, report):
 def main(argv):
     parser = argparse.ArgumentParser(description="Check the use case overview.")
     parser.add_argument("--docs", help="the specification folder (default: the one the rules block records, else docs)")
-    parser.add_argument("--strict", action="store_true", help="fail on warnings too")
+    parser.add_argument("--strict", action="store_true", help="exit 1 on any error or warning (default: exit 0, findings are reported)")
     args = parser.parse_args(argv)
     args.docs = args.docs or model.docs_default()
     if not os.path.isdir(args.docs):
         print("no such folder: %s" % args.docs, file=sys.stderr)
         return 2
     docs = model.Docs(args.docs)
-    stop = model.stop_if_old(docs)
-    if stop:
+    stop = model.stop_if_old(docs, strict=args.strict)
+    if stop is not None:
         return stop
     report = model.Reporter(os.getcwd())
     try:

@@ -11,14 +11,16 @@ Requires Python 3.9+, standard library only.
 """
 import difflib
 import glob
+import hashlib
 import os
 import re
 import subprocess
 import sys
-from typing import Optional
+import unicodedata
+from typing import NamedTuple, Optional
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.2.0"
+UPSPEC_VERSION = "1.3.0"
 
 # --- vocabulary -------------------------------------------------------------
 
@@ -165,7 +167,9 @@ class Reporter:
         stream.write("%d errors, %d warnings, %d infos\n" % (self.count("ERROR"), self.count("WARN"), self.count("INFO")))
 
     def exit_code(self, strict=False):
-        if self.count("ERROR") or (strict and self.count("WARN")):
+        """0 when the check ran, whatever it found, an unreadable file included; with strict, 1 on any error or
+        warning."""
+        if strict and (self.count("ERROR") or self.count("WARN")):
             return 1
         return 0
 
@@ -185,8 +189,22 @@ def read_lines(path):
 OLD_FORMAT_EXIT = 5
 
 RE_FM_KEY = re.compile(r"^([a-z][a-z0-9_]*):(?:[ \t]+(.*?))?[ \t]*$")
-FM_REFUSED_START = {"&": "an anchor", "*": "an alias", "!": "a tag", "|": "a multi-line value",
-                    ">": "a multi-line value", "{": "a mapping"}
+# YAML's block scalar indicators: a value that starts with one of these runs on below its key.
+FM_BLOCK_START = ("|", ">")
+FM_REFUSED_START = {"&": "an anchor", "*": "an alias", "!": "a tag", "{": "a mapping",
+                    **{start: "a multi-line value" for start in FM_BLOCK_START}}
+# What to say instead of a value on several lines, for the keys where more than "write it on one line" helps:
+# a goal that does not fit one line is usually two goals; a use case or journey whose
+# id cannot be read cannot be identified, so nothing that cites it is checked against it.
+FM_ONE_LINE_ADVICE = {
+    "goal": "write the goal on one line; a goal that needs more is usually two goals",
+    "id": "write the id on one line; until then the file cannot be identified, and what cites it is not checked",
+}
+
+
+def _fm_one_line(key):
+    """What to do instead of a value on several lines (FM_ONE_LINE_ADVICE, or the plain advice)."""
+    return FM_ONE_LINE_ADVICE.get(key, "write '%s' on one line" % key)
 
 
 def _fm_comment(raw):
@@ -257,45 +275,102 @@ def _fm_value(raw):
     return _fm_scalar(raw) if raw else ("", None)
 
 
-def read_front_matter(lines):
-    """Read the front matter subset of the current formats.
+class FrontMatter:
+    """One reading of a file's front matter.
 
-    Returns (data, body_start, problems): data maps key -> (value, line), value a string or a list of
-    strings; body_start is the 0-based index of the first line after the closing '---' (0 when there is
-    no front matter); problems lists (line, message). The subset: 'key: value', 'key: [a, b]', quoted
-    strings, '#' comments. Nesting, anchors, tags and multi-line values are refused, never guessed.
+    meta maps key -> (value, line); body_start is the 0-based index of the first line after the closing
+    '---'; problems lists (line, message), the subset's refusals and then the shape of list and scalar keys;
+    refused maps each key refused as a value on several lines to the line of its refusal, which is that key's
+    one finding (no "required key ... is missing" beside it)."""
+
+    def __init__(self, meta=None, body_start=0, problems=None, refused=None):
+        self.meta = meta if meta is not None else {}
+        self.body_start = body_start
+        self.problems = problems if problems is not None else []
+        self.refused = refused if refused is not None else {}
+
+
+def front_matter(lines):
+    """The front matter of a file's lines, as one FrontMatter."""
+    meta, body_start, problems, refused = _read_subset(lines)
+    return FrontMatter(meta, body_start, problems + shape_problems(meta), refused)
+
+
+def read_front_matter(lines):
+    """Read the front matter subset of the current formats: (data, body_start, problems), the subset's own
+    refusals only (front_matter() adds the shape of the keys and the refused keys)."""
+    return _read_subset(lines)[:3]
+
+
+def _read_subset(lines):
+    """(data, body_start, problems, refused).
+
+    data maps key -> (value, line), value a string or a list of strings; body_start is the 0-based index of
+    the first line after the closing '---' (0 when there is no front matter); problems lists (line, message).
+    The subset: 'key: value', 'key: [a, b]', quoted strings, '#' comments. Nesting, anchors, tags and
+    multi-line values are refused, never guessed.
+
+    A value on several lines is one problem, with the advice to write it on one line, and its key is not read:
+    a block scalar ('|', '>') at its key's line; a value refused on its key's line for another reason (a quote,
+    a tag, ': ') and continued on indented lines, at its key's line too; a plain value continued on indented
+    lines, at the first continued line. Its other lines add nothing. refused maps each key refused this way to
+    the line of that problem.
     """
     clean = [line.rstrip("\r") for line in lines]
     if clean:
         clean[0] = clean[0].lstrip("﻿")
     if not clean or clean[0].strip() != "---":
-        return {}, 0, []
-    data, problems = {}, []
+        return {}, 0, [], {}
+    data, problems, refused = {}, [], {}
+    # last_key: the key the next indented line would continue; refused_at: index in problems of its refusal,
+    # when its value was refused on its own line.
+    last_key, refused_at = None, None
     for index in range(1, len(clean)):
         number, text = index + 1, clean[index]
         stripped = text.strip()
         if stripped == "---":
-            return data, index + 1, problems
+            return data, index + 1, problems, refused
         if not stripped or stripped.startswith("#"):
             continue
         if text[:1] in " \t":
-            problems.append((number, "an indented line: nested or continued values are outside the subset"))
+            if last_key is None:
+                problems.append((number, "an indented line: nested or continued values are outside the subset"))
+            elif last_key in refused:
+                pass
+            elif refused_at is not None:
+                line, problem = problems[refused_at]
+                problems[refused_at] = (line, "%s, and the value continues on an indented line: %s"
+                                        % (problem, _fm_one_line(last_key)))
+                refused[last_key] = line
+            else:
+                problems.append((number, "an indented line continues '%s'; nested or continued values are outside "
+                                         "the subset: %s" % (last_key, _fm_one_line(last_key))))
+                refused[last_key] = number
+                data.pop(last_key, None)
             continue
         match = RE_FM_KEY.match(text)
         if not match:
             problems.append((number, "not a 'key: value' line"))
+            last_key, refused_at = None, None
             continue
         key, raw = match.group(1), _fm_comment(match.group(2) or "")
         if key in data:
             problems.append((number, "key '%s' appears twice" % key))
+            last_key, refused_at = None, None
             continue
+        last_key, refused_at = key, None
         value, problem = _fm_value(raw)
         if problem:
+            if raw.startswith(FM_BLOCK_START):
+                problem = "%s: %s" % (problem, _fm_one_line(key))
+                refused[key] = number
+            else:
+                refused_at = len(problems)
             problems.append((number, problem))
             continue
         data[key] = (value, number)
     problems.append((1, "front matter is not closed with '---'"))
-    return data, 0, problems
+    return data, 0, problems, refused
 
 LIST_KEYS = ("secondary_actors", "requirements", "use_cases")
 
@@ -508,6 +583,31 @@ RE_TICKED_PATH = re.compile(r"`([^`\s]+)`")
 A_FILE_NAMES = ("AGENTS.md", "CLAUDE.md", "ACTIVE.md", "ABILITIES.md", "AHEAD.md", "ATLAS.md")
 
 
+# How far into AGENTS.md the A-files' check looks for its index: the cap of its hot zone.
+A_FILES_INDEX_LINES = 100
+TRACKED_A_FILES = ("ACTIVE.md", "ABILITIES.md", "AHEAD.md", "ATLAS.md")
+
+
+def a_files_listed(agents_lines):
+    """The A-files the index of AGENTS.md lists, read as the A-files' check reads it: the rows of the tables in
+    its first 100 lines whose first cell is an A-file's name (in backticks, as a link, or after ./); fenced
+    blocks are examples. An AGENTS.md with no such row names its files in prose, and every A-file named in
+    those lines is listed."""
+    lines = agents_lines[:A_FILES_INDEX_LINES]
+    found = set()
+    for table in read_tables(lines):
+        if table["separator"] is None:
+            continue
+        for _, row, _ in table["rows"]:
+            cell = re.sub(r"\]\([^)]*\)", "", row.get(table["header"][0], "")).strip("[]` ")
+            found.add(cell[2:] if cell.startswith("./") else cell)
+    found &= set(TRACKED_A_FILES)
+    if found:
+        return found
+    prose = "\n".join(line for _, line in outside_fences(lines))
+    return {name for name in TRACKED_A_FILES if name in prose}
+
+
 def a_files_present(root):
     """True when ACTIVE.md at the root holds the hot-zone marker."""
     path = os.path.join(root, "ACTIVE.md")
@@ -517,12 +617,20 @@ def a_files_present(root):
         return False
 
 
-def _optional_lines(root, name):
+class OptionalFile(NamedTuple):
+    """A file a project may lack. present: it exists; lines: its lines, [] when it is absent or cannot be read."""
+    present: bool
+    lines: list
+
+
+def _optional_file(root, name):
     path = os.path.join(root, name)
+    if not os.path.isfile(path):
+        return OptionalFile(False, [])
     try:
-        return read_lines(path) if os.path.isfile(path) else []
+        return OptionalFile(True, read_lines(path))
     except (OSError, UnicodeDecodeError):
-        return []
+        return OptionalFile(True, [])
 
 
 def _hot_zone(lines):
@@ -544,6 +652,11 @@ def _field(lines, name):
         if match:
             return "" if _is_empty(match.group(1)) else match.group(1)
     return ""
+
+
+def a_file_home(root, lines):
+    """The tracking file an A-file's hot zone delegates to (**Home:**), or None; lines are the whole A-file."""
+    return _home(root, _hot_zone(lines))
 
 
 def _home(root, lines):
@@ -579,7 +692,7 @@ def _use_case_of(root, link):
     path = os.path.normpath(os.path.join(root, link.split("#", 1)[0]))
     if not os.path.isfile(path):
         return None
-    meta, _, _ = read_front_matter(_optional_lines(os.path.dirname(path), os.path.basename(path)))
+    meta, _, _ = read_front_matter(_optional_file(os.path.dirname(path), os.path.basename(path)).lines)
     value = meta.get("id", ("", 0))[0]
     if isinstance(value, str) and RE_UC_ID.fullmatch(value):
         return value
@@ -591,26 +704,33 @@ def read_tracking(root):
     """What the A-files say about the work, or None when the project does not use them.
 
     current_work, blocked_by, waiting_on_owner: the text of ACTIVE's fields, '' when empty;
-    abilities: {AB id: {name, status, specs (use case ids), links}}; next_up: AH ids in order;
-    items: {AH id: [AB ids]} from AHEAD's index."""
+    abilities: {AB id: {name, status, specs (use case ids), links}}, the status from the ability's row in any index
+    table of ABILITIES.md, else from an old entry's Status line; abilities_present: whether ABILITIES.md exists
+    (without it nothing is said about abilities); next_up: AH ids in order; items: {AH id: [AB ids]} from AHEAD's index."""
     if not a_files_present(root):
         return None
-    hot = _hot_zone(_optional_lines(root, "ACTIVE.md"))
-    abilities_lines = _optional_lines(root, "ABILITIES.md")
-    ahead = _optional_lines(root, "AHEAD.md")
+    hot = _hot_zone(_optional_file(root, "ACTIVE.md").lines)
+    abilities_file = _optional_file(root, "ABILITIES.md")
+    abilities_lines = abilities_file.lines
+    ahead = _optional_file(root, "AHEAD.md").lines
     active_home = _home(root, hot)
     if active_home:
         hot = []                           # the current work lives in the kept file; ACTIVE's own fields are not it
     tracking = {"current_work": _field(hot, "Current work"), "blocked_by": _field(hot, "Blocked by"),
                 "waiting_on_owner": _field(hot, "Waiting on owner"), "abilities": {}, "next_up": [], "items": {},
+                "abilities_present": abilities_file.present,
                 "active_home": active_home, "abilities_home": _home(root, _hot_zone(abilities_lines)),
                 "ahead_home": _home(root, _hot_zone(ahead))}
+
+    def ability(identifier, name):
+        """The ability's record, made the first time an entry heading or an index row names it."""
+        return tracking["abilities"].setdefault(identifier, {"name": name, "status": None, "specs": [], "links": []})
+
     current = None
     for _, line in outside_fences([] if tracking["abilities_home"] else abilities_lines):
         heading = re.match(r"^###\s+(AB-\d{3})\s*(.*?)\s*$", line)
         if heading:
-            current = tracking["abilities"].setdefault(heading.group(1), {"name": heading.group(2), "status": None,
-                                                                         "specs": [], "links": []})
+            current = ability(heading.group(1), heading.group(2))
             continue
         if line.startswith("#"):
             current = None
@@ -626,6 +746,15 @@ def read_tracking(root):
                 RE_LINK.findall(value) + [token for token in RE_TICKED_PATH.findall(value) if _is_tracking_path(token)]))
             linked = [_use_case_of(root, link) for link in current["links"]]
             current["specs"] = list(dict.fromkeys(RE_UC_ID.findall(value) + [uc for uc in linked if uc]))
+    # The status lives in the ability's index row, in any index table of the file; an old entry's Status
+    # line read above is the fallback when the row has no status.
+    for table in [] if tracking["abilities_home"] else read_tables(abilities_lines):
+        if not all(column in table["header"] for column in ("ID", "Ability", "Status")):
+            continue
+        for _, row, _ in table["rows"]:
+            identifier, status = row.get("ID", "").strip(), row.get("Status", "").strip("` ").lower()
+            if RE_AB_ID.fullmatch(identifier) and not _is_empty(status):
+                ability(identifier, row.get("Ability", "").strip())["status"] = status
     if tracking["ahead_home"]:
         return tracking
     text = "\n".join(_hot_zone(ahead))
@@ -1006,13 +1135,25 @@ class Rule:
         return is_retired(self.name)
 
 
-class UseCase:
+class _WithFrontMatter:
+    """A parsed file whose metadata is one FrontMatter (self.front_matter): meta and its problems are read
+    from it."""
+
+    @property
+    def meta(self):
+        return self.front_matter.meta
+
+    @property
+    def front_matter_problems(self):
+        return self.front_matter.problems
+
+
+class UseCase(_WithFrontMatter):
     def __init__(self, path):
         self.path = path
         self.title = None
         self.title_line = 0
-        self.meta = {}
-        self.front_matter_problems = []
+        self.front_matter = FrontMatter()
         self.is_stub = False
         self.section_lines = {}      # section title -> heading line
         self.preconditions = []      # (line, text)
@@ -1091,8 +1232,8 @@ def parse_use_case(path):
 def parse_use_case_lines(lines, path):
     """Parse a use case from lines already in memory, for example an older revision from git."""
     uc = UseCase(path)
-    uc.meta, start, uc.front_matter_problems = read_front_matter(lines)
-    uc.front_matter_problems += shape_problems(uc.meta)
+    uc.front_matter = front_matter(lines)
+    start = uc.front_matter.body_start
     uc.line_count = len(lines[:-1] if lines and lines[-1] == "" else lines)
     section = sub = None
     flow = rule = None
@@ -1178,6 +1319,20 @@ def load_use_cases(docs):
     return [parse_use_case(path) for path in docs.use_case_files()]
 
 
+def unidentified_use_cases(use_cases):
+    """{identifier in the file name: path} for each use case whose id was refused as a value on several lines.
+
+    Its id cannot be read, so the use case is not identified: a citation of the identifier its file name
+    carries cannot be judged, and the overview cannot be generated without dropping it. The file name never
+    stands in for the id; it only says which citations to leave unjudged."""
+    found = {}
+    for uc in use_cases:
+        if "id" in uc.front_matter.refused:
+            match = RE_UC_ID.search(os.path.basename(uc.path))
+            found[match.group(0) if match else os.path.basename(uc.path)] = uc.path
+    return found
+
+
 # --- journey test case ------------------------------------------------------
 
 class Scenario:
@@ -1187,12 +1342,11 @@ class Scenario:
         self.problems = []
 
 
-class TestCase:
+class TestCase(_WithFrontMatter):
     def __init__(self, path):
         self.path = path
         self.title = None
-        self.meta = {}
-        self.front_matter_problems = []
+        self.front_matter = FrontMatter()
         self.section_lines = {}
         self.roles = []
         self.preconditions = []
@@ -1225,8 +1379,8 @@ class TestCase:
 def parse_test_case(path):
     lines = read_lines(path)
     tc = TestCase(path)
-    tc.meta, start, tc.front_matter_problems = read_front_matter(lines)
-    tc.front_matter_problems += shape_problems(tc.meta)
+    tc.front_matter = front_matter(lines)
+    start = tc.front_matter.body_start
     section = fence = scenario = None
     gherkin = False
     annotations = []
@@ -1477,15 +1631,367 @@ def find_change_record(docs, uc_id):
     return max(found, key=lambda path: (os.path.getmtime(path), path)) if found else None
 
 
-# The finish check's established file-name conventions for test code.
-TEST_NAME = re.compile(r"(^test_|_test\.|\.test\.|\.spec\.|_spec\.|Tests?\.[A-Za-z]+$)")
-# Folder conventions shared by the finish check and reference search.
-TEST_FOLDERS = {"tests", "test", "__tests__", "spec", "specs", "e2e"}
+# A test file by the names the common test runners use: test_x, x_test, x.test, x-test, x_spec, x.spec, x-spec,
+# XTest, XTests, and XIT for a JVM integration test: a CamelCase class name (OrderIT.java), never a name in
+# capitals or with underscores (V1__INIT.sql, SUBMIT.py), which is code. One rule for the finish check, the
+# spec-first guard, the end-of-turn question and reference search, so that none of them counts a test file as
+# code another counts.
+TEST_NAME = re.compile(r"(^test_|_test\.|\.test\.|-test\.|_spec\.|\.spec\.|-spec\.|Tests?\.[A-Za-z0-9]+$"
+                       r"|^[A-Z][A-Za-z0-9]*[a-z][A-Za-z0-9]*IT\.(?:java|kt|kts|groovy|scala)$)")
+# Folders that hold tests or their data, compared in lower case.
+TEST_FOLDERS = {"tests", "test", "__tests__", "spec", "specs", "e2e", "testing", "fixtures"}
 
 
 def is_test_path(path):
+    """A test file by its folder or its name."""
     parts = path.replace("\\", "/").split("/")
-    return bool(TEST_NAME.search(parts[-1])) or any(part in TEST_FOLDERS for part in parts[:-1])
+    return bool(TEST_NAME.search(parts[-1])) or any(part.lower() in TEST_FOLDERS for part in parts[:-1])
+
+
+# --- the spec-first reading of a change ---------------------------------------
+# The spec-first guard and the hook gate's end-of-turn question read a change with this one function.
+
+# Suffixes of source files that can change behavior; documents, data and configuration do not count.
+SOURCE_SUFFIXES = (".py", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".java", ".kt", ".kts", ".go", ".rb",
+                   ".php", ".cs", ".rs", ".swift", ".scala", ".c", ".h", ".cc", ".cpp", ".hpp", ".sql", ".vue",
+                   ".svelte", ".ex", ".exs", ".dart", ".groovy")
+RE_NO_BEHAVIOR_CHANGE = re.compile(r"^\s*(?:[-*>]\s*)?no behaviou?r change\s*:\s*(.*)$", re.IGNORECASE)
+# The light path's note: a bug fixed against a clear specification, 'Fixes: UC-012 BR-005'.
+# It is read to reconcile, never validated; a 'Fixes:' line that names no use case, such as
+# an issue tracker's 'Fixes: #123', is not the note.
+RE_FIXES = re.compile(r"^\s*(?:[-*>]\s*)?fixes\s*:\s*(.*)$", re.IGNORECASE)
+RE_HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+# Five file names fit one line of a message; the rest are counted.
+SHOWN_FILES = 5
+# Where setup installs the method's own scripts. They are the method's tools, not the project's behavior, and are
+# left out on purpose, not because their folder's name happens to be a test folder's.
+INSTALLED_SCRIPTS = "tools/specs"
+
+
+def is_behavior_code(path, docs_rel, patterns=()):
+    """A repository-relative path that can change behavior: outside the docs folder and the method's installed
+    scripts (INSTALLED_SCRIPTS), not a test, and matching one of the patterns when there are any, else a source file
+    by its suffix."""
+    import fnmatch
+    if path.startswith((docs_rel + "/", INSTALLED_SCRIPTS + "/")) or is_test_path(path):
+        return False
+    if patterns:
+        return any(fnmatch.fnmatch(path, p) for p in patterns)
+    return path.endswith(SOURCE_SUFFIXES)
+
+
+def behavior_declarations(text):
+    """(complete, incomplete): the values of 'No behavior change:' lines at the start of a line, outside
+    comments. A complete one names a use case or says none."""
+    complete, incomplete = [], []
+    for line in RE_HTML_COMMENT.sub("", text).splitlines():
+        match = RE_NO_BEHAVIOR_CHANGE.match(line)
+        if not match:
+            continue
+        value = match.group(1).strip()
+        if RE_UC_ID.search(value) or re.match(r"none\b", value, re.IGNORECASE):
+            complete.append(value)
+        else:
+            incomplete.append(value)
+    return complete, incomplete
+
+
+def fixes_notes(text):
+    """The values of 'Fixes:' lines at the start of a line, outside comments, that name a use case."""
+    return [match.group(1).strip() for line in RE_HTML_COMMENT.sub("", text).splitlines()
+            for match in [RE_FIXES.match(line)] if match and RE_UC_ID.search(match.group(1))]
+
+
+class SpecFirstReading(NamedTuple):
+    """How the spec-first rule reads one change: its behavior files, its specification files, the values of
+    its 'No behavior change:' lines and of its 'Fixes:' notes."""
+    behavior: list
+    specs: list
+    complete: list
+    incomplete: list
+    fixes: tuple = ()
+
+    def code_without_spec(self) -> bool:
+        """Behavior code changed with no specification change, no complete declaration and no 'Fixes:' note."""
+        return bool(self.behavior) and not self.specs and not self.complete and not self.fixes
+
+    def shown(self) -> str:
+        """The behavior files for a message: the first SHOWN_FILES, then a count of the rest."""
+        shown = ", ".join(self.behavior[:SHOWN_FILES])
+        if len(self.behavior) > SHOWN_FILES:
+            shown += " and %d more" % (len(self.behavior) - SHOWN_FILES)
+        return shown
+
+    def summary(self, docs_rel) -> str:
+        """The one sentence both readers show for code without a specification."""
+        return ("%d behavior file(s) changed (%s) with no specification change under %s/, no line "
+                "'No behavior change: UC-XXX' and no note 'Fixes: UC-XXX BR-YYY'" % (len(self.behavior), self.shown(), docs_rel))
+
+
+def read_change(changed, docs_rel, kind, messages, patterns=()):
+    """Read a change as the spec-first rule does.
+
+    changed: repository-relative paths; kind: the artifact kind of such a path (Docs.kind); messages: the commit
+    messages and descriptions that may carry the declaration; patterns: globs that limit behavior code."""
+    behavior = [path for path in changed if is_behavior_code(path, docs_rel, patterns)]
+    specs = [path for path in changed if kind(path) in SPEC_KINDS]
+    complete, incomplete = behavior_declarations(messages)
+    return SpecFirstReading(behavior, specs, complete, incomplete, fixes_notes(messages))
+
+
+# --- one element of a use case, as the guard check and the finish check name it ---
+
+# The element names of the finish check: a rule, a flow, a main step, a precondition, a success or failure
+# postcondition. Steps are written 'Step 4' (the change list's spelling); 'step 4' is accepted.
+RE_ELEMENT = re.compile(r"^(UC-\d{3})\s+(?:BR-(\d{3})|A(\d+)|step\s+(\d+)|pre-(\d+)|post-([SF])-(\d+))$", re.IGNORECASE)
+# How each kind of element is spelled inside a test name, after spaced(): BR-005 as br005, br_005 or BR-5; A2 as a2
+# or a_2 (never "a 2", which is prose); Step 3 as step3 or step_3; Pre-1 as pre1 or precondition_1; Post-S-1 as
+# post_s_1, postS1 or postcondition_success_1.
+NAME_PREFIXES = {"BR-": "br[-_ ]?", "A": "a[-_]?", "Step ": "step[-_ ]?", "Pre-": "pre(?:condition)?[-_ ]?",
+                 "Post-S-": "post(?:condition)?[-_ ]?s(?:uccess)?[-_ ]?",
+                 "Post-F-": "post(?:condition)?[-_ ]?f(?:ailure)?[-_ ]?"}
+
+
+def spaced(text):
+    """Lower case, with a separator at every camelCase and letter-digit boundary: testUc012Br005 -> test_uc_012_br_005."""
+    text = re.sub(r"(?<=[a-z])(?=[A-Z])", "_", text)
+    return re.sub(r"(?<=[A-Za-z])(?=\d)|(?<=\d)(?=[A-Za-z])", "_", text).lower()
+
+
+def _numbered(prefix, number):
+    return re.compile(r"(?<![a-z0-9])%s0*%d(?![0-9])" % (prefix, number))
+
+
+class Element(NamedTuple):
+    """One element of a use case: its use case ('UC-012'), its kind (a key of NAME_PREFIXES) and its number."""
+    use_case: str
+    kind: str
+    number: int
+
+    @classmethod
+    def parse(cls, text):
+        """'UC-012 BR-005', 'UC-012 step 3', 'UC-012 Post-S-1' ...; None when the text names no element."""
+        match = RE_ELEMENT.match(" ".join(str(text).split()))
+        if not match:
+            return None
+        uc_id, rule, flow, step, pre, post_kind, post = match.groups()
+        kind, number = next((kind, value) for kind, value in (
+            ("BR-", rule), ("A", flow), ("Step ", step), ("Pre-", pre),
+            ("Post-%s-" % (post_kind or "").upper(), post)) if value)
+        return cls(uc_id.upper(), kind, int(number))
+
+    @property
+    def name(self):
+        """The element in the finish check's spelling: BR-005, A2, Step 3, Pre-1, Post-S-1."""
+        return ("BR-%03d" if self.kind == "BR-" else self.kind + "%d") % self.number
+
+    def __str__(self):
+        return "%s %s" % (self.use_case, self.name)
+
+    def text(self, uc):
+        """The element's text with its whitespace normalized: a rule with its body and its Examples table, a flow
+        with its trigger, steps and ending, a step, a precondition, a postcondition. None when the use case has no
+        such element."""
+        if self.kind == "BR-":
+            return next(("\n".join([norm_text(rule.name)] + [norm_text(text) for _, text in rule.body if text.strip()])
+                         for rule in uc.rules if rule.id == self.name), None)
+        if self.kind == "A":
+            return next((flow_text(flow) for flow in uc.flows if flow.label == self.name), None)
+        if self.kind == "Step ":
+            return next((norm_text(step.text) for step in uc.steps if step.number == self.number), None)
+        items = {"Pre-": uc.preconditions, "Post-S-": uc.success, "Post-F-": uc.failure}[self.kind]
+        return norm_text(items[self.number - 1][1]) if 0 < self.number <= len(items) else None
+
+    def named_in(self, line):
+        """The line holds both the use case and the element, in common spellings."""
+        line = spaced(line)
+        return bool(_numbered("uc[-_ ]?", int(self.use_case[3:])).search(line)
+                    and _numbered(NAME_PREFIXES[self.kind], self.number).search(line))
+
+
+# Sixteen hex digits (64 bits) tell two versions of one element or one file apart; a collision would need
+# billions of versions.
+FINGERPRINT_DIGITS = 16
+
+
+def fingerprint(data):
+    """A short fingerprint of a text or of bytes: the first FINGERPRINT_DIGITS of its SHA-256."""
+    return hashlib.sha256(data if isinstance(data, bytes) else data.encode("utf-8")).hexdigest()[:FINGERPRINT_DIGITS]
+
+
+# --- the guard-check log (DIR/reviews/guard-checks.md): guard_check.py writes it, finish_change.py reads it ---
+
+class GuardRow(NamedTuple):
+    """One row of the guard-check log. current is False for a row of a table written before upspec 1.3.0 (Unit and
+    Verdict columns, no fingerprints)."""
+    when: str = ""
+    element: str = ""
+    file: str = ""
+    find: str = ""
+    replace: str = ""
+    element_fingerprint: str = ""
+    file_fingerprint: str = ""
+    test: str = ""
+    failed_test: str = ""
+    verdict: str = ""
+    line: int = 0
+    current: bool = True
+
+
+GUARD_LOG_NAME = os.path.join("reviews", "guard-checks.md")
+# The log's column for each field of GuardRow that is written.
+GUARD_COLUMN_OF = {"when": "When (UTC)", "element": "Element", "file": "File", "find": "Find", "replace": "Replace",
+                   "element_fingerprint": "Element fingerprint", "file_fingerprint": "File fingerprint",
+                   "test": "Test", "failed_test": "Failed test", "verdict": "Verdict"}
+GUARD_WRITTEN = tuple(field for field in GuardRow._fields if field in GUARD_COLUMN_OF)
+GUARD_COLUMNS = tuple(GUARD_COLUMN_OF[field] for field in GUARD_WRITTEN)
+GUARD_TITLE = ("# Guard checks\n\nOne row per deliberate break, written by guard_check.py. The newest row for an "
+               "element is its current result.\n")
+GUARD_TABLE = ("\nEach text is kept whole: in a cell, \\\\ is a backslash, \\| a pipe, \\n a line break, \\r a carriage "
+               "return, \\t a tab, \\s a space at either end and \\uXXXX any other control character, line separator "
+               "or blank at either end. The fingerprints are of the element's text and of the file, when the row was "
+               "written.\n\n| %s |\n|%s\n" % (" | ".join(GUARD_COLUMNS), "---|" * len(GUARD_COLUMNS)))
+_CELL_NAMED = {"\\": "\\\\", "|": "\\|", "\n": "\\n", "\r": "\\r", "\t": "\\t"}
+_CELL_DECODED = {"\\": "\\", "|": "|", "n": "\n", "r": "\r", "t": "\t", "s": " "}
+
+
+def _escape_char(char, edge):
+    """A character as a cell holds it: the named escapes; a space at either end as \\s; a control character, a line
+    or paragraph separator, or another blank at either end as \\uXXXX. Every other character is kept as it is."""
+    if char in _CELL_NAMED:
+        return _CELL_NAMED[char]
+    if edge and char == " ":
+        return "\\s"
+    if unicodedata.category(char) in ("Cc", "Zl", "Zp") or (edge and char.isspace()):
+        return "\\u%04x" % ord(char)
+    return char
+
+
+def encode_cell(text):
+    """A text as one table cell that keeps it whole: decoded by split_escaped_row to the same text, on one line,
+    whatever its characters."""
+    text = str(text)
+    start = len(text) - len(text.lstrip())
+    end = len(text.rstrip())
+    return "".join(_escape_char(char, index < start or index >= end) for index, char in enumerate(text))
+
+
+def _decode_cell(cell):
+    out, index = [], 0
+    while index < len(cell):
+        pair = cell[index:index + 2]
+        if pair[:1] == "\\" and pair[1:] == "u" and re.fullmatch(r"[0-9a-fA-F]{4}", cell[index + 2:index + 6]):
+            out.append(chr(int(cell[index + 2:index + 6], 16)))
+            index += 6
+        elif pair[:1] == "\\" and pair[1:] in _CELL_DECODED:
+            out.append(_CELL_DECODED[pair[1:]])
+            index += 2
+        else:
+            out.append(cell[index])
+            index += 1
+    return "".join(out)
+
+
+def split_escaped_row(line):
+    """The cells of a table row written with encode_cell, decoded; None when the line is not a row."""
+    text = line.strip()
+    if not (text.startswith("|") and text.endswith("|")):
+        return None
+    cells, current, index = [], [], 1
+    while index < len(text):
+        char = text[index]
+        if char == "\\" and index + 1 < len(text):
+            current.append(text[index:index + 2])
+            index += 2
+            continue
+        if char == "|":
+            cells.append("".join(current))
+            current = []
+        else:
+            current.append(char)
+        index += 1
+    if current and "".join(current).strip():
+        return None                  # the last pipe was escaped: not a row
+    return [_decode_cell(cell.strip()) for cell in cells]
+
+
+def _element_name(text):
+    element = Element.parse(text)
+    return str(element) if element else text.strip()
+
+
+def read_guard_log(path):
+    """Every row of the guard-check log in file order, the newest last, as GuardRow. The element is in the finish
+    check's spelling when it names one. An empty list when there is no log; OSError or UnicodeDecodeError when it
+    cannot be read."""
+    if not os.path.isfile(path):
+        return []
+    rows, header, current = [], None, False
+    for number, line in outside_fences(read_lines(path)):
+        plain = table_cells(line)
+        if plain is None:
+            header = None
+            continue
+        if header is None:
+            header, current = plain, tuple(plain) == GUARD_COLUMNS
+            continue
+        if table_separator(plain):
+            continue
+        if current:
+            cells = split_escaped_row(line)
+            if cells is None:
+                continue
+            row = GuardRow(**dict(zip(GUARD_WRITTEN, cells + [""] * len(GUARD_WRITTEN))), line=number)
+        elif "Verdict" in header and ("Unit" in header or "Element" in header):
+            named = dict(zip(header, plain + [""] * (len(header) - len(plain))))
+            row = GuardRow(when=named.get("When (UTC)", ""), element=named.get("Unit", named.get("Element", "")),
+                           file=named.get("File", ""), test=named.get("Test", ""), verdict=named.get("Verdict", ""),
+                           line=number, current=False)
+        else:
+            continue
+        rows.append(row._replace(element=_element_name(row.element), verdict=row.verdict.strip()))
+    return rows
+
+
+def append_guard_row(docs_dir, row):
+    """Append one GuardRow to the log; a log whose last table is not of GUARD_COLUMNS, an earlier log or one edited
+    by hand, gets a new table below it. Returns the log's path; OSError when it cannot be written."""
+    path = os.path.join(docs_dir, GUARD_LOG_NAME)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    text = ""
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as handle:
+            text = handle.read()
+    last_header = None          # the header of the table the file ends in
+    for line in (text.rstrip("\n").split("\n") if text.strip() else []):
+        cells = table_cells(line)
+        if cells is None:
+            last_header = None
+        elif last_header is None:
+            last_header = tuple(cells)
+    head = ""
+    if not text.strip():
+        head = GUARD_TITLE + GUARD_TABLE
+    elif last_header != GUARD_COLUMNS:
+        head = ("" if text.endswith("\n") else "\n") + GUARD_TABLE
+    elif not text.endswith("\n"):
+        head = "\n"
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(head + "| %s |\n" % " | ".join(encode_cell(getattr(row, field)) for field in GUARD_WRITTEN))
+    return path
+
+
+def find_use_case(docs, uc_id):
+    """The specification file of a use case, by its file name, in any tolerated spelling of the use case folder;
+    None when there is none. The scripts that find a use case's file from its id use this one search; the journey
+    check (check_test_case.py) instead matches the id each use case's front matter holds."""
+    for spelling in DOC_FOLDERS["use_case_dir"]:
+        folder = os.path.join(docs.root, spelling)
+        for path in _matching(folder if os.path.isdir(folder) else None, r"^UC-\d{3}.*\.md$"):
+            name = os.path.basename(path)
+            if name.startswith(uc_id + "-") or name == uc_id + ".md":
+                return path
+    return None
 
 
 # --- markers on code nothing calls ------------------------------------------
@@ -1668,11 +2174,17 @@ def old_formats(docs):
     return found
 
 
-def stop_if_old(docs, stream=None, report=None):
-    """Return 5 for earlier formats, 1 for unreadable artifacts, or None.
+def stop_if_old(docs, stream=None, report=None, *, strict):
+    """Return the exit code the caller stops with, or None when it can go on.
 
-    Recognition errors go to the supplied reporter, or to the same stream as
-    the migration notice. No caller continues parsing after a read error.
+    Earlier formats stop with 5. An unreadable artifact stops the caller too,
+    because no caller continues parsing after a read error, and is reported as
+    the finding UNREADABLE, to the supplied reporter or to the same stream as
+    the migration notice. It then stops with 0, or 1 when strict, as any other
+    finding. strict is required and has two states: a check passes its --strict;
+    a script that writes or lists passes True, because it cannot do its work
+    without the file; a library whose own result is 1 on a problem (the finish
+    check, the validator) passes True and leaves --strict to its command line.
     """
     stream = sys.stderr if stream is None else stream
     try:
@@ -1684,7 +2196,7 @@ def stop_if_old(docs, stream=None, report=None):
             report.error(path, 0, "UNREADABLE", "-", message)
         else:
             stream.write("%s:0: ERROR UNREADABLE: %s\n" % (path, message))
-        return 1
+        return 1 if strict else 0
     if not found:
         return None
     for path, line, what in found:
@@ -1694,14 +2206,14 @@ def stop_if_old(docs, stream=None, report=None):
     return OLD_FORMAT_EXIT
 
 
-class ChangeRecord:
+class ChangeRecord(_WithFrontMatter):
     """The metadata and headings of a short change record."""
 
     def __init__(self, path):
         self.path = path
         lines = read_lines(path)
-        self.meta, start, self.front_matter_problems = read_front_matter(lines)
-        self.front_matter_problems += shape_problems(self.meta)
+        self.front_matter = front_matter(lines)
+        start = self.front_matter.body_start
         self.sections = {title: number + start for title, number, _ in sections(lines[start:], 2)}
         self.element = _as_text(self.meta.get("element", ("", 0))[0])
         self.outcome = _as_text(self.meta.get("outcome", ("", 0))[0])
@@ -1711,11 +2223,16 @@ def parse_change_record(path):
     return ChangeRecord(path)
 
 
-def _metadata_findings(path, meta, problems, required):
+def _metadata_findings(path, fm, required):
+    """The front matter problems, and a finding for each required key that is missing or empty, except a key
+    already refused as a value on several lines: that refusal is its one finding."""
     found = []
-    for line, message in problems:
+    for line, message in fm.problems:
         found.append((path, line, "FRONT_MATTER", message))
+    meta = fm.meta
     for key in required:
+        if key in fm.refused:
+            continue
         value, line = meta.get(key, ("", 1))
         if key not in meta or (isinstance(value, str) and not value.strip()):
             found.append((path, line, "FRONT_MATTER", "required key '%s' is missing or empty" % key))
@@ -1727,7 +2244,7 @@ def use_case_format_findings(uc):
     def add(path, line, code, message):
         found.append((path, line, code, message))
 
-    found = _metadata_findings(uc.path, uc.meta, uc.front_matter_problems, UC_REQUIRED_KEYS)
+    found = _metadata_findings(uc.path, uc.front_matter, UC_REQUIRED_KEYS)
     if uc.is_stub:
         if uc.status != "Draft":
             add(uc.path, uc.field_line("Status"), "STUB", "a stub must have status Draft")
@@ -1773,24 +2290,25 @@ def format_findings(docs, kinds=None):
     def add(path, line, code, message):
         found.append((path, line, code, message))
 
-    def metadata(path, meta, problems, required):
-        found.extend(_metadata_findings(path, meta, problems, required))
+    def metadata(path, fm, required):
+        found.extend(_metadata_findings(path, fm, required))
 
     if "use_case" in selected:
         if docs.overview:
-            meta, _, problems = read_front_matter(read_lines(docs.overview))
-            metadata(docs.overview, meta, problems + shape_problems(meta), ("system",))
+            metadata(docs.overview, front_matter(read_lines(docs.overview)), ("system",))
         for uc in load_use_cases(docs):
             found.extend(use_case_format_findings(uc))
     if "journey" in selected:
         for path in docs.test_case_files():
             tc = parse_test_case(path)
-            metadata(path, tc.meta, tc.front_matter_problems, TC_REQUIRED_KEYS)
+            metadata(path, tc.front_matter, TC_REQUIRED_KEYS)
             if tc.gherkin_blocks != 1 or len(tc.scenarios) != 1:
                 add(path, 1, "GHERKIN_FORM", "journey needs exactly one gherkin block and one Scenario")
             for line, message in tc.gherkin_problems:
                 add(path, line, "GHERKIN_FORM", message)
             commented = set()
+            # A list of use cases refused as a value on several lines names none; its refusal is the finding.
+            listed = None if "use_cases" in tc.front_matter.refused else tc.use_case_ids()
             for scenario in tc.scenarios:
                 if not scenario.name or not scenario.steps:
                     add(path, scenario.line, "GHERKIN_FORM", "Scenario needs a name and steps")
@@ -1799,7 +2317,7 @@ def format_findings(docs, kinds=None):
                 for line, _, _, ids in scenario.steps:
                     commented.update(ids)
                     for uid in ids:
-                        if uid not in tc.use_case_ids():
+                        if listed is not None and uid not in listed:
                             add(path, line, "GHERKIN_FORM", "comment names unlisted use case %s" % uid)
             for uid in tc.use_case_ids():
                 if uid not in commented:
@@ -1870,7 +2388,7 @@ def format_findings(docs, kinds=None):
         for path in docs.change_record_files():
             record = parse_change_record(path)
             required = ("outcome", "element") + (("decided_by",) if record.outcome in ("2", "4", "5", "6") else ())
-            metadata(path, record.meta, record.front_matter_problems, required)
+            metadata(path, record.front_matter, required)
             if record.outcome not in RECORD_OUTCOMES:
                 add(path, record.meta.get("outcome", ("", 1))[1], "RECORD_FORM", "unknown outcome '%s'" % record.outcome)
             for title in RECORD_REQUIRED_SECTIONS:

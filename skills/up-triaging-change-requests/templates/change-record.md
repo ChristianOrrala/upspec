@@ -1,7 +1,7 @@
 ---
-outcome: [1 to 7, or migration]
+outcome: [2, 4, 5 or 6, or migration]
 element: [UC-XXX step N / UC-XXX A1 / UC-XXX BR-00N / no use case covers it]
-decided_by: [Owner role; required for outcomes 2, 4, 5 and 6]
+decided_by: [Owner role; a migration needs none]
 ---
 # Change record: [Short title]
 
@@ -55,7 +55,7 @@ Sign-off test: [Would a stakeholder have signed off the specification as it stan
 
 ## Reproduction
 
-[For a defect: the failing test, named after the flow or rule, with literal data and expected outcome.]
+[For a defect: the failing test, named after the use case and the element, with literal data and expected outcome.]
 
 ## Urgent path
 

@@ -16,8 +16,9 @@ With --hooks, either profile:
 
 When the project tracks its work in the A-files (ACTIVE.md with a hot zone), the
 plan also joins them: the rules section is named in the hot zone of AGENTS.md,
-the keep-in-step list gains two rows, and ATLAS.md gains a row for the
-specifications. Specifications found outside the specification folder (this
+the keep-in-step list gains two rows when the project keeps ABILITIES.md (the
+file exists or the index of AGENTS.md lists it), and ATLAS.md, when it exists,
+gains a row for the specifications. Specifications found outside the specification folder (this
 method's use cases elsewhere, Spec Kit's specs/, Kiro's .kiro/specs/,
 OpenSpec's openspec/) are named in a note; nothing is moved.
 
@@ -196,8 +197,17 @@ def vision_text(product_doc, folder="docs"):
     return re.sub(r"(## Target Users\n\n).*?(?=\n## )", lambda m: m.group(1) + pointer + " The actors come from its users.\n", text, flags=re.DOTALL)
 
 
-def join_agents(text, name_rules):
-    """P1: name the rules section in the hot zone's Below: line, add the two keep-in-step rows.
+def keeps_abilities(root, agents_text):
+    """Whether the project keeps ABILITIES.md: the file exists, or the index of AGENTS.md lists it, read as the
+    A-files' check reads it (spec_model.a_files_listed). A small A-files setup keeps no abilities, so nothing is
+    said about them."""
+    return (os.path.isfile(os.path.join(root, "ABILITIES.md"))
+            or "ABILITIES.md" in spec_model.a_files_listed(agents_text.split("\n")))
+
+
+def join_agents(text, name_rules, abilities):
+    """P1: name the rules section in the hot zone's Below: line; add the two keep-in-step rows when the project
+    keeps ABILITIES.md (abilities).
 
     Returns (the new text, or None when nothing changes; notes for the person)."""
     lines = text.split("\n")
@@ -215,7 +225,7 @@ def join_agents(text, name_rules):
             lines[end:end] = ["Below: %s." % title, ""]
             end += 2
             changed = True
-    if "`Specs` line" not in "\n".join(lines[:end]):
+    if abilities and "`Specs` line" not in "\n".join(lines[:end]):
         keep = next((i for i in range(end) if lines[i].strip().lower() == "## keep in step"), None)
         starts = []
         if keep is not None:
@@ -391,8 +401,9 @@ def workflow_plan(root, bundle, replace=(), keep=(), proposed_branch=None):
 
 def pre_push_plan(root, bundle, requested=False):
     """Install only in repository-owned hooks; refresh only a recorded pristine copy."""
-    command = 'python3 tools/specs/status_claims.py --pre-push "$@" || exit 1'
-    offer = ("info", "", None, "Optional local push check: add --pre-push --apply; CI stays authoritative.")
+    # The line reports and lets the push go ahead; a strict push gate adds --strict and drops "|| true".
+    command = 'python3 tools/specs/status_claims.py --pre-push "$@" || true'
+    offer = ("info", "", None, "Optional local push report: add --pre-push --apply; it never stops a push unless --strict is added.")
     records = bundle.get("files", {})
     entry = records.get("pre-push", {}) if isinstance(records, dict) else {}
     if not isinstance(entry, dict):
@@ -956,12 +967,15 @@ def plan(root, profile, host, guideline, skipped=(), hooks=False, folder="docs",
     if spec_model.a_files_present(root):
         agents = os.path.join(root, "AGENTS.md")
         if os.path.isfile(agents):
-            new, notes = join_agents(read(agents), guideline == "AGENTS.md")
+            text = read(agents)
+            abilities = keeps_abilities(root, text)
+            new, notes = join_agents(text, guideline == "AGENTS.md", abilities)
             if new is None:
                 steps.append(("skip", "AGENTS.md", None, "; ".join(notes) or "already joined to the A-files"))
             else:
-                steps.append(("join", "AGENTS.md", guideline == "AGENTS.md",
-                              "; ".join(["the rules named in the hot zone, two keep-in-step rows (A-files)"] + notes)))
+                done = "the rules named in the hot zone, two keep-in-step rows" if abilities else "the rules named in the hot zone"
+                steps.append(("join", "AGENTS.md", (guideline == "AGENTS.md", abilities),
+                              "; ".join([done + " (A-files)"] + notes)))
         atlas = os.path.join(root, "ATLAS.md")
         if os.path.isfile(atlas):
             row = atlas_row(root, folder, bool(copies))
@@ -1033,7 +1047,7 @@ def apply(root, steps):
 
         elif action == "join":
             current = read(target)
-            new, _ = join_agents(current, payload) if rel == "AGENTS.md" else join_atlas(current, payload)
+            new, _ = join_agents(current, *payload) if rel == "AGENTS.md" else join_atlas(current, payload)
             if new is not None:
                 with open(target, "w", encoding="utf-8") as handle:
                     handle.write(new)
@@ -1156,7 +1170,8 @@ def main(argv):
             or any(part in (".", "..") for part in folder.split("/")) or not real.startswith(os.path.realpath(root) + os.sep):
         print("--specs-folder must be a folder inside the project, such as docs, specs or documentation/specs", file=sys.stderr)
         return 2
-    stop = spec_model.stop_if_old(spec_model.Docs(real))
+    # Setup cannot do its work without the file: an unreadable one stops it with 1.
+    stop = spec_model.stop_if_old(spec_model.Docs(real), strict=True)
     if stop:
         return stop
     if "diagram" in args.skip:

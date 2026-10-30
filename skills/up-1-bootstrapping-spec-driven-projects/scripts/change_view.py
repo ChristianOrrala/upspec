@@ -12,7 +12,7 @@ from typing import NamedTuple
 import spec_model
 
 # The release these shared copies belong to, checked alongside installed scripts.
-UPSPEC_VERSION = "1.2.0"
+UPSPEC_VERSION = "1.3.0"
 
 # The integration branches the common hosts and branching models use.
 INTEGRATION_NAMES = ("main", "master", "dev", "develop")

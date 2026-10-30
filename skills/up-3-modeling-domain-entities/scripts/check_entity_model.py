@@ -3,7 +3,8 @@
 business types, lifecycles are consistent, and avoided words are not used.
 
 Output: path:line: SEVERITY CODE [element]: message
-Exit code 0 when clean, 1 on ERROR (with --strict also on WARN), 2 on usage errors,
+Exit code 0 when it ran, whatever it found, an unreadable file included (with --strict 1 on ERROR
+or WARN), 2 on usage errors,
 5 for earlier formats. Python 3.9+, standard library only; reads only.
 Usage: check_entity_model.py [--docs DIR] [--strict]
 """
@@ -85,7 +86,7 @@ def check(docs, report):
 def main(argv):
     parser = argparse.ArgumentParser(description="Check an entity model.")
     parser.add_argument("--docs", help="the specification folder (default: the one the rules block records, else docs)")
-    parser.add_argument("--strict", action="store_true", help="fail on warnings too")
+    parser.add_argument("--strict", action="store_true", help="exit 1 on any error or warning (default: exit 0, findings are reported)")
     args = parser.parse_args(argv)
     args.docs = args.docs or model.docs_default()
     if not os.path.isdir(args.docs):
@@ -93,7 +94,7 @@ def main(argv):
         return 2
     docs = model.Docs(args.docs)
     report = model.Reporter(os.getcwd())
-    stop = model.stop_if_old(docs)
+    stop = model.stop_if_old(docs, strict=args.strict)
     if stop is not None:
         return stop
     if not docs.entity_model:

@@ -10,7 +10,8 @@ INFO   a value marked as still to be decided; a need that may hold two
        capabilities; a missing Priority.
 
 Output: path:line: SEVERITY CODE [element]: message
-Exit code 0 when clean, 1 on any ERROR (with --strict also on any WARN), 2 on usage errors.
+Exit code 0 when it ran, whatever it found, an unreadable file included (with --strict 1 on any
+ERROR or WARN), 2 on usage errors.
 
 Usage:
     check_requirements.py [--docs DIR] [--strict] [FILE]      (default FILE: docs/requirements.md)
@@ -84,13 +85,13 @@ def main(argv):
     parser = argparse.ArgumentParser(description="Check a requirements catalog.")
     parser.add_argument("file", nargs="?", default=None)
     parser.add_argument("--docs", help="the specification folder (default: the positional file's folder, else the recorded folder)")
-    parser.add_argument("--strict", action="store_true", help="fail on warnings too")
+    parser.add_argument("--strict", action="store_true", help="exit 1 on any error or warning (default: exit 0, findings are reported)")
     args = parser.parse_args(argv)
     docs_dir = args.docs or (os.path.dirname(os.path.abspath(args.file)) if args.file else model.docs_default())
     args.file = args.file or os.path.join(docs_dir, "requirements.md")
     docs = model.Docs(docs_dir)
     report = model.Reporter(os.getcwd())
-    stop = model.stop_if_old(docs)
+    stop = model.stop_if_old(docs, strict=args.strict)
     if stop is not None:
         return stop
     if not os.path.isfile(args.file):
@@ -98,7 +99,7 @@ def main(argv):
         return 2
     if docs.requirements != args.file:
         docs.requirements = args.file
-        stop = model.stop_if_old(docs)
+        stop = model.stop_if_old(docs, strict=args.strict)
         if stop is not None:
             return stop
     try:

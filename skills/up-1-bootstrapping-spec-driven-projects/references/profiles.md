@@ -43,10 +43,10 @@ One person, one agent at a time. The order is kept by habit and by a warning.
 |---|---|
 | Vision | One page, written by the developer |
 | Use case specifications | One file per use case, Status kept current |
-| Catalog, entity model, diagram | As soon as the system stores data or passes a handful of use cases |
+| Catalog, entity model, diagram | As soon as the system stores data or passes a handful of use cases. The entity model may start thin, with only what the use cases written so far need, and grow with each one; it still comes before the first use case |
 | Rules block | In the guideline file |
 | Validator | After every specification edit |
-| Review | A fresh context reads the specification before the developer signs it off |
+| Review | A cold read: a fresh context reads the specification before the developer signs it off |
 | Guard | Warning, from a commit hook or run by hand |
 | Agent hooks | Offered: session state, after-edit findings, open work at turn start, claim evidence at the stop (agent hooks reference) |
 
@@ -65,26 +65,28 @@ The scaffold writes that line with `--skip requirements --skip diagram`.
 Remove a word from the line when the artifact is added later.
 
 The weakest point of solo work is review: the author approves their own
-specification. A fresh-context review (a new session that receives only the
-specification and its neighbors, not the conversation that produced it)
-replaces the second person as far as anything can.
+specification. The solo review is a **cold read**: a new session that receives
+only the specification and its neighbors, never the conversation that produced
+it. It stands in for the second person only in part. Its limit: the same model
+catches sloppiness, not a misreading it shares.
 
 **Commit hook, on request.** In `.git/hooks/commit-msg` (not versioned; each
 clone installs its own):
 
 ```sh
 #!/bin/sh
-python3 path/to/spec_first_guard.py --staged --message-file "$1" --mode warn
+python3 path/to/spec_first_guard.py --staged --message-file "$1"
 ```
 
-Replace `path/to` with where the script lives in the project. In `warn` mode
-the hook never stops a commit; it prints what it found.
+Replace `path/to` with where the script lives in the project. The guard
+always warns: the hook never stops a commit; it prints what it found.
 
 ## Team
 
 Several people, or several agents in parallel. Informal discipline breaks
 down here: two changes to the same use case, a fix that skipped the
-specification, an approval nobody gave. The order is enforced.
+specification, an approval nobody gave. The order is checked at every step
+and reported; a team that wants a build to fail on it adds `--strict`.
 
 | Turned on | How |
 |---|---|
@@ -92,7 +94,7 @@ specification, an approval nobody gave. The order is enforced.
 | Ownership of `docs/` | The host's code owner rule; a named requirements owner |
 | Review | An independent reviewer and a named person's sign-off before `Approved` |
 | Pull request template | One use case per pull request; specification first |
-| Pipeline | Claims and lint on every push and pull request; Draft findings warn. The guard blocks on pull requests and pushes to the integration or default branch; it warns on other pushes |
+| Pipeline | Claims, lint and the guard on every push and pull request; each step reports and passes. A team that wants a strict pipeline adds `--strict` to a step, which then fails on findings (the lint's Draft findings never fail) |
 | Dashboard | Generated each iteration |
 | Refinement | A short recurring session on upcoming use cases |
 | Agent hooks | Offered; the pipeline stays the check that holds for everyone |
@@ -101,27 +103,30 @@ specification, an approval nobody gave. The order is enforced.
 
 Offer `scaffold_docs.py --pre-push`, then add `--apply` after the plan is
 accepted. It installs the claims script and its dependencies and a POSIX
-`pre-push` hook in the folder returned by `git rev-parse --git-path hooks`,
+`pre-push` hook that reports and lets the push go ahead, in the folder returned by `git rev-parse --git-path hooks`,
 which honors `core.hooksPath`. Setup writes only inside the work tree or git
 folder, including the common Git folder shared by linked worktrees. If git tracks the hooks folder, the plan says the hook will be
 committed for every clone. An outside folder or an existing hook is never
 edited: the plan gives this line for its owner to add:
 
 ```sh
-python3 tools/specs/status_claims.py --pre-push "$@" || exit 1
+python3 tools/specs/status_claims.py --pre-push "$@" || true
 ```
 
 For each pushed ref whose tip is HEAD, the hook checks Status claims since
 its remote tip (the resolved integration base for a new branch). Deletions
-are skipped; other tips get a notice. It blocks only on problems. Missing
+are skipped; other tips get a notice. It reports problems and the push goes
+ahead. To stop a push on problems, add `--strict` to the claims line (and
+drop `|| true` in a hand-written hook): the check then exits 1. Missing
 Python, missing scripts, an unknown revision or a crash lets the push through
 with a notice. Uncommitted specification edits are included, with a notice
 that the answer may differ from CI. `git push --no-verify` skips the hook.
 CI stays the backstop and the authority.
 
 The GitHub workflow is rendered with the integration branch in the rules
-block. With no shared branch line, only the default branch blocks on push.
-Pull requests compare against their target; pushes compare against the event's
+block. Every step reports and passes; the claims step treats the integration
+branch, or the default branch when there is no shared branch line, as where
+work is integrated. Pull requests compare against their target; pushes compare against the event's
 previous commit when available. First pushes select from the integration
 fork, or an empty baseline without an earlier fork. For evidence, pull requests
 and integration or default branch pushes use the range base; other pushes

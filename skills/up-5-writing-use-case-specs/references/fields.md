@@ -24,7 +24,7 @@ in the conventions; no nested or multiline YAML. `requirements` and
 | `name` | The goal as a short verb phrase, verbatim from the diagram | The file name, lowercased with hyphens | Paraphrasing the diagram's name |
 | `primary_actor` | The role that pursues the goal. Several, comma-separated, only when each can start it alone for the same goal by the same scenario | Who may reach this behavior; which role tests act as | "System"; "Clerk or Manager"; two roles with different goals (that is two use cases) |
 | `secondary_actors` | Roles and external systems the system calls upon. Omit the key when none | Things to integrate, not to build | Leaving out a system a step talks to: an agent may build it |
-| `goal` | One sentence: the outcome and why | The sentence that disambiguates everything below | An action instead of an outcome ("Assign task"); "use the system" |
+| `goal` | One sentence on one line: the outcome and why | The sentence that disambiguates everything below | An action instead of an outcome ("Assign task"); "use the system"; a goal that needs a second line, which is usually two goals (the check refuses a multi-line value) |
 | `trigger` | The event that starts it: a request, a point in time, another system's message | The entry point | A state ("User is signed in"): that is a precondition. Test: *when does this happen?* An event has a moment |
 | `status` | `Draft` when you write it | The gate for implementation | Setting `Approved` yourself |
 | `requirements` | An inline list of catalog identifiers: at least one `FR`, plus every `NFR` and `C` that applies | The only requirement rows the implementer reads | Omitting an NFR or constraint that applies: the implementer never sees it |

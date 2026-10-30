@@ -22,8 +22,18 @@
 
 - Fixed: [element (what)]
 - New on changed text: [element (what)]
-- New on unchanged text: [element (what); a second opinion, not a regression]
-- Declined earlier, not repeated: [element]
+
+### Missed before
+
+[On a repeated run only. Warnings new on text that has not changed since the last report. Each keeps the use case from Approved until it is fixed or declined; decline any or all of them in one answer. "None" when there are none.]
+
+| Severity | File:Line | Element | Reader or check | Finding |
+|---|---|---|---|---|
+| warning | [path:line] | [UC-XXX step N] | [Reader or check] | [One sentence] |
+
+### Declined
+
+- [element: what the owner declined, and when; every decline so far, or "None"]
 
 ### Verdict
 

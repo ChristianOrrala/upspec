@@ -3,7 +3,7 @@
 
 Checks what connects the artifacts under a docs folder. Every check is exact
 and gives the same result on every run, so this is the part of a review that
-may block a build.
+a team may choose to make fail a build, with --strict.
 
 ERROR  a specification is not in the diagram; an identifier is used twice; a
        reference points to nothing (a requirement id, a qualified rule citation,
@@ -22,8 +22,9 @@ INFO   a use case of the diagram without a specification yet; an older file
        a requirements catalog the guideline file expects and that is not written yet.
 
 Output: path:line: SEVERITY CODE [element]: message
-Exit code 0 when clean, 1 on any ERROR (with --strict also on any WARN), 2 on usage errors.
---trace always exits 0.
+Exit code 0 when it ran, whatever it found, an unreadable file (UNREADABLE)
+included: the findings are the output. With --strict, 1 on any ERROR or WARN
+(with --gate, a Draft use case's findings never fail). 2 on usage errors, 5 for earlier formats. --trace always exits 0.
 
 Usage:
     spec_lint.py [--docs DIR] [--only ID] [--strict] [--gate] [--format text|json]
@@ -32,7 +33,7 @@ Usage:
 
 A baseline (default DIR/.spec-lint-baseline.json, written by --update-baseline)
 suppresses findings that were accepted when the lint was introduced to an
-existing project, so that only new findings fail. Entries are keyed without the
+existing project, so that only new findings are reported. Entries are keyed without the
 line number and survive edits elsewhere in a file.
 
 Requires Python 3.9+, standard library only. Reads files as data. Writes only
@@ -50,7 +51,7 @@ import use_case_map
 import validate_use_case  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.2.0"
+UPSPEC_VERSION = "1.3.0"
 
 BASELINE_NAME = ".spec-lint-baseline.json"
 
@@ -168,6 +169,8 @@ def lint(project):
             seen_tc[tc.id] = tc.path
 
     by_id = {uc.id: uc for uc in project.use_cases if uc.id}
+    # A use case whose id cannot be read: its refusal is the finding; what cites it is not judged.
+    unidentified = model.unidentified_use_cases(project.use_cases)
     for path, line, code, message in model.format_findings(docs):
         report.error(path, line, code, "-", message)
     overview_problem = use_case_map.stale_reason(docs)
@@ -189,6 +192,8 @@ def lint(project):
             if not other or other == uc.id:
                 continue
             target = by_id.get(other)
+            if target is None and other in unidentified:
+                continue
             if target is None:
                 report.error(uc.path, line, "DANGLING_REF", "%s %s" % (uc.id, where), "cites %s %s, but %s has no specification" % (other, rule_id, other))
             elif rule_id not in [r.id for r in target.rules]:
@@ -202,7 +207,7 @@ def lint(project):
             report.error(tc.path, tc.fields["Status"][1], "STATUS_INVALID", element, "Status must be one of %s" % ", ".join(model.TC_STATUSES))
         for uid in tc.use_case_ids():
             used_by_tc.add(uid)
-            if uid not in by_id:
+            if uid not in by_id and uid not in unidentified:
                 report.error(tc.path, tc.field_line("use_cases"), "DANGLING_REF", element,
                              "journey includes %s, which has no specification" % uid)
         process = tc.field("Process")
@@ -315,12 +320,23 @@ def fingerprint(finding):
     return "|".join([finding["code"], finding["path"], finding["element"], finding["message"]])
 
 
+def print_findings(report, form, suppressed=0):
+    """The findings on standard output, as text or as JSON."""
+    if form == "json":
+        print(json.dumps({"findings": report.sorted(), "suppressed": suppressed,
+                          "summary": {s: report.count(s) for s in ("ERROR", "WARN", "INFO")}}, indent=2, ensure_ascii=False))
+    else:
+        report.print_text()
+        if suppressed:
+            print("%d finding(s) suppressed by the baseline" % suppressed)
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description="Lint a specification set across files.")
     parser.add_argument("--docs", help="the specification folder (default: the one the rules block records, else docs)")
     parser.add_argument("--only", help="report only findings about this identifier (UC-001, TC-001, FR-001)")
     parser.add_argument("--gate", action="store_true", help="Draft findings warn without failing, even with --strict")
-    parser.add_argument("--strict", action="store_true", help="fail on warnings too")
+    parser.add_argument("--strict", action="store_true", help="exit 1 on any error or warning (default: exit 0, findings are reported)")
     parser.add_argument("--format", choices=("text", "json"), default="text")
     parser.add_argument("--trace", action="store_true", help="print the traceability matrix instead of findings")
     parser.add_argument("--baseline", help="baseline file (default: <docs>/%s when it exists)" % BASELINE_NAME)
@@ -332,10 +348,14 @@ def main(argv):
         print("no such folder: %s" % args.docs, file=sys.stderr)
         return 2
     docs = model.Docs(args.docs)
-    stop = model.stop_if_old(docs)
-    if stop:
-        return stop
     report = model.Reporter(os.getcwd())
+    stop = model.stop_if_old(docs, report=report, strict=args.strict)
+    if stop == model.OLD_FORMAT_EXIT:
+        return stop
+    if stop is not None:
+        # An unreadable file is the lint's finding, printed in the format asked for; nothing else is checked.
+        print_findings(report, args.format)
+        return stop
     project = Project(args.docs, report)
 
     if args.trace:
@@ -390,16 +410,11 @@ def main(argv):
                 if finding["severity"] == "ERROR":
                     finding["severity"] = "WARN"
                 draft_findings.add(id(finding))
-    if args.format == "json":
-        print(json.dumps({"findings": report.sorted(), "suppressed": suppressed,
-                          "summary": {s: report.count(s) for s in ("ERROR", "WARN", "INFO")}}, indent=2, ensure_ascii=False))
-    else:
-        report.print_text()
-        if suppressed:
-            print("%d finding(s) suppressed by the baseline" % suppressed)
-    return int(any(f["severity"] == "ERROR" or
-                   args.strict and f["severity"] == "WARN" and id(f) not in draft_findings
-                   for f in report.findings))
+    print_findings(report, args.format, suppressed)
+    # The findings are the output, an unreadable file included; only a strict run turns them into a failure.
+    return int(args.strict and any(f["severity"] == "ERROR" or
+                                   f["severity"] == "WARN" and id(f) not in draft_findings
+                                   for f in report.findings))
 
 
 if __name__ == "__main__":

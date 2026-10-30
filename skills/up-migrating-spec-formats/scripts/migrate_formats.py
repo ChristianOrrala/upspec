@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Move earlier upspec formats to the current ones, with git and Python 3.9+ only.
 
-migrate_formats.py plan|apply|verify [--docs DIR] [--format text|json]
+migrate_formats.py plan|apply|verify [--docs DIR] [--format text|json] [--strict]
 Plan writes nothing. Apply performs mechanical changes only. Judgment about
 journeys, examples, EARS and unclear types belongs to the agent and owner.
-Exit 0 done/nothing to do, 1 verification/read error, 2 usage, 3 git/resume conflict.
+Exit 0 done/nothing to do, or verify ran whatever it found, an unreadable file or
+a lint that could not run included (with --strict 1 on a finding); 1 when plan or
+apply cannot read a file, 2 usage, 3 git/resume conflict.
 The journal lives in git rev-parse --absolute-git-dir, including linked worktrees.
 All planned texts and after-fingerprints are journaled before the first write.
 Uncertain documents keep their bytes and filenames and are listed for judgment;
@@ -765,10 +767,13 @@ def apply(root, docs, journal):
     return 0
 
 
-def verify(docs):
+def verify(docs, strict=False):
     found = [(p, n, 'OLD_FORMAT', w) for p, n, w in model.old_formats(docs)]
     found += model.format_findings(docs)
-    if not use_case_map.current(docs):
+    # An overview that is not current because a use case's id or goal is refused already has its finding, the
+    # refusal (format_findings above); regenerating it is refused until then, so only a stale block adds one.
+    # stale_reason judges a refused use case as it will read once fixed, so it alone tells a stale block.
+    if use_case_map.stale_reason(docs) is not None:
         found.append((docs.overview or str(Path(docs.root) / 'use_cases.md'), 1, 'STALE_OVERVIEW', 'regenerate the overview'))
     for path, line, code, message in found:
         print('%s:%d: ERROR %s: %s' % (path, line, code, message))
@@ -782,11 +787,13 @@ def verify(docs):
                 raise ValueError('invalid lint finding')
     except (ValueError, KeyError, TypeError):
         print('%s:0: ERROR LINT_RUN: could not run the lint: %s' % (docs.root, lint.stderr.strip() or lint.stdout.strip()))
-        return 1
+        # A lint that could not run is a finding of verify, like an unreadable file.
+        return 1 if strict else 0
     print('Present before or newly visible: for the owner')
     for f in data['findings']:
         print('%s:%d: %s %s: %s' % (f['path'], f['line'], f['severity'], f['code'], f['message']))
-    return 1 if found else 0
+    # The format findings are the output; only a strict run turns them into a failure.
+    return 1 if found and strict else 0
 
 
 def main(argv=None):
@@ -794,6 +801,7 @@ def main(argv=None):
     parser.add_argument('mode', choices=('plan', 'apply', 'verify'))
     parser.add_argument('--docs', default=model.docs_default())
     parser.add_argument('--format', choices=('text', 'json'), default='text')
+    parser.add_argument('--strict', action='store_true', help='verify: exit 1 on a format finding (default: exit 0, findings are reported)')
     args = parser.parse_args(argv)
     docs = model.Docs(os.path.abspath(args.docs))
     try:
@@ -824,7 +832,7 @@ def main(argv=None):
             docs = model.Docs(str(root / given.relative_to(alias)))
         authorized(root, Path(docs.root))
         if args.mode == 'verify':
-            return verify(docs)
+            return verify(docs, args.strict)
         journal = Path(git(root, 'rev-parse', '--absolute-git-dir')) / JOURNAL
         return apply(root, docs, journal)
     except GitUnavailable as exc:
@@ -835,7 +843,8 @@ def main(argv=None):
         return 3
     except (OSError, UnicodeError) as exc:
         print('%s:0: ERROR UNREADABLE: %s' % (getattr(exc, 'spec_path', None) or getattr(exc, 'filename', None) or docs.root, exc), file=sys.stderr)
-        return 1
+        # In verify an unreadable file is a finding like the others; plan and apply cannot do their work.
+        return (1 if args.strict else 0) if args.mode == 'verify' else 1
     except ValueError as exc:
         print('%s:0: ERROR MIGRATION_INPUT: %s' % (docs.root, exc), file=sys.stderr)
         return 2

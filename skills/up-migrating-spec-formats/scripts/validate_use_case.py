@@ -14,7 +14,8 @@ INFO   worth a look, never a failure: screen detail, a quantity without boundary
        long quotation of screen wording.
 
 Output: path:line: SEVERITY CODE [element]: message
-Exit code 0 when clean, 1 on any ERROR (with --strict also on any WARN), 2 on usage errors.
+Exit code 0 when it ran, whatever it found, an unreadable file (UNREADABLE) included
+(with --strict 1 on any ERROR or WARN), 2 on usage errors.
 
 Usage:
     validate_use_case.py [--docs DIR] [--strict] FILE...
@@ -34,7 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.2.0"
+UPSPEC_VERSION = "1.3.0"
 
 REQUIRED_SECTIONS = ("Main Success Scenario", "Alternative Flows", "Postconditions")
 EXPECTED_SECTIONS = ("Preconditions", "Business Rules")
@@ -290,16 +291,17 @@ def validate_files(paths, docs_dir=None, report=None, *, local=False, stream=Non
         supplied = sorted(set(docs.use_case_files() + [os.path.abspath(p) for p in paths if os.path.isfile(p)]))
         docs.use_case_files = lambda: supplied
         try:
+            # The report holds an unreadable file as a finding; main applies --strict to the report.
             old = (_edited_old_formats(paths, docs_dir, stream) if local else
-                   model.stop_if_old(docs, report=report, stream=stream))
+                   model.stop_if_old(docs, report=report, stream=stream, strict=True))
         except (OSError, UnicodeDecodeError) as exc:
             report.error(docs.root, 0, "UNREADABLE", "-",
                          "cannot read specification artifacts for old-format recognition: %s" % exc)
             return report
-        if old == 1:
-            return report
-        if old is not None:
+        if old == model.OLD_FORMAT_EXIT:
             return old
+        if old is not None:
+            return report
         catalog = bool(docs.requirements)
         if docs.entity_model:
             try:
@@ -321,7 +323,7 @@ def main(argv):
     parser = argparse.ArgumentParser(description="Check use case specification files.")
     parser.add_argument("files", nargs="+")
     parser.add_argument("--docs", help="docs folder (default: parent of the first file's folder)")
-    parser.add_argument("--strict", action="store_true", help="fail on warnings too")
+    parser.add_argument("--strict", action="store_true", help="exit 1 on any error or warning (default: exit 0, findings are reported)")
     args = parser.parse_args(argv)
     docs_dir = args.docs or os.path.dirname(os.path.dirname(os.path.abspath(args.files[0])))
     report = validate_files(args.files, docs_dir)

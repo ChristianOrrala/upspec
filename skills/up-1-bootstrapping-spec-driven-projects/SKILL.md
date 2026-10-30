@@ -16,9 +16,10 @@ description: >-
 # Bootstrapping spec-driven projects
 
 Set a repository up so that specifications come first and stay first. The
-method's promise ("code follows the specification, without exception") is
-only as strong as what enforces it. This skill chooses how much to enforce
-and installs exactly that.
+method's promise ("code follows the specification, without exception") holds
+when drift is seen early. This skill chooses which checks report it and
+installs exactly those; they inform, and only a strict run the team chooses
+fails on them.
 
 It sets up. It writes no vision content, no requirement and no use case.
 
@@ -45,9 +46,9 @@ the order by habit, several people with agents cannot.
 | Requirements catalog, entity model, diagram | — | Yes, unless the owner leaves one out; that is recorded as `**Skipped:**` | Yes |
 | Use case specifications | — | Yes | Yes |
 | Rules block in the guideline file | One line: disposable | Yes | Yes |
-| Validator and lint | — | Run on each specification | Blocking in the pipeline |
-| Review before `Approved` | — | Fresh-context review, own sign-off | Independent reviewer and a named person's sign-off |
-| Spec-first guard | — | Warning in a commit hook | Blocking in the pipeline |
+| Validator and lint | — | Run on each specification | In the pipeline, reporting; `--strict` if the team wants it to fail |
+| Review before `Approved` | — | Cold read, own sign-off | Independent reviewer and a named person's sign-off |
+| Spec-first guard | — | Warning in a commit hook | Warning in the pipeline; `--strict` if the team wants it to fail |
 | Ownership of `docs/` | — | — | Yes |
 | Pull request template with review order | — | — | Yes |
 | Spec dashboard | — | On demand | Each iteration |
@@ -107,9 +108,10 @@ about it once.
   outside the specification folder: this method's use cases in another
   folder, or another method's (`specs/`, `.kiro/specs/`, `openspec/`). Ask
   whether to align them fully (moved into `docs/` with `scripts/relink.py`;
-  another method's converted by `up-recovering-specs-from-code` with the
-  owner's review) or keep them (this method's: recorded with
-  `--specs-folder`; another method's: kept as reference documents).
+  another format converted by `up-migrating-spec-formats`, with its invention
+  list and the owner's yes) or keep them (this method's: recorded with
+  `--specs-folder`; another format's: kept as reference documents).
+  Recovery is for a system that has code and no specifications.
 - **The A-files.** When `ACTIVE.md` has a hot zone, the project tracks its
   work in the A-files, and the dry run shows the joining edits. After
   `--apply`, run `python3 tools/check_tracking.py`; it must print nothing.
@@ -172,21 +174,26 @@ Details and host-specific forms: [references/team-instruments.md](references/tea
   per pull request; specification first in the review order; the invention
   list has its own section.
 - **Pipeline job** ([templates/ci-github.yml](templates/ci-github.yml) for GitHub Actions; two
-  commands for any other host): the lint and the guard block. An advisory
-  review by an agent may comment and never blocks.
+  commands for any other host): the claims check, the lint and the guard
+  report on every push and pull request and pass. A team that wants a strict
+  pipeline adds `--strict` to a step; that step then fails on findings. An
+  advisory review by an agent may comment and never blocks.
 
 ## The guard
 
 ```bash
-python3 scripts/spec_first_guard.py --base INTEGRATION_BRANCH --mode warn
+python3 scripts/spec_first_guard.py --base INTEGRATION_BRANCH
 ```
 
 Replace `INTEGRATION_BRANCH` with the project's integration branch. The guard flags
-a change set that changes behavior code with no specification change
-and no declaration line `No behavior change: UC-012`, and code that arrives
-with a use case still `Draft` or `Reviewed`. Refactoring and dependency
-updates pass through the declaration, so the guard stays honest without false
-alarms. `warn` reports and exits 0; `block` exits 1.
+a change set that changes behavior code with no specification change,
+no declaration line `No behavior change: UC-012` and no note
+`Fixes: UC-012 BR-005`, and code that arrives with a use case still `Draft`
+or `Reviewed`. Refactoring and dependency updates pass through the
+declaration, and a bug fixed against a clear specification through the note,
+so the guard stays honest without false alarms. Test files are never behavior
+code. It warns in every profile and exits 0; with `--strict` it exits 1 on a
+finding. `--mode block` is still accepted and warns like `--mode warn`.
 
 For a solo developer, offer the commit hook from the profiles reference. Do
 not install a hook without asking: hooks change how every commit behaves.
@@ -195,8 +202,12 @@ not install a hook without asking: hooks change how every commit behaves.
 
 With the solo and team profiles, offer four hooks: session state and the
 open-work list at session start, validation after specification edits, the
-open-work list at turn start, and a stop that blocks only on a use case raised
-to Implemented or Tested without its evidence. All four call
+open-work list at turn start, and a stop that asks the person one question
+per drift: a Status raised without its evidence, an open change record, code
+changed without a specification, a broken A-files shape. The question is
+align now, at the end of the session, or later; each drift is asked once per
+session. No hook blocks or keeps the agent working, except that stop: it
+continues the agent's turn once, so that the agent can ask. All four call
 `scripts/hook_gate.py`; `scripts/scaffold_docs.py --hooks` copies it into
 `tools/specs/` with the scripts it calls.
 Offer `--pre-push` in either profile, using [templates/pre-push.sh](templates/pre-push.sh); [references/profiles.md](references/profiles.md) explains placement and CI's authority.
@@ -246,8 +257,9 @@ Close with a report the owner can check, in this order:
 3. **What was written:** the scaffold's list of created, appended and skipped
    paths, as it printed them, and the hooks wired, with the log line that
    shows each one firing.
-4. **What blocks and what only advises** (team): the lint and the guard block
-   a merge; a review by an agent comments and never blocks.
+4. **What reports and what may fail** (team): the lint and the guard report
+   on every pull request; they fail a merge only if the team added `--strict`;
+   a review by an agent comments and never blocks.
 5. **What is left to the owner:** the vision, the requirements owner, host
    settings only an administrator can make. If specifications were recovered
    from code and are still Draft, their baseline review comes before the
@@ -264,7 +276,7 @@ need no regeneration.
 - A second dry run of the scaffold reports nothing left to write.
 - The guideline file starts with its previous content, unchanged, and
   contains the rules block once.
-- The guard runs and exits as the profile expects (0 in `warn`).
+- The guard runs, reports what it finds and exits 0 (1 only with `--strict`).
 - Team: the pipeline file parses, and no owner name or handle was invented.
 - No vision content was written by you.
 - Hooks, when wired: each was seen firing in `up-hooks.log`, and the
@@ -287,8 +299,8 @@ Plan: nothing written; add --apply to write (profile solo, host none)
 After a yes and `--apply`, the answer to the developer:
 
 - Profile **solo**: specifications, the rules block, validator and lint on
-  each specification, a fresh-context review before your own sign-off, the
-  guard as a warning. Off: ownership rule, pull request template, blocking
+  each specification, a cold read before your own sign-off, the
+  guard as a warning. Off: ownership rule, pull request template, team
   pipeline.
 - `docs/vision.md` is a skeleton. It is yours to write; nine sections, one
   page. Tell me when it is ready and I check it for actors, core nouns and

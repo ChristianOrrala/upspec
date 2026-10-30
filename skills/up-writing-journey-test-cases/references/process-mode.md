@@ -27,7 +27,7 @@ JSON with four parts:
 | `warnings` | Constructs that were simplified or look wrong |
 
 Exit code 0 on success, 1 when the file is not a usable process model, 2 on a
-usage error, 4 when the file was refused.
+usage error or a file it cannot read, 4 when the file was refused.
 
 **Refused files.** A file with a document type or entity declaration is not
 parsed at all, because such declarations can make a parser read other files or

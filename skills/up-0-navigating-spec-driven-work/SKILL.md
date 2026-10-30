@@ -54,9 +54,12 @@ guideline file, the four artifact files, and the front matter `status` of each f
 When the project tracks its work in the A-files (`ACTIVE.md` with a hot
 zone), the script reads them too: the current work, what blocks it and what
 waits on the owner, AHEAD's Next up, and the use cases each ability names in
-its `Specs` line. It then answers for the current work first, lists a use case
-in progress that the current work does not name as a mismatch, and warns when
-an ability's status disagrees with its use cases.
+its `Specs` line. An ability's status comes from its row in any index table of
+`ABILITIES.md`, or from an old entry's Status line when the row has none. It
+then answers for the current work first, lists a use case in progress that the
+current work does not name as a mismatch, and warns when an ability's status
+disagrees with its use cases. Without `ABILITIES.md` it says nothing about
+abilities.
 
 ## Classify the request
 
@@ -69,6 +72,7 @@ Before the table, decide what kind of request this is.
 | New behavior on a project that has no approved use case yet | The decision table: it is part of building the chain |
 | New behavior, a change of mind, or a bug on a project with approved use cases | `up-triaging-change-requests`, which classifies it and moves the specification first |
 | An existing system without specifications | `up-1-bootstrapping-spec-driven-projects` if no rules block exists, then `up-recovering-specs-from-code` |
+| Specifications in another format (another folder, another method's files) | `up-1-bootstrapping-spec-driven-projects` if no rules block exists, then `up-migrating-spec-formats`, not recovery |
 | "Too big to review", teams colliding under `docs/` | `up-splitting-bounded-contexts` |
 | A named artifact ("write UC-004", "review the specs") | The skill for that artifact. Check the table first: if an earlier step is missing, say so |
 
@@ -136,13 +140,19 @@ The profile is recorded in the rules block of the guideline file
 | | Solo | Team |
 |---|---|---|
 | Rows 5 and 7 (catalog, diagram) | May be skipped; recorded as `**Skipped:**` in the rules block | Required |
-| Row 6 (entity model) | Skipped only for a system that stores nothing | Required |
-| Row 12 (review) | A fresh-context review | An independent reviewer |
+| Row 6 (entity model) | Skipped only for a system that stores nothing. May start thin: only what the use cases written so far and the next one need, growing with each use case; it still exists before the first use case | Required, covering the catalog |
+| Row 12 (review) | A cold read | An independent reviewer |
 | Row 11 (approval) | The developer's own sign-off | A named person other than the author |
-| The spec-first guard | Warns | Blocks |
+| The spec-first guard | Warns | Warns; fails only in a pipeline the team made strict with `--strict` |
 
 If no profile is recorded, ask once which applies, and suggest recording it
 through `up-1-bootstrapping-spec-driven-projects`. Until then apply the full chain.
+
+A thin model changes nothing in the decision table: row 6 asks only that the
+model exists. A noun a use case needs and the model lacks is added through
+`up-3-modeling-domain-entities`, in either profile, and the vocabulary check
+is the same in both: every business noun a specification uses is defined in
+the model.
 
 ## Workflow
 
@@ -151,7 +161,7 @@ through `up-1-bootstrapping-spec-driven-projects`. Until then apply the full cha
    When the state report carries an update notice, pass it on to the person in one line; it never blocks the next step.
 2. If the script reports `MIGRATE`, name `up-migrating-spec-formats` and
    stop routing normal work. Otherwise classify the request: question, throwaway, new behavior, change, bug,
-   existing system, too large.
+   existing system, specifications in another format, too large.
 3. Read the rigor profile from the guideline file; ask once if none is
    recorded.
 4. Walk the decision table top to bottom; the first matching row wins.

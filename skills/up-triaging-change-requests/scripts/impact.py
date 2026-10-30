@@ -13,7 +13,8 @@ For each term the script prints three groups:
   sideways  other specifications that cite or use it
   downward  journey test cases, and code and test files that carry the identifier
 
-Exit code 0, 2 on usage errors.
+Exit code 0, 1 when a file cannot be read, 2 on usage errors, 5 on earlier
+specification formats.
 
 Usage:
     impact.py TERM [TERM ...] [--docs DIR] [--code DIR] [--format text|json]
@@ -148,7 +149,8 @@ def main(argv):
     args = parser.parse_args(argv)
     args.docs = args.docs or model.docs_default()
     docs_model = model.Docs(args.docs)
-    stop = model.stop_if_old(docs_model)
+    # A list or a measure cannot be made without the file: an unreadable one stops it with 1.
+    stop = model.stop_if_old(docs_model, strict=True)
     if stop:
         return stop
     for folder in (args.docs, args.code):

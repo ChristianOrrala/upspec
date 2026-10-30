@@ -37,7 +37,7 @@ import spec_model as model  # noqa: E402  (local module, same folder)
 import change_view  # noqa: E402
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.2.0"
+UPSPEC_VERSION = "1.3.0"
 
 
 def attribute(view: change_view.ChangeView, uc_ids: set[str], record: str | None = None) -> dict[str, list[dict]]:
@@ -83,7 +83,7 @@ def main(argv):
     parser.add_argument("--format", choices=("text", "json"), default="text")
     args = parser.parse_args(argv)
     args.docs = args.docs or model.docs_default()
-    stop = model.stop_if_old(model.Docs(args.docs))
+    stop = model.stop_if_old(model.Docs(args.docs), strict=args.strict)
     if stop is not None:
         return stop
     if not re.fullmatch(r"UC-\d{3}", args.use_case):

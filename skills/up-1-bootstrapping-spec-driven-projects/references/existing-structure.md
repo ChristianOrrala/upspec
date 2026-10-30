@@ -9,7 +9,7 @@ yes.
 | Found | Full alignment | Keep what is there |
 |---|---|---|
 | This method's files in another folder (`specs/use_cases/UC-001-....md`, `documentation/specs/...`) | Move them into `docs/` with `scripts/relink.py` | Record the folder: `scaffold_docs.py --specs-folder documentation/specs` writes `**Specs folder:** documentation/specs` into the rules block, which then names that folder in its paths, and every script of the skills reads it |
-| Another method's specifications (Spec Kit's `specs/`, Kiro's `.kiro/specs/`, OpenSpec's `openspec/`, loose documents) | Convert them with `up-recovering-specs-from-code`, which reads them as evidence beside the code; each recovered use case cites its source in the ledger; after the baseline review and the owner's yes the old files move to `docs/recovery/sources/` with `scripts/relink.py`, which rewrites the ledger's citations and every link | Keep them as reference documents: the skills neither check nor update them, and new or changed behavior is specified in `docs/` |
+| Another method's specifications (Spec Kit's `specs/`, Kiro's `.kiro/specs/`, OpenSpec's `openspec/`, loose documents) | Convert them with `up-migrating-spec-formats`: its plan converts mechanically only the parts that match an earlier upspec format, and its judgment pass writes the rest into `docs/` in the current formats, with an invention list and the owner's yes before any commit. Then ask the owner what becomes of the old files: kept as references, or moved with `scripts/relink.py`, which rewrites every link to them | Keep them as reference documents: the skills neither check nor update them, and new or changed behavior is specified in `docs/` |
 
 Kiro reads only `.kiro/specs/`: removing that folder ends Kiro's own spec
 feature in the project. Say so when the owner chooses full alignment.
@@ -48,11 +48,14 @@ present when `ACTIVE.md` holds the line `<!-- hot zone ends -->`.
 and P5 of the pairing contract in the conventions:
 
 - `AGENTS.md`: the rules section is named in the hot zone's `Below:` line (a
-  `Below:` line is added above the marker when there is none), and the
-  keep-in-step list gains two rows: a use case that changes Status is
-  followed by the ability whose `Specs` line names it; a newly mapped use
-  case joins an ability's `Specs` line.
-- `ATLAS.md`: one row in the map for the specifications.
+  `Below:` line is added above the marker when there is none). When the
+  project keeps `ABILITIES.md` (the file exists or the index of `AGENTS.md`
+  lists it), the keep-in-step list gains two rows: a use case that changes
+  Status is followed by the ability whose `Specs` line names it; a newly
+  mapped use case joins an ability's `Specs` line. A small setup
+  (`AGENTS.md` and `ACTIVE.md` alone) gets neither row; a later run adds
+  them once the setup grows `ABILITIES.md`.
+- `ATLAS.md`, when it exists: one row in the map for the specifications.
 
 A missing Keep in step list or map table is reported as a note; add those
 rows by hand. After `--apply`, run `python3 tools/check_tracking.py` until it

@@ -41,7 +41,8 @@ ledger rows, suspects, change log entries). Quote these counts; do not write
 counts or Status values into the records by hand, they go stale.
 
 Output: path:line: SEVERITY CODE [element]: message
-Exit code 0 when clean, 1 on any ERROR (with --strict also on any WARN), 2 on usage errors.
+Exit code 0 when it ran, whatever it found, an unreadable file included (with --strict 1 on any
+ERROR or WARN), 2 on usage errors.
 
 Usage:
     check_recovery_ledger.py [--docs DIR] [--ledger FILE] [--root DIR] [--strict]
@@ -331,12 +332,12 @@ def main(argv):
     parser.add_argument("--docs", help="the specification folder (default: the one the rules block records, else docs)")
     parser.add_argument("--ledger")
     parser.add_argument("--root", default=".")
-    parser.add_argument("--strict", action="store_true", help="fail on warnings too")
+    parser.add_argument("--strict", action="store_true", help="exit 1 on any error or warning (default: exit 0, findings are reported)")
     args = parser.parse_args(argv)
     args.docs = args.docs or model.docs_default()
     docs_model = model.Docs(args.docs)
-    stop = model.stop_if_old(docs_model)
-    if stop:
+    stop = model.stop_if_old(docs_model, strict=args.strict)
+    if stop is not None:
         return stop
     if not os.path.isdir(args.docs) or not os.path.isdir(args.root):
         print("no such folder: %s" % (args.docs if not os.path.isdir(args.docs) else args.root), file=sys.stderr)

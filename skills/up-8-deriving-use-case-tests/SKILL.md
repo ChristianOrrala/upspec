@@ -116,7 +116,9 @@ documentation. Do not write framework calls from memory.
    means the test or the specification is wrong, so find out which.
 6. Run the guard check for every rule test and every flow test with
    `scripts/guard_check.py`, which breaks, tests, restores and logs:
-   [references/guard-check.md](references/guard-check.md). A test that still passes when its
+   [references/guard-check.md](references/guard-check.md). Its verdict says what happened to
+   the break: `caught`, `crashed`, `not caught` or `unclear` (`invalid` when the
+   test fails before the break). A test that still passes when its
    rule is broken is not a test of that rule. Note which assertion caught each
    break; an assertion no break can make fail checks nothing.
 7. Review each new or changed test with the three questions below.
@@ -177,4 +179,4 @@ orders per day; examples 7 and 8) and BR-002 (one open work order per bike).
 
 Guard check for BR-001: with the capacity check disabled,
 `br001_capacity_boundary` and `a1_no_free_slot_offers_other_days` fail, as
-they should; code restored, tree clean.
+they should, and the verdict is `caught`; code restored, tree clean.

@@ -11,7 +11,8 @@ identifiers found in code and tests, journey test cases, and a test report when
 one is given. Nothing is typed by hand, so the dashboard cannot drift from the
 project. The rules behind every cell are printed under the tables.
 
-Exit code 0, 2 on usage errors.
+Exit code 0, 1 when a file cannot be read, 2 on usage errors, 5 on earlier
+specification formats.
 
 Usage:
     spec_dashboard.py [--docs DIR] [--code DIR] [--tests DIR] [--junit FILE]
@@ -73,7 +74,8 @@ def main(argv):
     args = parser.parse_args(argv)
     args.docs = args.docs or model.docs_default()
     docs_model = model.Docs(args.docs)
-    stop = model.stop_if_old(docs_model)
+    # A list or a measure cannot be made without the file: an unreadable one stops it with 1.
+    stop = model.stop_if_old(docs_model, strict=True)
     if stop:
         return stop
     for folder in (args.docs, args.code, args.tests):

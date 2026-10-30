@@ -6,7 +6,7 @@ The specifications under `docs/` are the source of truth for what this system do
 
 1. **Read before deciding.** Before changing behavior, read the use case in `docs/use_cases/`, the rows it links in `docs/requirements.md`, and the entities it names in `docs/entity_model.md`.
 2. **Name the use case.** Every instruction, commit subject and pull request names the use case it works on, for example `UC-012: allow team leads to assign inactive users`.
-3. **Specification first.** A behavior change starts as a change to the specification. Code that changes behavior without one is not accepted. A change without a behavior change says so on its own line, naming the use case it stays within or `none`: `No behavior change: UC-012`.
+3. **Specification first.** A behavior change starts as a change to the specification. Code that changes behavior without one is not accepted. A change without a behavior change says so on its own line, naming the use case it stays within or `none`: `No behavior change: UC-012`. A bug fixed against a clear specification, behind a failing test named after the element, carries the note `Fixes: UC-012 BR-005` in its commit message.
 4. **Not before approval.** Do not implement a use case whose Status is `Draft` or `Reviewed`. Agents never set `Approved` or `Done`; a person does.
 5. **Stay inside the use case.** Change only what the named use case requires. Anything else you find goes on a list for the owner, not into the change.
 6. **Synchronize, do not regenerate.** When a specification changes, change only the code and tests its changed elements touch.

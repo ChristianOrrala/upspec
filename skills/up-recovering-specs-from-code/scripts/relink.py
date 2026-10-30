@@ -59,12 +59,13 @@ or whose path goes through a symbolic link, is refused.
 What it cannot see: references from outside the repository, paths built at
 run time, and reference forms other than these.
 
-Exit code 0 clean, 1 problems or a refused move, 2 usage.
+Exit code 0 when it ran, whatever verify found: the problems are the output
+(with --strict 1 on a problem); 1 a refused or interrupted move, 2 usage.
 
 Usage:
     relink.py plan   --move OLD NEW [--move OLD NEW ...] [--keep FILE ...] [--root DIR] [--format text|json]
-    relink.py apply  --move OLD NEW [--move OLD NEW ...] [--keep FILE ...] [--root DIR]
-    relink.py verify [--move OLD NEW ...] [--keep FILE ...] [--root DIR]
+    relink.py apply  --move OLD NEW [--move OLD NEW ...] [--keep FILE ...] [--root DIR] [--strict]
+    relink.py verify [--move OLD NEW ...] [--keep FILE ...] [--root DIR] [--strict]
 
 Requires Python 3.9+, standard library only; git for the moves and the list of
 files (without git every file under the root is read, except dependency and
@@ -1000,6 +1001,7 @@ def main(argv):
                         help="record of the moves, left as written; repeat for each record")
     parser.add_argument("--root", default=".")
     parser.add_argument("--format", choices=("text", "json"), default="text")
+    parser.add_argument("--strict", action="store_true", help="exit 1 when verify finds a problem (default: exit 0, problems are reported)")
     args = parser.parse_args(argv)
     root = os.path.abspath(args.root)
     try:
@@ -1051,7 +1053,8 @@ def main(argv):
         problems, warnings = verify(root, moves, use_git, kept)
         print_items(problems + warnings)
         print("%d problem(s), %d to decide" % (len(problems), sum(1 for entry in warnings if entry["kind"] != "KEPT")))
-        return 1 if problems else 0
+        # The problems are the output; only a strict run turns them into a failure.
+        return 1 if problems and args.strict else 0
     except UsageError as exc:
         print(str(exc), file=sys.stderr)
         return 2

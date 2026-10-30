@@ -1,16 +1,32 @@
 ---
 name: up-migrating-spec-formats
-description: Moves earlier upspec specifications and installed checks to the current formats with a dry-run plan, owner-approved judgment, two commits and verification. Use when a script reports OLD_FORMAT, the router names MIGRATE, or the user asks to upgrade earlier upspec formats. Not for another method's specifications or recovery from code.
+description: >-
+  Moves a specification set in upspec's earlier formats (bold Overview fields, use_cases.puml, user
+  stories, database types in the entity model, journey tables, the long change record), or in other
+  formats, and the project's installed checks to the current ones: a dry-run plan, a judgment pass
+  with an invention list, the owner's yes, one or two commits, and a check that no format error is
+  left. Use when a script reports OLD_FORMAT, the router names the migration, or the user asks to
+  migrate specifications to the current formats.
 ---
 
 # Migrate specification formats
 
 ## When to migrate
 
-A script printed `OLD_FORMAT`, the router named `MIGRATE`, or the owner asked
-to upgrade earlier upspec formats. Read [conventions](references/conventions.md)
+A script printed `OLD_FORMAT`, the router named `MIGRATE`, the owner asked
+to upgrade earlier upspec formats, or the project holds specifications in
+another format. Read [conventions](references/conventions.md)
 for the target shapes and [mapping](references/mapping.md) for mechanical rules.
 This is a format conversion, with no change to behavior or approval.
+
+With another format, the plan converts mechanically only the parts that match
+an earlier upspec format: run on the specification folder it lists those parts
+and no item for the rest, and run on another folder it reports
+`MIGRATION_INPUT`. The judgment pass converts the rest into the current formats
+under the specification folder, with the invention list and the owner's yes
+before any commit. With nothing mechanical, there is no mechanical commit.
+Then ask the owner whether the old files stay where they are, as references
+the skills neither check nor update, or move; touch them only after the answer.
 
 Setup and the migration share `scripts/installed_copies.py` for installed copies
 and their bundle record; the module stays in the plugin.
@@ -73,6 +89,10 @@ clean tree. Use the current formats in conventions:
   vision or goal if agreed. Complete stub goals/triggers and check actors.
 - Decide where a Next instruction carried into Consequences belongs; preserve optional record
   sections that contain information. Resolve unrecognized fields by hand.
+- Convert what the plan left of specifications in another format: each
+  requirement, entity, use case and scenario they state becomes the current
+  artifact that holds it. Every meaning the source does not state goes on the
+  invention list.
 
 Keep an **invention list**, one line per meaning decided: document and element,
 old wording, proposed interpretation, and evidence or uncertainty. “None” is
@@ -90,7 +110,7 @@ owner; never discard their edit just to make resume pass. The environment
 variables `UPSPEC_MIGRATE_STOP_AFTER` and `UPSPEC_MIGRATE_CRASH_AFTER_WRITE`
 are test hooks, not ordinary workflow options.
 
-Check the mechanical diff and commit `specs: mechanical migration to the current formats`.
+When the plan has mechanical items, check their diff and commit `specs: mechanical migration to the current formats`.
 Write the approved judgment draft, refresh the overview with
 `python3 scripts/use_case_map.py --docs DIR` if metadata changed, and write one
 change record with `outcome: migration`, `element: specification formats`,
@@ -99,10 +119,11 @@ list; Specification change says “format only”; Consequences says no change i
 behavior. Commit `specs: migration, judgment pass`.
 
 Run `python3 scripts/migrate_formats.py verify --docs DIR`. Fix format findings
-until it exits 0. It checks every artifact and the generated overview, then
+until it reports none (with `--strict` it then exits 0). It checks every artifact and the generated overview, then
 runs the lint. The lint's other findings appear under “Present before or newly
 visible: for the owner”; bring them to the owner without inventing a repair.
-A lint that cannot run is a verification failure. Report both commit identifiers,
+A lint that cannot run is the finding `LINT_RUN`, like the others: bring it to the
+owner (with `--strict` verify fails on it). Report the commit identifiers,
 the invention list, verify's result and any remaining lint findings.
 
 ## What never changes
@@ -116,16 +137,17 @@ No Approved use case loses its approval. Business processes stay BPMN 2.0.
 1. Run plan; present mechanical, judgment and installed-check lists.
 2. Obtain the owner's yes to the plan; prepare the judgment draft separately.
 3. Present every invented meaning; obtain the owner's yes to the draft/list.
-4. Apply and commit mechanical conversion; write and commit the approved
-   judgment changes with one migration record and reviewed installed checks.
+4. Apply and commit the mechanical conversion, if any; write and commit the
+   approved judgment changes with one migration record and reviewed installed checks.
 5. Verify, fix format errors, and report other lint findings to the owner.
 
 ## Validation
 
-Verify exits 0; no format error remains; the overview is current. Compare the
+Verify reports no format error; the overview is current. Compare the
 old and new identifiers and Status. Installed checks are current or their
 customizations have been explicitly reviewed and resolved with the owner.
-Keep the two commits separate and preserve the approved invention list.
+Keep the mechanical and judgment commits separate, one commit when nothing is
+mechanical, and preserve the approved invention list.
 
 ## Worked example
 
@@ -135,5 +157,5 @@ as mechanical, the journey and Decimal's business meaning as judgment.
 The owner approves the plan, then a draft Scenario with UC comment lines and
 Money for an estimated cost. The invention list records the Money decision.
 Apply creates the mechanical commit. The approved draft and a migration
-record form the second commit. Verify exits 0; an unrelated uncovered need is
+record form the second commit. Verify reports no format error; an unrelated uncovered need is
 reported to the owner. Every use case retains its original Status.

@@ -61,18 +61,21 @@ description.
 
 ## The pipeline job
 
-Two commands, both exact and repeatable, both blocking:
+Two commands, both exact and repeatable. Both report what they find and
+pass; a team that wants a strict pipeline adds `--strict`, its own choice,
+made on purpose:
 
 ```bash
 python3 tools/specs/spec_lint.py
-python3 tools/specs/spec_first_guard.py --base <target branch> --message-file <pull request description> --mode block
+python3 tools/specs/spec_first_guard.py --base <target branch> --message-file <pull request description>
 ```
 
-- The **lint** fails on a specification that is not in the diagram, an
-  identifier used twice, or a reference that points to nothing. Add
-  `--strict` when the team wants warnings to fail too.
-- The **guard** fails when behavior code changes with no specification change
-  and no declaration, or arrives with a use case not yet approved.
+- The **lint** reports a specification that is not in the diagram, an
+  identifier used twice, or a reference that points to nothing. With
+  `--strict` it fails on those errors and on warnings.
+- The **guard** warns when behavior code changes with no specification change
+  and no declaration, or arrives with a use case not yet approved. With
+  `--strict` it fails on them.
 - The job needs the full history of the branch (a shallow clone hides the
   base), and Python 3.9 or later. Nothing else.
 
@@ -88,7 +91,7 @@ description to the guard through a file, never by pasting it into a command.
 
 Introducing the lint to an existing project: the first run may report old
 findings. Let the owner decide between fixing them and recording a baseline
-(the lint's `--update-baseline`), so that only new findings fail.
+(the lint's `--update-baseline`), so that only new findings are reported.
 
 Run the project's own tests in the project's own job. Tests named after use
 cases, flows and rules make a failure there name the behavior that drifted,
@@ -104,8 +107,9 @@ useful and it is judgment, so:
 - it runs in a fresh context that did not write the change;
 - it never approves, and never edits a `status` field.
 
-Only the exact checks block. A pipeline that fails on an opinion teaches the
-team to argue with the pipeline.
+Only the exact checks may fail a build, and only when the team chose
+`--strict`. A pipeline that fails on an opinion teaches the team to argue with
+the pipeline.
 
 ## Refinement
 
