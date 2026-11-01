@@ -1,5 +1,5 @@
 ---
-name: up-1-bootstrapping-spec-driven-projects
+name: up-bootstrapping-spec-driven-projects
 description: >-
   Sets a repository up for specification-first development with use cases: chooses a rigor profile
   (throwaway, solo, team), creates the docs tree and a vision skeleton, adds the spec-first rules to
@@ -244,7 +244,9 @@ When the person has not turned them on yet, end with the three proof steps of th
    hook files on their own.
 9. Name the first use case to specify: one behavior that is contested or
    unclear today, small enough for one main success scenario and a handful of
-   alternatives. Hand over to `up-0-navigating-spec-driven-work`.
+   alternatives. Close the hand-over by saying that
+   `up-0-navigating-spec-driven-work` gives the state of the project and
+   `up-1-triaging-change-requests` takes the first task.
 
 ## Report
 

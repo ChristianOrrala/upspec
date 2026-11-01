@@ -164,7 +164,7 @@ uses the system.
    The script is in this skill's folder; use the base directory shown when the skill
    was loaded, and do not search the disk for it.
 9. Hand over: the catalog, the ledger, and the five things the reviewer must be
-   able to confirm (below). Say that the next step is the entity model.
+   able to confirm (below).
 
 ## Validation
 
@@ -222,7 +222,8 @@ What happened: "fast" did not become a number, the capacity did not become a
 row (it is a rule of one use case) and was not settled, and the retention
 period became a constraint whose source is still open.
 
-## Next
+## What normally follows
 
-`up-3-modeling-domain-entities` reads the catalog to build the vocabulary.
-`up-4-mapping-use-cases` reads it to find the use cases.
+Normally `up-3-modeling-domain-entities` models the entities these requirements name.
+
+If the work showed a gap earlier in the chain, that artifact's skill comes first; when unsure, `up-0`'s state report decides, and it wins over this section.

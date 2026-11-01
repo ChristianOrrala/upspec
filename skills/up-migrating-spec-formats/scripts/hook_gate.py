@@ -73,7 +73,7 @@ import tempfile
 import time
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.3.0"
+UPSPEC_VERSION = "1.4.0"
 
 sys.dont_write_bytecode = True   # a __pycache__ folder in tools/specs/ would be an unexplained file in every change
 
@@ -737,7 +737,7 @@ def code_drift(view):
     return [Drift(("code without a specification since %s on %s" % (base, branch),),
                   "Code changed without a specification",
                   ["- %s in a commit message" % reading.summary(view.docs_rel)],
-                  "Change the specification first (up-triaging-change-requests); when no behavior changes, "
+                  "Change the specification first (up-1-triaging-change-requests); when no behavior changes, "
                   "add the line 'No behavior change: UC-XXX' (or 'none' and the reason) to the commit message; "
                   "when the code fixes a bug against a clear specification (the light path), commit it with the note "
                   "'Fixes: UC-XXX BR-YYY' in this session: for a bug fixed against a clear specification, answer "

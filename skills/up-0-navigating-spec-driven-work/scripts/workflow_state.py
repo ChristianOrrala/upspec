@@ -49,7 +49,7 @@ import use_case_map
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.3.0"
+UPSPEC_VERSION = "1.4.0"
 
 PLACEHOLDER = re.compile(r"\[[^\]\n]+\](?!\()")
 SOURCE_SUFFIXES = (".py", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".java", ".kt", ".kts", ".go", ".rb", ".php",
@@ -57,6 +57,7 @@ SOURCE_SUFFIXES = (".py", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".java",
                    ".ex", ".exs", ".dart", ".groovy")
 # Counting stops here: the question is whether there is a code base, not how large it is.
 CODE_COUNT_CAP = 50
+DEBT_SHOWN = 5
 # A use case in these Status values has been built and is waiting for tests or for the business: work in progress.
 IN_PROGRESS = ("Implemented", "Tested")
 # Status values at which a use case can be audited for alignment: the hint names the report that would close it.
@@ -77,13 +78,13 @@ PER_STATUS = {
     "Tested": ("BUSINESS_REVIEW", "a person", "the business accepts the behavior; Status becomes Done"),
 }
 SKILLS = {
-    "SETUP": "up-1-bootstrapping-spec-driven-projects", "VISION": "up-1-bootstrapping-spec-driven-projects",
+    "SETUP": "up-bootstrapping-spec-driven-projects", "VISION": "up-bootstrapping-spec-driven-projects",
     "RECOVER": "up-recovering-specs-from-code", "REQUIREMENTS": "up-2-cataloging-requirements",
     "BASELINE_REVIEW": "up-6-reviewing-specifications, then the owner",
     "ENTITY_MODEL": "up-3-modeling-domain-entities", "DIAGRAM": "up-4-mapping-use-cases", "FIX": "up-6-reviewing-specifications",
     "FIX_FORMAT": "up-6-reviewing-specifications",
     "SPECIFY": "up-5-writing-use-case-specs", "MAP": "up-4-mapping-use-cases", "JOURNEY": "up-writing-journey-test-cases",
-    "IDLE": "up-triaging-change-requests",
+    "IDLE": "up-1-triaging-change-requests",
 }
 
 
@@ -119,7 +120,7 @@ def skill_for_artifact(path, docs):
     """Name the writing skill for a classified artifact, or the review skill."""
     return {"use_case": "up-5-writing-use-case-specs", "overview": "up-4-mapping-use-cases",
             "requirements": "up-2-cataloging-requirements", "entity_model": "up-3-modeling-domain-entities",
-            "test_case": "up-writing-journey-test-cases", "change_record": "up-triaging-change-requests"
+            "test_case": "up-writing-journey-test-cases", "change_record": "up-1-triaging-change-requests"
             }.get(docs.kind(path), "up-6-reviewing-specifications")
 
 
@@ -283,7 +284,8 @@ def tracking_view(root, use_cases, alignment=None):
         for u in use_cases if u["status"] in IN_PROGRESS and u["id"] not in mentioned]
     return {"current_work": tracking["current_work"], "blocked_by": tracking["blocked_by"],
             "waiting_on_owner": tracking["waiting_on_owner"], "focus": focus, "focus_from": focus_from,
-            "mismatches": mismatches, "warnings": warnings, "notes": notes}
+            "mismatches": mismatches, "warnings": warnings, "notes": notes,
+            "next_up": tracking["next_up"], "debt": tracking["debt"]}
 
 
 def collect(docs_dir):
@@ -346,7 +348,14 @@ def collect(docs_dir):
     state["code_files"] = count_code(root, docs_dir)
     state["code_files_capped"] = state["code_files"] >= CODE_COUNT_CAP
     findings = model.format_findings(docs) if docs else []
-    state["format_findings"] = [{"path": os.path.relpath(p, root), "line": l, "code": c, "message": m}
+    # A finding blocks when use_case_map.refusals() names its file: the overview cannot be written until it is
+    # repaired. With the overview skipped nothing blocks, as nothing then asks for the overview.
+    refused = set()
+    if docs and not any(word in state["guideline"]["skipped"] for word in ("diagram", "overview")):
+        refused = {os.path.normpath(os.path.relpath(path, root)) for path, _, _ in use_case_map.refusals(specs)}
+    state["format_findings"] = [{"path": os.path.relpath(p, root), "line": l, "code": c, "message": m,
+                                 "blocking": os.path.normpath(os.path.relpath(p, root)) in refused,
+                                 "skill": skill_for_artifact(p, docs)}
                                  for p, l, c, m in findings]
     state["alignment"] = alignment_view(root, docs, use_cases)
     state["tracking"] = tracking_view(root, use_cases, state["alignment"])
@@ -372,12 +381,11 @@ def decide(state):
         """A file of the specification folder, written as the user passed or recorded the folder."""
         return "%s/%s" % (state["docs"].replace(os.sep, "/").rstrip("/"), name)
 
-    findings = state.get("format_findings", [])
+    findings = [f for f in state.get("format_findings", []) if f["blocking"]]
+    to_clean = len(state.get("format_findings", [])) - len(findings)
     if findings:
         finding = findings[0]
-        docs = model.Docs(state["docs"])
-        path = os.path.join(model.project_root(state["docs"]), finding["path"])
-        skill = skill_for_artifact(path, docs)
+        skill = finding["skill"]
         names_and_codes = ", ".join(sorted({"%s (%s)" % (f["path"], f["code"]) for f in findings}))
         return step("FIX_FORMAT", finding["path"],
                     "%d format finding(s): %s" % (len(findings), names_and_codes),
@@ -403,10 +411,11 @@ def decide(state):
         return step("REQUIREMENTS", where("requirements.md"), "the requirements catalog is missing and not recorded as skipped")
     if not art["entity_model"]["present"] and "entity model" not in skipped:
         return step("ENTITY_MODEL", where("entity_model.md"), "the entity model is missing and not recorded as skipped; it comes before any use case")
-    if (not art["diagram"]["present"] or not art["diagram"]["current"]) and not any(k in skipped for k in ("diagram", "overview")):
-        return step("DIAGRAM", where("use_cases.md"), "the use case overview is missing or stale and not recorded as skipped")
+    # A use case with no ID, an ID used twice or a Status that is not a Status spoils the overview: repair it first.
     if state["mismatches"]:
         return step("FIX", None, "specification files need repair: %s" % state["mismatches"][0], what="run the specification lint and repair what it reports")
+    if (not art["diagram"]["present"] or not art["diagram"]["current"]) and not any(k in skipped for k in ("diagram", "overview")):
+        return step("DIAGRAM", where("use_cases.md"), "the use case overview is missing or stale and not recorded as skipped")
     tracking = state.get("tracking")
     if tracking and tracking["focus"]:
         focus = [u for u in ucs if u["id"] in tracking["focus"]]
@@ -431,7 +440,8 @@ def decide(state):
     uc = first("BUSINESS_REVIEW")
     if uc:
         return step("BUSINESS_REVIEW", uc["id"], "%s %s has Status Tested" % (uc["id"], uc["name"]), by=uc["by"], what=uc["what"])
-    return step("IDLE", None, "every use case is Done", what="nothing is in flight; the next request is classified as a change")
+    return step("IDLE", None, "Nothing in flight; %d item(s) to clean." % to_clean if to_clean else "every use case is Done",
+                what="nothing is in flight; the next request is classified as a change")
 
 
 def print_text(state):
@@ -466,17 +476,25 @@ def print_text(state):
         print("Mismatches")
         for item in state["mismatches"]:
             print("  %s" % item)
-    if state.get("format_findings"):
+    blocking = [f for f in state.get("format_findings", []) if f["blocking"]]
+    if blocking:
         print("Format findings")
-        for f in state["format_findings"]:
+        for f in blocking:
             print("  %s:%d: %s: %s" % (f["path"], f["line"], f["code"], f["message"]))
     nxt = state["next"]
     print()
     print("Next step: %s%s" % (nxt["code"], " " + nxt["target"] if nxt["target"] else ""))
     print("  by:     %s" % nxt["by"])
     print("  reason: %s" % nxt["reason"])
+    print("  when:   no other task is in hand; a fix, change or feature on an existing use case goes to up-1 first")
     if nxt["what"]:
         print("  what:   %s" % nxt["what"])
+    to_clean = [f for f in state.get("format_findings", []) if not f["blocking"]]
+    if to_clean:
+        files = len({f["path"] for f in to_clean})
+        print()
+        print('To clean (not blocking): %d format finding%s in %d file%s. Say "clean the specs" to fix them.'
+              % (len(to_clean), "" if len(to_clean) == 1 else "s", files, "" if files == 1 else "s"))
 
     alignment = state.get("alignment")
     if alignment and any(alignment[key] for key in ("open", "aligned", "dropped", "undecided")):
@@ -503,6 +521,14 @@ def print_text(state):
             print("  warning:          %s" % line)
         for line in tracking["notes"]:
             print("  note:             %s" % line)
+        if tracking["next_up"]:
+            print("  Next up:          %s" % ", ".join(tracking["next_up"]))
+        if tracking["debt"]:
+            print("  Debt:")
+            for line in tracking["debt"][:DEBT_SHOWN]:
+                print("    - %s" % line)
+            if len(tracking["debt"]) > DEBT_SHOWN:
+                print("    and %d more" % (len(tracking["debt"]) - DEBT_SHOWN))
 
 
 def main(argv):

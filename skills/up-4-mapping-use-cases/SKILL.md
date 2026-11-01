@@ -54,7 +54,7 @@ Signs and repairs are in [references/goal-levels.md](references/goal-levels.md).
 |---|---|
 | **Too low.** A step of something larger, often technical: *Validate ISBN*, *Load Customer*, *Send Email* | Ask "why is the actor doing this?" and fold it into the goal that answers. It becomes a step there |
 | **Too high.** An area of work: *Manage Orders*, *Run the Workshop* | Ask "how?" and split into the goals it consists of |
-| **A process in disguise.** The work passes to another role, waits for an outside event or a deadline, or runs in parallel for different actors | Each role's part is its own use case. The flow between them is a business process (`docs/processes/`), not a use case |
+| **A process in disguise.** The work passes to another role, waits for an outside event or a deadline, or runs in parallel for different actors | Each role's part is its own use case. The flow between them is a business process (`docs/processes/`), not a use case; `up-writing-journey-test-cases` takes the process as its input |
 
 A precondition is not a use case relationship. "The customer is signed in" is
 established by *Sign In*; do not draw an include for it.
@@ -179,8 +179,8 @@ Candidates and decisions:
 Delivery order: UC-001 first (nothing else can happen without a booking), then
 UC-004 (establishes the precondition of UC-002), then UC-002.
 
-## Next
+## What normally follows
 
-`up-5-writing-use-case-specs` specifies one use case at a time, in the delivery
-order. A summary that became a process is the input of
-`up-writing-journey-test-cases`.
+Normally `up-5-writing-use-case-specs` writes the first use case in the delivery order.
+
+If the work showed a gap earlier in the chain, that artifact's skill comes first; when unsure, `up-0`'s state report decides, and it wins over this section.

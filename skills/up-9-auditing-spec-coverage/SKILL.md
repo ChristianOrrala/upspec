@@ -104,7 +104,7 @@ but not measure is `Partial`, with that stated.
   deliberately by reading the files you found in the reverse direction.
 
 Drift has two repairs and choosing is a product decision: the behavior is
-wanted and the specification must say so (`up-triaging-change-requests`), or it
+wanted and the specification must say so (`up-1-triaging-change-requests`), or it
 is not and the code loses it. Name both. Recommend neither. Ask.
 
 ## Workflow: one use case
@@ -199,9 +199,15 @@ Code 9/10 · Tests 6/10 · Spec: docs/use_cases/UC-001-book-repair.md
 
 ### Drift
 1. booking.py:54 sends a welcome note that no step, flow or rule describes.
-   Wanted: the specification needs it (`up-triaging-change-requests`). Not wanted:
+   Wanted: the specification needs it (`up-1-triaging-change-requests`). Not wanted:
    remove it (`up-7-implementing-use-cases UC-001`). The owner decides.
 
 ### Suggested status
 `Implemented` is justified. `Tested` is not: two units have no test.
 ```
+
+## What normally follows
+
+Normally nothing is in flight; the next request goes to `up-1-triaging-change-requests`.
+
+If the work showed a gap earlier in the chain, that artifact's skill comes first; when unsure, `up-0`'s state report decides, and it wins over this section.

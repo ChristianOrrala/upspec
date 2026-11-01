@@ -153,7 +153,7 @@ specification is a change, not a fresh design:
   the actor unless the request changes them.
 - Every element that will differ from today, a correction made on the way
   included, belongs in the differences table of the change record
-  (`up-triaging-change-requests`), with why, before you change the file. The
+  (`up-1-triaging-change-requests`), with why, before you change the file. The
   review and the finish check list every flow and rule changed outside it.
 - A difference you would like to make and nobody asked for is an invention.
   Put it in your hand-off as a proposal; do not write it into the file.
@@ -292,7 +292,8 @@ An order is refunded at most once.
 
 Hand-off: ask for the refund payment deadline; declare list ordering free.
 
-## Next
+## What normally follows
 
-`up-6-reviewing-specifications` reviews the file in a fresh context. After a human
-approves it, `up-7-implementing-use-cases` and `up-8-deriving-use-case-tests` work from it.
+Normally `up-6-reviewing-specifications` reviews it.
+
+If the work showed a gap earlier in the chain, that artifact's skill comes first; when unsure, `up-0`'s state report decides, and it wins over this section.

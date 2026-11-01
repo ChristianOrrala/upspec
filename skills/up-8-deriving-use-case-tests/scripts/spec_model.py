@@ -20,7 +20,7 @@ import unicodedata
 from typing import NamedTuple, Optional
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.3.0"
+UPSPEC_VERSION = "1.4.0"
 
 # --- vocabulary -------------------------------------------------------------
 
@@ -700,13 +700,35 @@ def _use_case_of(root, link):
     return match.group(0) if match else None
 
 
+def _debt(hot):
+    """The bullets under `## Debt` in ACTIVE's hot zone, a bullet's continuation lines joined to it (a nested
+    sub-bullet is an indented line, so it is folded into its parent); a placeholder bullet is dropped: none, nothing,
+    a dash (each alone, trailing punctuation allowed), or text that is only `<...>` placeholders (the template's bullet), punctuation and spaces."""
+    bullets, inside = [], False
+    for _, line in outside_fences(hot):
+        if re.match(r"^##\s", line):
+            inside = re.match(r"^##\s+Debt\s*$", line) is not None
+            continue
+        if not inside:
+            continue
+        bullet = re.match(r"^[-*]\s+(.*?)\s*$", line)
+        if bullet:
+            bullets.append(bullet.group(1))
+        elif line.strip() and bullets and line[:1] in " \t":
+            bullets[-1] += " " + line.strip()
+    return [bullet for bullet in bullets
+            if not re.fullmatch(r"(?i)(none|nothing|n/a|—|–|-)?[\W_]*", bullet.strip())
+            and re.search(r"[^\W_]", re.sub(r"<[^<>]*>", "", bullet))]
+
+
 def read_tracking(root):
     """What the A-files say about the work, or None when the project does not use them.
 
     current_work, blocked_by, waiting_on_owner: the text of ACTIVE's fields, '' when empty;
     abilities: {AB id: {name, status, specs (use case ids), links}}, the status from the ability's row in any index
     table of ABILITIES.md, else from an old entry's Status line; abilities_present: whether ABILITIES.md exists
-    (without it nothing is said about abilities); next_up: AH ids in order; items: {AH id: [AB ids]} from AHEAD's index."""
+    (without it nothing is said about abilities); next_up: AH ids in order; items: {AH id: [AB ids]} from AHEAD's index;
+    debt: the bullets under ACTIVE's `## Debt`, empty when ACTIVE names another home for the current work."""
     if not a_files_present(root):
         return None
     hot = _hot_zone(_optional_file(root, "ACTIVE.md").lines)
@@ -717,7 +739,7 @@ def read_tracking(root):
     if active_home:
         hot = []                           # the current work lives in the kept file; ACTIVE's own fields are not it
     tracking = {"current_work": _field(hot, "Current work"), "blocked_by": _field(hot, "Blocked by"),
-                "waiting_on_owner": _field(hot, "Waiting on owner"), "abilities": {}, "next_up": [], "items": {},
+                "waiting_on_owner": _field(hot, "Waiting on owner"), "debt": _debt(hot), "abilities": {}, "next_up": [], "items": {},
                 "abilities_present": abilities_file.present,
                 "active_home": active_home, "abilities_home": _home(root, _hot_zone(abilities_lines)),
                 "ahead_home": _home(root, _hot_zone(ahead))}

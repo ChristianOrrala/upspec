@@ -1,6 +1,6 @@
 # upspec: User Manual
 
-Version 1.0.4
+Version 1.4.0
 
 This manual explains how to install the `upspec` skills, how the work
 they support is organized, and how to carry a piece of work from an idea, a
@@ -146,7 +146,29 @@ first and writes nothing.
 > Where are we with the specs, and what comes next?
 
 The router (`up-0-navigating-spec-driven-work`) reads the repository's state
-and names the single next step and the skill that performs it.
+and names the single next step and the skill that performs it. It also gives
+the debt from `ACTIVE.md`, the Next up list from `AHEAD.md` and, when format
+findings exist that do not block, one "to clean" line.
+
+**A fix, a change or a feature.** Just ask for it:
+
+> Members can borrow a sixth book. Bug or feature?
+
+On a project with approved use cases this is the daily entry. Triage
+(`up-1-triaging-change-requests`) reads the use case first, classifies the
+request, finds what it touches and states a size line (see 7.3). The router is
+for the questions that need the state of the whole project.
+
+**A repository without setup.** With no rules block, no vision and no
+specifications, a task runs outside the method. Whichever of the router and
+triage was started says one line and asks nothing, and the task goes ahead as
+ordinary work:
+
+> No upspec setup here; this task runs outside the method. Say "set up" to start.
+
+**Cleaning up.** Say "clean the specs" and the router lists the format findings
+that do not block, file by file, with the skill that repairs each. It edits
+nothing itself.
 
 ## 4. Core concepts
 
@@ -257,10 +279,10 @@ docs/
 | `docs/use_cases/UC-XXX-<name>.md` | One use case specification per file | `up-5` |
 | `docs/processes/<name>.bpmn` | Optional business process models | A person |
 | `docs/test_cases/TC-XXX-<name>.md` | One end-to-end journey per file | `up-writing-journey-test-cases` |
-| `docs/change-records/UC-XXX-<name>.md` | One record per change | `up-triaging-change-requests` |
+| `docs/change-records/UC-XXX-<name>.md` | One record per change | `up-1-triaging-change-requests` |
 | `docs/reviews/` | One review report per scope (`<scope>-review.md`, overwritten by each review), numbered audit reports (`<scope>-audit-<n>.md`), the guard-check log | `up-6`, `up-9`, guard checks |
 | `docs/recovery/` | Ledger, suspects, baseline review plan, change log of a recovered system | `up-recovering-specs-from-code` |
-| `CLAUDE.md` or `AGENTS.md` | Guideline file with the rules block and the profile | `up-1` |
+| `CLAUDE.md` or `AGENTS.md` | Guideline file with the rules block and the profile | `up-bootstrapping-spec-driven-projects` |
 
 **Language.** Specifications and records are written in the project's own
 language. Front matter keys, section headings, table columns, Gherkin
@@ -304,7 +326,14 @@ and neither moves the other's:
 - `ATLAS.md` has a row for the specifications (P5).
 - The finish check warns when a use case's Status changes while `ACTIVE.md`
   and `ABILITIES.md` stay as they were (P6).
-- The session-start hook passes the same view on (P7).
+- The state report also shows AHEAD's Next up list (`Next up:`) and the bullets
+  of `ACTIVE.md`'s `## Debt` section (`Debt:`, one line each, at most five and
+  then "and N more"). The session-start hook passes the same view on (P7).
+- The Next step block has a `when:` line after `reason:` (and before `what:`):
+  `no other task is in hand; a fix, change or feature on an existing use case
+  goes to up-1 first`. It says the step applies when nothing else is being
+  worked on, and that a fix, change or feature on an existing use case starts
+  with `up-1-triaging-change-requests`. The migration step has no such line.
 - When you answer "later" to the end-of-turn question, the drift becomes one
   AHEAD item: an index row with the next free identifier, kind `idea`, state
   `open`, and an entry with What, Why and Write-up. The same drift is
@@ -347,7 +376,15 @@ goal, and exits 1. `use_case_map.py --check` reports each refusal as
 once the value is on one line, and exits 1 only with `--strict`. Until the
 value is on one line, the state report's text lists the `FRONT_MATTER`
 finding and names `FIX_FORMAT` as the next step, and `--format json` gives
-the overview `current: false`.
+the overview `current: false`. Such a finding blocks, because the overview
+cannot be written until it is repaired; with the overview skipped nothing
+blocks. Every other format finding is not a next step: the report lists it on
+one line, `To clean (not blocking): N format findings in M files. Say "clean
+the specs" to fix them.`, and `--format json` marks each finding with
+`blocking` and with `skill`, the skill that repairs it. When every use case is
+Done and such findings remain, the idle step's reason reads `Nothing in
+flight; N item(s) to clean.` A use case with no ID, an ID used twice or a Status
+that is not a Status stays a step (`FIX`), because it hides a use case.
 
 | Artifact | Required keys | Optional keys |
 |---|---|---|
@@ -406,13 +443,14 @@ reports an unknown outcome or missing required section.
 
 ## 6. The skills
 
-Every skill name starts with `up-`. The number is the skill's place in the
-chain; the five without a number are side entries.
+Every skill name starts with `up-`. 0 and 1 are the two entries (0 for the
+state, 1 for a change); 2 to 9 are the artifact chain in the method's order;
+unnumbered skills are used when needed.
 
 | Skill | Use it to | It produces |
 |---|---|---|
-| `up-0-navigating-spec-driven-work` | Find out where the project stands and what comes next; classify incoming work | A recommendation; writes nothing |
-| `up-1-bootstrapping-spec-driven-projects` | Set a repository up: profile, docs tree, rules block, team instruments | The docs tree, a vision skeleton, the rules block; for teams, ownership, a pull request template and a pipeline job |
+| `up-0-navigating-spec-driven-work` | Find out where the project stands and what comes next, with the debt, what is ahead and what to clean | A recommendation; writes nothing |
+| `up-1-triaging-change-requests` | The daily entry: turn a fix, change, feature or hotfix into a specification-first change | A classification, a size line and a change record |
 | `up-2-cataloging-requirements` | Turn a vision, notes or an interview into requirements | `docs/requirements.md` and a conflict ledger |
 | `up-3-modeling-domain-entities` | Build or change the entity model and its vocabulary | `docs/entity_model.md` |
 | `up-4-mapping-use-cases` | Decide which use cases exist, at the right level, in what order | `docs/use_cases.md` and a delivery order |
@@ -421,7 +459,7 @@ chain; the five without a number are side entries.
 | `up-7-implementing-use-cases` | Implement or synchronize one approved use case | Code with markers, a plan, an invention list, the finish check's report |
 | `up-8-deriving-use-case-tests` | Derive and maintain the tests of one use case | Tests per coverage unit, each rule test proven by a guard check |
 | `up-9-auditing-spec-coverage` | Check that code and tests realize the specification | A coverage matrix or the spec dashboard; a suggested Status |
-| `up-triaging-change-requests` | Turn a bug, change or hotfix into a specification-first change | A classification and a change record |
+| `up-bootstrapping-spec-driven-projects` | Set a repository up: profile, docs tree, rules block, team instruments | The docs tree, a vision skeleton, the rules block; for teams, ownership, a pull request template and a pipeline job |
 | `up-recovering-specs-from-code` | Bring an existing system under specifications | Use cases, entities, specifications, an evidence ledger, suspects, a baseline review plan |
 | `up-splitting-bounded-contexts` | Split a specification set that has outgrown review | Proposed contexts, assignments and contracts; the move, on approval |
 | `up-writing-journey-test-cases` | Write an end-to-end journey across use cases | `docs/test_cases/TC-XXX-<name>.md` |
@@ -515,7 +553,19 @@ This is the most common workflow once a project is under specifications.
    signed the specification as it stands, knowing what you want now? The
    outcome is one of seven (see [section 8](#8-the-change-record)). For a
    specification that is wrong, ambiguous or simply outgrown, it asks you to
-   confirm.
+   confirm. With no behavior change (outcome 7) it gives the line
+   `No behavior change: UC-NNN` and stops.
+   Otherwise it lists what the change touches and states its size in one line:
+   `Size: <local|wide|structural> (N use cases[, entity model]). Say another
+   size to change it.` The table is fixed, tried in order, and the first match
+   wins: structural for a new use case or a change to the vision's scope; wide
+   for two or more use cases or a change to the entity model; local for
+   anything else. Independent changes that share no use case, rule or entity
+   are sized each on its own, with the order agreed and the rest recorded as
+   later work. The size is information only: it changes no rigor, and you can
+   name another size. At the end, each skill of the chain tells you the step
+   that normally follows, and says that a gap earlier in the chain comes first
+   and that the router's state report decides when in doubt.
 3. **The change record.** For a change to the specification (outcomes 2,
    4, 5 and 6), the agent writes
    `docs/change-records/UC-XXX-<name>.md`: what differs from today, your
@@ -772,7 +822,7 @@ files; references use business types, and functional rows use Role and Need.
 | Script (skill) | What it checks | Example |
 |---|---|---|
 | `validate_use_case.py` (`up-5`, `up-6`) | One specification's structure and closed loop: every flow ends, every ending is covered | `validate_use_case.py --strict docs/use_cases/UC-001-book-repair.md` |
-| `spec_lint.py` (`up-6`, `up-1`) | The whole set across files: dangling or duplicate identifiers, unrealized requirements, front matter errors and stale overview content, copied rules, mechanism and weak words; the traceability matrix | `spec_lint.py --strict`, `spec_lint.py --trace` |
+| `spec_lint.py` (`up-6`, `up-bootstrapping-spec-driven-projects`) | The whole set across files: dangling or duplicate identifiers, unrealized requirements, front matter errors and stale overview content, copied rules, mechanism and weak words; the traceability matrix | `spec_lint.py --strict`, `spec_lint.py --trace` |
 | `unrecorded_changes.py` (`up-6`, `up-7`) | Flows and rules the specification changed since the change began that the change record does not name | `unrecorded_changes.py UC-012` |
 | `check_requirements.py` (`up-2`) | The catalog row by row | `check_requirements.py --strict` |
 | `check_entity_model.py` (`up-3`) | Diagram and sections agree; the vocabulary is used | `check_entity_model.py` |
@@ -791,8 +841,8 @@ files; references use business types, and functional rows use Role and Need.
 | `finish_change.py` (`up-7`) | The implementer's gate (below) | `finish_change.py UC-012 --base <start>` |
 | `coverage_units.py` (`up-8`) | The coverage units of a use case and the tests that carry each label | `coverage_units.py UC-006 --tests tests` |
 | `guard_check.py` (`up-7`, `up-8`) | Breaks one element on purpose, runs its test, restores the file and logs what happened: caught, crashed, not caught or unclear | see below |
-| `spec_first_guard.py` (`up-1`) | A change set that changes behavior code with no specification behind it, no `No behavior change:` line and no `Fixes:` note | `spec_first_guard.py --base <integration-branch>` |
-| `relink.py` (`up-1`, recovery) | Moves files and every reference to them: `plan` lists links, imports, settings paths and agent instructions that name them, `apply` moves and rewrites, `verify` finds what is left; `--keep FILE` leaves a record of the moves as written | `relink.py plan --move specs docs` |
+| `spec_first_guard.py` (`up-bootstrapping-spec-driven-projects`) | A change set that changes behavior code with no specification behind it, no `No behavior change:` line and no `Fixes:` note | `spec_first_guard.py --base <integration-branch>` |
+| `relink.py` (`up-bootstrapping-spec-driven-projects`, recovery) | Moves files and every reference to them: `plan` lists links, imports, settings paths and agent instructions that name them, `apply` moves and rewrites, `verify` finds what is left; `--keep FILE` leaves a record of the moves as written | `relink.py plan --move specs docs` |
 
 The scope audit groups root A-files as `tracking`; guideline files still need
 attribution. A deleted file belongs to the change when its text at the base
@@ -983,15 +1033,17 @@ same is not detected.
 | `sample_claims.py` (recovery) | A random sample of recovered claims for a second reader | `sample_claims.py --count 10` |
 | `spec_core_metrics.py` (splitting) | Size of the specification set and where it could be cut | `spec_core_metrics.py` |
 | `workflow_state.py` (`up-0`) | The repository's state and the first step that applies, the alignment count of a recovery and its hints | `workflow_state.py` |
-| `scaffold_docs.py` (`up-1`) | The setup or installed-copy update plan; writes only with `--apply`, with explicit decisions for customized scripts | `scaffold_docs.py --profile solo` |
+| `scaffold_docs.py` (`up-bootstrapping-spec-driven-projects`) | The setup or installed-copy update plan; writes only with `--apply`, with explicit decisions for customized scripts | `scaffold_docs.py --profile solo` |
 
 The overview is generated from the use case files' front matter. Rerun
 `use_case_map.py --docs DIR` after changing an identifier, name, actor or goal.
 Status stays in the use case file and dashboard. The lint reports
 `STALE_OVERVIEW` when the generated block differs. A Draft stub whose body is
 `Not written yet.` routes to `WRITE`; a stub past Draft reports `STUB`. When
-format findings exist, the router reports `FIX_FORMAT` naming the files and
-codes, and the skill that writes the artifact, before any Status-based step.
+a format finding blocks (`use_case_map.py` refuses the file's `id` or `goal`),
+the router reports `FIX_FORMAT` naming the files and codes, and the skill that
+writes the artifact, before any Status-based step. Every other format finding
+goes on one "to clean (not blocking)" line and is never the next step.
 
 Use case checks stop with exit 5 and `OLD_FORMAT` on earlier specification
 formats. The router instead reports `MIGRATE` with `up-migrating-spec-formats`.
@@ -1205,6 +1257,28 @@ or `--keep NAME` after porting the customization onto this release, including
 its version. A kept file needs a new decision at the next release; the old
 baseline is shown for context. A kept customization can also be replaced.
 
+**The rules block.** `--update` treats the rules block (the section from
+`## Working from specifications` to the next `## ` line or the end of the
+guideline file) like an installed script. A block exactly as a release wrote
+it is untouched: the plan lists `guideline:rules-block` as replaced, and
+`--apply` swaps in this release's template whole, keeping the block's own
+`**Profile:**`, `**Hooks:**`, `**Skipped:**`, `**Specs folder:**`,
+`**Integration branch:**` and `**Host:**` lines (the Hooks line goes directly
+under the profile line) and its specification folder. "Exactly" is judged
+with those lines and the folder in the paths put back to the template's, so a
+profile, a proven-hooks line or a folder never makes a block look edited. A block you edited
+shows its diff as changed and waits for `--replace guideline:rules-block` or
+`--keep guideline:rules-block`; nothing is rewritten until you choose, and
+a keep is recorded in `tools/specs/upspec-installed.json` (the folder is
+created for it) and is offered again only when the block or the template
+changes. The rest of the guideline file is never touched, and a project
+with no guideline file or no rules block gets none from `--update`.
+`--replace guideline:rules-block` and `--keep guideline:rules-block` belong to
+`--update`; without it they are a usage error (exit 2). When `--update` adds
+the integration branch line (and a specs folder line, if the block has none),
+the dry run prints the lines it adds beside the rules-block diff. The guideline
+file keeps its own line endings (LF or CRLF) through both steps.
+
 `tools/specs/upspec-installed.json` records package baselines, kept script
 fingerprints, and generated or adapted wiring per tool. An ordinary update
 also plans every recorded tool's wiring; `--hooks` without `--tool` requests
@@ -1388,7 +1462,7 @@ desktop app it is unclear whether workspace hooks run.
 
 ## 14. Known limits
 
-- **Early release.** Version 1.0.4. Tested on three small real projects, all
+- **Early release.** Tested on three small real projects, all
   in Python, with a stand-in owner, plus fixture projects.
 - **Other stacks.** The skills carry no framework code, but only Python
   projects have run them end to end; the TypeScript fixture is read as text.

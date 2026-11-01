@@ -29,6 +29,14 @@ branch line and joins the A-files once. --update refreshes installed scripts, th
 Untouched copies are replaced. Customized copies show a diff and need an
 explicit --replace NAME or --keep NAME decision before any file is written.
 The bundle records package baselines and fingerprints of kept customizations.
+--update treats the rules block of the guideline file the same way, under the
+name guideline:rules-block. A block exactly as a release wrote it (its field
+lines and specification folder aside) is replaced whole by the current
+template and keeps its own field lines; a block the owner edited shows its
+diff and needs --replace guideline:rules-block or --keep guideline:rules-block;
+a keep is recorded in the bundle and offered again only when the block or the
+template changes. The rest of the guideline file is never touched, and a
+project without a rules block gets none from --update.
 The integration line comes from detection alone. Local overrides stay local,
 and --no-integration-line declines that line while accepting script updates.
 
@@ -46,6 +54,9 @@ Usage:
     scaffold_docs.py [--root DIR] [--profile solo|team] [--host github|gitlab|none]
                      [--guideline FILE] [--specs-folder DIR] [--skip requirements|overview|entity-model ...] [--hooks] [--pre-push]
                      [--update] [--replace NAME ...] [--keep NAME ...] [--no-integration-line] [--apply]
+
+--update --replace guideline:rules-block replaces an edited rules block with the current
+template and its own field lines; --keep guideline:rules-block records that it stays as edited.
 
 --hooks --tool claude|codex|antigravity|kiro generates wiring from the tool's
 profile. Unrecorded direct hooks and legacy adapters need a decision per
@@ -89,6 +100,14 @@ import hook_profiles  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES = os.path.join(os.path.dirname(HERE), "templates")
 RULES_HEADING = "## Working from specifications"
+# The name under which --update offers the rules block of the guideline file for --replace and --keep.
+RULES_NAME = "guideline:rules-block"
+# The line of the template that setup fills with the profile and the other field lines.
+PROFILE_LINE = "**Profile:** [solo | team]"
+# The lines of the rules block that belong to the project, not to the template.
+RE_FIELD = re.compile(r"^\*\*(Profile|Hooks|Skipped|Specs folder|Integration branch|Host):\*\*[ \t]*(.*?)[ \t]*$", re.MULTILINE | re.IGNORECASE)
+# The paths a recorded specification folder replaces in the template, as `docs/` plus these.
+BLOCK_PATHS = ("", "use_cases/", "requirements.md", "entity_model.md")
 # CI claims need the finish check and its dependencies, without agent wiring.
 CHECK_SCRIPTS = ("spec_model.py", "validate_use_case.py", "spec_lint.py", "use_case_map.py", "spec_first_guard.py",
                  "status_claims.py", "finish_change.py", "scope_audit.py", "uc_change_list.py",
@@ -137,9 +156,17 @@ def read(path):
         return handle.read()
 
 
+def _template_text(folder="docs"):
+    """The template with the specification folder in its paths and the profile line still to fill."""
+    text = read(os.path.join(TEMPLATES, "guideline-rules.md"))
+    if folder != "docs":
+        for name in BLOCK_PATHS:
+            text = text.replace("`docs/%s`" % name, "`%s/%s`" % (folder, name))
+    return text
+
+
 def rules_block(profile, skipped=(), folder="docs", branch=None):
     """The rules block with the profile filled in, and the artifacts a solo project decided to leave out."""
-    text = read(os.path.join(TEMPLATES, "guideline-rules.md"))
     line = "**Profile:** %s" % profile
     if skipped:
         line += "  \n**Skipped:** %s" % ", ".join(skipped)
@@ -147,10 +174,56 @@ def rules_block(profile, skipped=(), folder="docs", branch=None):
         line += "  \n**Specs folder:** %s" % folder
     if branch:
         line += "  \n**Integration branch:** %s" % branch
+    return _template_text(folder).replace(PROFILE_LINE, line).rstrip("\n") + "\n"
+
+
+def block_span(text):
+    """(start, end) of the rules block in a guideline file's text: from the heading at the start of a line to the
+    next line that starts with '## ', or the end of the file. None when the file has no such heading."""
+    heading = re.search(r"^" + re.escape(RULES_HEADING), text, re.MULTILINE)
+    if not heading:
+        return None
+    following = re.compile(r"^## ", re.MULTILINE).search(text, heading.end())
+    return heading.start(), following.start() if following else len(text)
+
+
+def _block_folder(block):
+    match = spec_model.RE_SPECS_FOLDER.search(block)
+    return match.group(1).replace("\\", "/").rstrip("/") or "docs" if match else "docs"
+
+
+def normalized_block(block):
+    """The block as the template wrote it: its field lines put back to the template's profile line, and the
+    specification folder in its paths put back to docs/. Trailing whitespace and the line-ending style do not count."""
+    text = block.replace("\r\n", "\n")
+    folder = _block_folder(text)
     if folder != "docs":
-        for name in ("", "use_cases/", "requirements.md", "entity_model.md"):
-            text = text.replace("`docs/%s`" % name, "`%s/%s`" % (folder, name))
-    return text.replace("**Profile:** [solo | team]", line).rstrip("\n") + "\n"
+        for name in BLOCK_PATHS:
+            text = text.replace("`%s/%s`" % (folder, name), "`docs/%s`" % name)
+    lines = []
+    for line in text.split("\n"):
+        field = RE_FIELD.match(line)
+        if field and field.group(1).lower() == "profile":
+            lines.append(PROFILE_LINE)
+        elif not field:
+            lines.append(line)
+    return "\n".join(lines).rstrip()
+
+
+def block_fingerprint(block):
+    """The fingerprint known_scripts.json keeps for a released template: that of the normalized block."""
+    return installed_copies.fingerprint(normalized_block(block).encode("utf-8"))
+
+
+def renewed_block(block):
+    """The current template with the block's own field lines, in their order, and its specification folder."""
+    text = block.replace("\r\n", "\n")
+    labels = {"profile": "Profile", "hooks": "Hooks", "skipped": "Skipped", "specs folder": "Specs folder",
+              "integration branch": "Integration branch", "host": "Host"}
+    # The Hooks line goes directly under the profile line, where the setup skill says it belongs.
+    found = sorted(RE_FIELD.finditer(text), key=lambda match: {"profile": 0, "hooks": 1}.get(match.group(1).lower(), 2))
+    fields = "  \n".join("**%s:** %s" % (labels[match.group(1).lower()], match.group(2)) for match in found)
+    return _template_text(_block_folder(text)).replace(PROFILE_LINE, fields).rstrip("\n") + "\n"
 
 
 def pick_guideline(root, wanted):
@@ -447,6 +520,63 @@ def pre_push_plan(root, bundle, requested=False):
     return steps
 
 
+def read_guideline(root, guideline):
+    """The guideline file's text with its line endings as they are, and the span of its rules block (or None)."""
+    with open(os.path.join(root, guideline), encoding="utf-8", newline="") as handle:
+        text = handle.read()
+    return text, block_span(text)
+
+
+def rules_block_plan(root, guideline, bundle, known, replace=(), keep=()):
+    """Treat the rules block of the guideline file like an installed script; return the steps, without writing.
+
+    The block is current (the current template), kept (an edit recorded as kept against this template),
+    untouched (exactly a released template, field lines and specification folder aside) or changed by hand.
+    A guideline file without the block gets no step: --update never adds one."""
+    named = RULES_NAME in set(replace) | set(keep)
+    if RULES_NAME in set(replace) & set(keep):
+        raise ValueError("%s is named in both --replace and --keep" % RULES_NAME)
+    block = None
+    if guideline and os.path.isfile(os.path.join(root, guideline)):
+        text, span = read_guideline(root, guideline)
+        block = text[span[0]:span[1]] if span else None
+    if block is None:
+        if named:
+            raise ValueError("%s is not an installed rules block" % RULES_NAME)
+        return []
+    current = block_fingerprint(_template_text())
+    installed = block_fingerprint(block)
+    raw = installed_copies.fingerprint(block.replace("\r\n", "\n").rstrip().encode("utf-8"))
+    entry = bundle.get("files", {}).get(RULES_NAME, {}) if isinstance(bundle.get("files", {}), dict) else {}
+    if not isinstance(entry, dict):
+        entry = {}
+    if installed == current:
+        state = "current"
+    elif entry.get("kept") == raw:
+        state = "kept" if entry.get("baseline") == current else "changed"
+    elif installed in known.get("guideline-rules.md", ()):
+        state = "untouched"
+    else:
+        state = "changed"
+    if named and not (state == "changed" or state == "kept" and RULES_NAME in replace):
+        raise ValueError("%s is not undecided" % RULES_NAME)
+    if state in ("current", "kept") and RULES_NAME not in replace:
+        return [("skip", RULES_NAME, None, "%s: %s" % (guideline, "kept as edited" if state == "kept" else "current"))]
+    before = block.replace("\r\n", "\n").rstrip("\n") + "\n"
+    diff = "".join(difflib.unified_diff(before.splitlines(keepends=True), renewed_block(block).splitlines(keepends=True),
+                                     fromfile=guideline, tofile="this release/" + guideline))
+    note = ("%s: " % guideline) + {"untouched": "as a release wrote it", "kept": "kept as edited",
+                                  "changed": "changed by hand"}[state]
+    steps = [("diff", guideline, diff, "rules block " + state)]
+    if state == "untouched" or RULES_NAME in replace:
+        steps.append(("replace", RULES_NAME, (guideline, installed), note))
+    elif RULES_NAME in keep:
+        steps.append(("keep", RULES_NAME, (guideline, current), note))
+    else:
+        steps.append(("changed", RULES_NAME, (guideline, installed), note))
+    return steps
+
+
 def update_plan(root: str, replace=(), keep=(), requested=(), no_integration_line=False, pre_push=False) -> tuple[list, list[str]]:
     """Classify every known script; return steps and undecided names without writing.
 
@@ -456,7 +586,13 @@ def update_plan(root: str, replace=(), keep=(), requested=(), no_integration_lin
     """
     folder = Path(root) / "tools/specs"
     bundle = installed_copies.read_bundle(folder)
-    known = json.loads(read(os.path.join(HERE, "known_scripts.json")))["scripts"]
+    released = json.loads(read(os.path.join(HERE, "known_scripts.json")))
+    known, templates = released["scripts"], released.get("templates", {})
+    if not isinstance(templates, dict) or any(
+            not isinstance(hashes, list) or not all(isinstance(item, str) for item in hashes)
+            for hashes in templates.values()):
+        raise ValueError("known_scripts.json: \"templates\" must map each template name to a list of hashes; "
+                         "the file is damaged, reinstall the plugin")
     installed = installed_copies.sets_installed(folder) | set(requested)
     if (Path(root) / HOST_FILES["github"]["ci-github.yml"]).is_file() or pre_push:
         installed.add("check")
@@ -465,7 +601,7 @@ def update_plan(root: str, replace=(), keep=(), requested=(), no_integration_lin
               for name in names}
     replace, keep = set(replace), set(keep)
     for name in sorted(replace | keep):
-        if name.startswith("wiring:") or name == "ci:specifications":
+        if name.startswith("wiring:") or name in ("ci:specifications", RULES_NAME):
             continue
         if name in replace & keep:
             raise ValueError("%s is named in both --replace and --keep" % name)
@@ -475,6 +611,7 @@ def update_plan(root: str, replace=(), keep=(), requested=(), no_integration_lin
             raise ValueError("%s is not undecided" % name)
     guideline = spec_model.read_rules_block(root)[0]
     branch, steps = branch_plan(root, guideline, no_integration_line)
+    steps.extend(rules_block_plan(root, guideline, bundle, templates, replace, keep))
     undecided = []
     entries = bundle.get("scripts", {})
     if not isinstance(entries, dict):
@@ -510,6 +647,8 @@ def update_plan(root: str, replace=(), keep=(), requested=(), no_integration_lin
     if any(action == "changed" and rel == HOST_FILES["github"]["ci-github.yml"]
            for action, rel, _, _ in steps):
         undecided.append("ci:specifications")
+    if any(action == "changed" and rel == RULES_NAME for action, rel, _, _ in steps):
+        undecided.append(RULES_NAME)
     return steps, undecided
 
 
@@ -990,6 +1129,47 @@ def plan(root, profile, host, guideline, skipped=(), hooks=False, folder="docs",
     return steps
 
 
+def add_branch_line(root, block, branch):
+    """The rules block (the text after the heading, line endings as they are) with the integration branch line added,
+    and the lines that were added: the branch line, and a specs folder line when the block had none. The new line
+    takes the line ending of the line it sits beside; every other byte stays."""
+    line = "**Integration branch:** %s" % branch
+    match = spec_model.RE_SPECS_FOLDER.search(block)
+    if match:
+        pos = block.find("\n", match.start())
+        pos = len(block) if pos == -1 else pos
+        added = [line]
+    else:
+        matches = list(re.finditer(r"(?m)^\*\*(?:Profile|Skipped):\*\*[^\r\n]*", block))
+        pos = matches[-1].end() if matches else 0
+        added = ["**Specs folder:** %s" % spec_model.docs_default(root), line]
+    if match and pos > 0 and block[pos - 1:pos] == "\r":
+        pos -= 1
+    eol = "\r\n" if block[pos:pos + 2] == "\r\n" else "\n" if block[pos:pos + 1] == "\n" else \
+        "\r\n" if "\r\n" in block else "\n"
+    before = block[:pos].rstrip(" \t")
+    return before + ((" " * 2 + eol) if before else eol + eol) + (" " * 2 + eol).join(added) + block[pos:], added
+
+
+def rewrite_block(root, guideline, planned):
+    """Replace the rules block with the current template and the block's own field lines.
+
+    The block is read again, because an earlier step of the plan may have added a field line to it; it must still be
+    the block the plan was made for (the same fingerprint, field lines aside). Everything outside the block, its
+    line endings and the whitespace after it are written back as they were."""
+    path = os.path.join(root, guideline)
+    text, span = read_guideline(root, guideline)
+    if span is None or block_fingerprint(text[span[0]:span[1]]) != planned:
+        raise ValueError("the rules block in %s changed since the plan; run --update again" % guideline)
+    block = text[span[0]:span[1]]
+    body = block.rstrip()
+    new = renewed_block(body).rstrip("\n")
+    if "\r\n" in block:
+        new = new.replace("\n", "\r\n")
+    with open(path, "w", encoding="utf-8", newline="") as handle:
+        handle.write(text[:span[0]] + new + block[len(body):] + text[span[1]:])
+
+
 def apply(root, steps):
     undecided = [rel for action, rel, _, _ in steps if action in ("changed", "refused")]
     if undecided:
@@ -997,6 +1177,9 @@ def apply(root, steps):
     written = set()
     for action, rel, payload, _ in steps:
         if action in ("skip", "info", "diff", "keep", "wiring-record", "file-record"):
+            continue
+        if rel == RULES_NAME:
+            rewrite_block(root, *payload)
             continue
         target = os.path.join(root, rel)
         os.makedirs(os.path.dirname(target), exist_ok=True)
@@ -1023,21 +1206,13 @@ def apply(root, steps):
                     handle.write(text)
             written.add(rel)
         elif action == "line":
-            current = read(target)
+            # The file's own line endings stay: it is read and written untranslated.
+            with open(target, encoding="utf-8", newline="") as handle:
+                current = handle.read()
             prefix, block = current.split(RULES_HEADING, 1)
             if not spec_model.RE_INTEGRATION_BRANCH.search(block):
-                line = "**Integration branch:** %s" % payload
-                match = spec_model.RE_SPECS_FOLDER.search(block)
-                if match:
-                    pos = block.find("\n", match.start())
-                    pos = len(block) if pos == -1 else pos
-                else:
-                    matches = list(re.finditer(r"(?m)^\*\*(?:Profile|Skipped):\*\*[^\n]*", block))
-                    pos = matches[-1].end() if matches else 0
-                    line = "**Specs folder:** %s  \n%s" % (spec_model.docs_default(root), line)
-                before = block[:pos].rstrip(" \t")
-                block = before + ("  \n" if before else "\n\n") + line + block[pos:]
-                with open(target, "w", encoding="utf-8") as handle:
+                block, _ = add_branch_line(root, block, payload)
+                with open(target, "w", encoding="utf-8", newline="") as handle:
                     handle.write(prefix + RULES_HEADING + block)
         elif action == "append":
             source, text = payload
@@ -1055,7 +1230,9 @@ def apply(root, steps):
     folder = Path(root) / "tools/specs"
     wiring_records = [payload for action, _, payload, _ in steps if action == "wiring-record"]
     file_records = [(rel, payload) for action, rel, payload, _ in steps if action == "file-record"]
-    if wiring_records or file_records:
+    block_keeps = [payload for action, rel, payload, _ in steps if action == "keep" and rel == RULES_NAME]
+    block_replaced = any(action == "replace" and rel == RULES_NAME for action, rel, _, _ in steps)
+    if wiring_records or file_records or block_keeps:
         folder.mkdir(parents=True, exist_ok=True)
     if folder.is_dir():
         bundle = installed_copies.read_bundle(folder)
@@ -1096,9 +1273,18 @@ def apply(root, steps):
                 if name == "pre-push" and rel in written:
                     # Git ignores non-executable hooks; preserve permissions and add executable bits.
                     path.chmod(path.stat().st_mode | 0o111)
+        for guideline, baseline in block_keeps:
+            # Recorded after every write of the plan, so that the fingerprint is of the block as it now stands.
+            text, span = read_guideline(root, guideline)
+            files[RULES_NAME] = {"path": guideline, "baseline": baseline, "kept": installed_copies.fingerprint(
+                text[span[0]:span[1]].replace("\r\n", "\n").rstrip().encode("utf-8"))}
+        # A replaced block is current again: an older keep of it no longer says anything.
+        dropped = block_replaced and files.pop(RULES_NAME, None) is not None
         if files:
             bundle["files"] = files
-        if scripts or wiring_records or files:
+        elif dropped:
+            bundle.pop("files", None)
+        if scripts or wiring_records or files or dropped:
             bundle.update(version=installed_copies.UPSPEC_VERSION, scripts=scripts)
             installed_copies.write_bundle(folder, bundle)
 
@@ -1140,15 +1326,17 @@ def main(argv):
                         help="also copy the gate of the agent hooks and the scripts it calls into tools/specs/")
     parser.add_argument("--pre-push", action="store_true", help="offer a local claims check in the repository hooks folder")
     parser.add_argument("--tool", choices=hook_profiles.PROFILES[1:], help="generate the chosen tool's project hooks (with --hooks)")
-    parser.add_argument("--update", action="store_true", help="plan an update of installed script copies")
-    parser.add_argument("--replace", action="append", default=[], metavar="NAME", help="replace a customized copy (repeatable)")
-    parser.add_argument("--keep", action="append", default=[], metavar="NAME", help="keep a ported customization (repeatable)")
+    parser.add_argument("--update", action="store_true", help="plan an update of installed script copies, the recorded CI workflow and the rules block of the guideline file")
+    parser.add_argument("--replace", action="append", default=[], metavar="NAME", help="replace a customized copy, or with --update an edited rules block (guideline:rules-block) (repeatable)")
+    parser.add_argument("--keep", action="append", default=[], metavar="NAME", help="keep a ported customization, or with --update an edited rules block (guideline:rules-block) (repeatable)")
     parser.add_argument("--reason", action="append", default=[], metavar="TEXT", help="reason for each kept wiring moment, in --keep order (repeatable)")
     parser.add_argument("--no-integration-line", action="store_true", help="decline the integration branch line for this run")
     parser.add_argument("--apply", action="store_true", help="write the files; without it only the plan is printed")
     args = parser.parse_args(argv)
     if args.tool and not args.hooks:
         parser.error("--tool requires --hooks")
+    if not args.update and RULES_NAME in args.replace + args.keep:
+        parser.error("%s is decided with --update (--update --replace %s or --update --keep %s)" % (RULES_NAME, RULES_NAME, RULES_NAME))
     if args.skip and args.profile != "solo":
         print("--skip applies to the solo profile only; a team keeps the full chain", file=sys.stderr)
         return 2
@@ -1253,6 +1441,13 @@ def main(argv):
             print(payload, end="" if payload.endswith("\n") else "\n")
         else:
             print("  %-6s %s%s" % (action, rel, "  (%s)" % note if note else ""))
+            if action == "line" and args.update and not (args.apply and not refused):
+                # Show what the line step adds, next to the rules-block diff.
+                path = os.path.join(root, rel)
+                text = read(path).replace("\r\n", "\n") if os.path.isfile(path) else ""
+                if RULES_HEADING in text:
+                    for added in add_branch_line(root, text.split(RULES_HEADING, 1)[1], payload)[1]:
+                        print("    + %s" % added)
     pending = sum(1 for step in steps if step[0] in ("create", "replace", "append", "join", "line", "keep", "wire"))
     print("%d to write, %d left as they are" % (pending, sum(step[0] == "skip" for step in steps)))
     if refused:

@@ -21,7 +21,7 @@ Code [n]/[total] · Tests [n]/[total] · Spec: `docs/use_cases/UC-XXX-<name>.md`
 
 ### Drift
 
-1. `[file:line]` [what it does] that no step, flow or rule describes. Wanted: the specification needs it (`up-triaging-change-requests`). Not wanted: remove it (`up-7-implementing-use-cases UC-XXX`). The owner decides.
+1. `[file:line]` [what it does] that no step, flow or rule describes. Wanted: the specification needs it (`up-1-triaging-change-requests`). Not wanted: remove it (`up-7-implementing-use-cases UC-XXX`). The owner decides.
 
 ### Since the last run
 

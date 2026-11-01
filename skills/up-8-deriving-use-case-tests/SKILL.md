@@ -180,3 +180,9 @@ orders per day; examples 7 and 8) and BR-002 (one open work order per bike).
 Guard check for BR-001: with the capacity check disabled,
 `br001_capacity_boundary` and `a1_no_free_slot_offers_other_days` fail, as
 they should, and the verdict is `caught`; code restored, tree clean.
+
+## What normally follows
+
+Normally `up-9-auditing-spec-coverage` audits the coverage (on the light path, `up-7-implementing-use-cases` makes the failing test pass).
+
+If the work showed a gap earlier in the chain, that artifact's skill comes first; when unsure, `up-0`'s state report decides, and it wins over this section.

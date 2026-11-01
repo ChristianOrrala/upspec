@@ -190,7 +190,8 @@ now an avoided word; the lifecycle has no move from Declined to Approved and
 none out of Cancelled, which the specifier of *Approve Estimate* should turn
 into rules or flows.
 
-## Next
+## What normally follows
 
-`up-4-mapping-use-cases` uses the nouns; `up-5-writing-use-case-specs` refers to entities
-by noun and never restates their attributes.
+Normally `up-4-mapping-use-cases` maps the use cases.
+
+If the work showed a gap earlier in the chain, that artifact's skill comes first; when unsure, `up-0`'s state report decides, and it wins over this section.

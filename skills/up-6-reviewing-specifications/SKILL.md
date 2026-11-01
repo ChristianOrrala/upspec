@@ -271,3 +271,9 @@ Ready for Reviewed: no. Ready for Approved: no.
 The lint error and the missing flow at step 5 come first: `up-5-writing-use-case-specs UC-004`.
 The contradiction needs the owner to say which limit holds.
 ```
+
+## What normally follows
+
+Normally `up-7-implementing-use-cases` implements it once it is Approved.
+
+If the work showed a gap earlier in the chain, that artifact's skill comes first; when unsure, `up-0`'s state report decides, and it wins over this section.

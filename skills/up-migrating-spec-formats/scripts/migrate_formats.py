@@ -79,11 +79,8 @@ def fingerprint(data):
 
 
 def installed_source(name):
-    """Packaged copies are local; two setup-owned scripts have no shared source."""
-    path = HERE / name
-    if not path.is_file() and HERE.parent.name == 'shared':
-        path = HERE.parent.parent / 'plugins' / 'upspec' / 'skills' / 'up-1-bootstrapping-spec-driven-projects' / 'scripts' / name
-    return path
+    """Every installed script has a copy beside this one, or in shared/scripts when this runs from there."""
+    return HERE / name
 
 
 def safe(root, path):

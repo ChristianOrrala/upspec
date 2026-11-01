@@ -9,7 +9,7 @@ the tests against what was approved. The skills cover the whole path: vision,
 requirements, entity model, use cases, review, implementation, tests, change
 and coverage. They also bring an existing codebase under specifications.
 
-**Version 1.3.0.** Fifteen skills. Their scripts are tested against fixture
+**Version 1.4.0.** Fifteen skills. Their scripts are tested against fixture
 projects, and each skill is evaluated against sessions without it.
 
 ## Install
@@ -68,12 +68,12 @@ In Claude Code you can also call a skill by name, for example
 
 ## The skills
 
-Type `up-` to list them all. The number is the skill's place in the chain.
+Type `up-` to list them all. 0 and 1 are the two entries (0 for the state, 1 for a change); 2 to 9 are the artifact chain in the method's order; unnumbered skills are used when needed.
 
 | Skill | What it does |
 |---|---|
 | `up-0-navigating-spec-driven-work` | Says where the project stands and what comes next |
-| `up-1-bootstrapping-spec-driven-projects` | Sets the repo up: rigor profile, docs tree, agent rules, team checks |
+| `up-1-triaging-change-requests` | Turns a bug, a change or a hotfix into a change that starts at the specification |
 | `up-2-cataloging-requirements` | Builds the requirements catalog and records conflicts |
 | `up-3-modeling-domain-entities` | Models the entities as a shared vocabulary, with their lifecycles |
 | `up-4-mapping-use-cases` | Finds the use cases, at the right level, in delivery order |
@@ -83,12 +83,12 @@ Type `up-` to list them all. The number is the skill's place in the chain.
 | `up-8-deriving-use-case-tests` | Derives tests from the specification and proves they guard its rules |
 | `up-9-auditing-spec-coverage` | Shows coverage from requirement to test; reports only |
 
-Five side entries, without a number:
+Five more, without a number:
 
 | Skill | What it does |
 |---|---|
 | `up-writing-journey-test-cases` | Writes end-to-end journeys across several use cases |
-| `up-triaging-change-requests` | Turns a bug, a change or a hotfix into a change that starts at the specification |
+| `up-bootstrapping-spec-driven-projects` | Sets the repo up: rigor profile, docs tree, agent rules, team checks |
 | `up-recovering-specs-from-code` | Recovers the specifications of an existing system |
 | `up-splitting-bounded-contexts` | Splits a specification set that has grown too large for one review |
 | `up-migrating-spec-formats` | Moves earlier specification formats to the current ones after your approval |

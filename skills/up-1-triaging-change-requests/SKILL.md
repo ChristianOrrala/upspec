@@ -1,5 +1,5 @@
 ---
-name: up-triaging-change-requests
+name: up-1-triaging-change-requests
 description: >-
   Turns an incoming bug report, feature or change request, or production hotfix into a
   specification-first change: classifies it with the sign-off test (code wrong, specification wrong,
@@ -26,6 +26,12 @@ It does not diagnose technical faults and it does not write the fix. It makes
 sure that whatever is fixed or built afterwards has a specification behind it.
 
 Shared paths, identifiers and Status values: [references/conventions.md](references/conventions.md).
+
+## Before anything is read
+
+Look for the rules block in the guideline file, a vision and specifications
+(the rules block records their folder as `**Specs folder:**`, else `docs`).
+With none of the three, say `No upspec setup here; this task runs outside the method. Say "set up" to start.`, ask nothing and stop; the task goes ahead as ordinary work.
 
 ## The specification is the arbiter
 
@@ -169,6 +175,23 @@ business nouns; it lists what refers to them:
 Report the list. A change that touches three use cases is three
 specification changes, each reviewed.
 
+Then count the size from that list. The rows are tried in order; the first
+match wins:
+
+- **Structural:** a new use case, or a change to the scope the vision states
+  (the one row that takes judgment).
+- **Wide:** two or more use cases, or a change to the entity model.
+- **Local:** anything else, a change that touches no use case included.
+
+Independent changes that share no use case, rule or entity are sized one by
+one: agree the order, record the rest as later work. Outcome 7 gets no size.
+State the line, never ask it, with N counted from the list:
+
+> Size: <local|wide|structural> (N use cases[, entity model]). Say another size to change it.
+
+The person may name another size; use it. The size is information only: it
+changes no rigor and says nothing about pending cleanup.
+
 After adding a use case or changing its id, name, actors or goal, run
 `python3 scripts/use_case_map.py --docs DIR`. Never edit between the overview
 markers. Status changes need no regeneration.
@@ -214,8 +237,9 @@ foreign-key exception), however urgent the fix.
 2. Read that use case, the rows on its `requirements` list, and the entities it
    names. If no specification describes the behavior, check whether the system
    already has it; if so, follow the section above before classifying.
-3. Classify with the sign-off test. State the outcome and why.
-4. Run `impact.py` for the identifiers and nouns involved.
+3. Classify with the sign-off test. State the outcome and why. For outcome 7,
+   give the line `No behavior change: UC-NNN` and stop.
+4. Run `impact.py` for the identifiers and nouns involved, state the size line.
 5. For outcomes 2, 4, 5: ask the owner to confirm the classification and the
    decision. For outcome 6: confirm it is in scope.
 6. For a defect (1, 2, 4): describe the failing test that reproduces it, named
@@ -252,7 +276,7 @@ Before handing over:
   hand-over names the failing test and the note `Fixes: UC-XXX <element>`;
   for a foreign-key constraint, the destructive path of the schema procedure
   with the owner's yes (The foreign-key exception).
-- The impact list was produced, not assumed.
+- The impact list was produced, not assumed (not for outcome 7).
 - For behavior the system already has: today's behavior was written down
   before the change, and every difference from today is in the record.
 - No code was changed by this skill.
@@ -283,3 +307,9 @@ The same report with a different specification:
 | "at most 5 loans" with no example, and renewals counted by some readers | 4, ambiguous: ask whether a renewed loan counts |
 | "at most 6 open loans", and the library now wants 5 | 5, enhancement |
 | Nothing about a limit | 5, enhancement; a rule and a flow are missing |
+
+## What normally follows
+
+Tell the person only the next step, the usual one from the outcome table's Then column; the table stays your map.
+
+If the work showed a gap earlier in the chain, that artifact's skill comes first; when unsure, `up-0`'s state report decides, and it wins over this section.

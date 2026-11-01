@@ -24,7 +24,7 @@ code seems to need a column the model does not have, the model changes first
 Only a change no flow can observe comes from an engineering decision instead:
 an index or partitioning. It makes the same data faster to reach or easier to
 keep, and no user could tell it happened. Triage classifies it as no behavior
-change (triage outcome 7, `up-triaging-change-requests`), and the change
+change (triage outcome 7, `up-1-triaging-change-requests`), and the change
 carries the line `No behavior change: UC-012`, naming the use case whose code
 it touches, or `none` and the reason. It follows the technical path below.
 

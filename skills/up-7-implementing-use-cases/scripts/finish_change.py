@@ -88,7 +88,7 @@ import uc_change_list  # noqa: E402
 import unrecorded_changes  # noqa: E402
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.3.0"
+UPSPEC_VERSION = "1.4.0"
 
 def is_test_path(path):
     return model.is_test_path(path)

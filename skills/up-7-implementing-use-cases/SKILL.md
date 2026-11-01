@@ -79,7 +79,7 @@ the fix costs a test and a line:
 
 No change list, plan, scope audit or finish check, and Status stays where it
 is. If the fix needs a decision the specification does not make, it is not this
-path: send it back to `up-triaging-change-requests`.
+path: send it back to `up-1-triaging-change-requests`.
 
 ### A schema change no flow can observe
 
@@ -307,7 +307,8 @@ role comes from* is `mechanism`: the project's existing role check.
 
 Result: four hunks in two files, both attributed. Nothing else touched.
 
-## Next
+## What normally follows
 
-`up-8-deriving-use-case-tests` for the slice, then `up-9-auditing-spec-coverage` before
-Status moves to `Tested`.
+Normally `up-8-deriving-use-case-tests` derives its tests.
+
+If the work showed a gap earlier in the chain, that artifact's skill comes first; when unsure, `up-0`'s state report decides, and it wins over this section.

@@ -98,7 +98,7 @@ The router keeps an aligned entry open, with a warning, while its reports fail t
 Each entry is classified with the sign-off test (would a stakeholder have
 signed off the specification as it stands, knowing what they want now?),
 decided by stakeholders, and recorded. From here each one goes through
-`up-triaging-change-requests` like any other change.
+`up-1-triaging-change-requests` like any other change.
 
 Nothing is quietly fixed on the way through the review.
 

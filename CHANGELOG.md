@@ -2,6 +2,39 @@
 
 All notable changes to upspec. Versions follow semantic versioning.
 
+## 1.4.0
+
+The skill numbers follow daily use. Triage, which you run before every fix, change or feature, becomes `up-1`, and setup, which you run once per project, loses its number. The state report no longer opens every session with cleanup, and it shows what is waiting.
+
+| Old name | New name |
+|---|---|
+| `up-triaging-change-requests` | `up-1-triaging-change-requests` |
+| `up-1-bootstrapping-spec-driven-projects` | `up-bootstrapping-spec-driven-projects` |
+
+The old names stop working. A command, a prompt or a note of your own that names a skill by its old name needs the new one. The numbers now mean: 0 and 1 are the two entries (0 for the state, 1 for a change), 2 to 9 are the artifact chain in the method's order, and unnumbered skills are used when needed.
+
+- **Cleanup leads only when it blocks.**
+  - A format finding is the next step only when the use case overview cannot be written, today an `id` or `goal` written over several lines. A use case with no readable ID stays a step.
+  - Every other finding goes on one "To clean (not blocking): ..." line. When nothing else is in flight, the report reads "Nothing in flight; N item(s) to clean."
+- **The state report shows what waits.** With the A-files it prints the debt from `ACTIVE.md` and the Next up list from `AHEAD.md`, and its JSON carries them. After the reason it prints a `when:` line: no other task in hand, or a fix, change or feature on an existing use case, which goes to `up-1` first.
+- **Triage is the daily entry.** It has two early exits: in a repository with no rules block, vision or specifications it says so in one line and stops, and for a change that alters no behavior (outcome 7) it gives the line `No behavior change: UC-NNN` and stops. Otherwise it adds one line with the change's size (local, wide, structural, or several changes), counted from what the change touches. The size is information only.
+- **A repository that is not set up** runs the task outside the method: the router says so in one line and asks nothing. New behavior is scoped to a set-up project. The router also names "clean the specs" for the items on the to-clean line.
+- **What normally follows.** Each skill of the chain ends with a short section saying what usually comes next. The state report wins when they disagree.
+- **`--update` and the rules block.**
+  - `scaffold_docs.py --update` replaces the rules block of your guideline file whole when it is exactly as a release wrote it (its profile, hooks, folder and other field lines aside, which stay yours). The plan lists it as `guideline:rules-block`.
+  - A block you edited shows its diff and waits for `--replace guideline:rules-block` or `--keep guideline:rules-block`. Nothing is rewritten until you choose, and a keep is recorded in `tools/specs/upspec-installed.json` and offered again only when the block or the template changes.
+  - The rest of the guideline file is never touched, and a project with no rules block gets none.
+  - `known_scripts.json` recognizes the rules blocks released up to 1.3.0.
+  - The dry run prints the integration branch line it will add, a guideline file with CRLF line endings keeps them, `--replace`/`--keep guideline:rules-block` without `--update` is a usage error, and a damaged `known_scripts.json` gives a plain error.
+- **Hook scripts.** `hook_gate.py`, `hook_profiles.py` and `spec_first_guard.py` are shared scripts like the others. Their behavior is unchanged.
+- **Evaluations.** None ran for this release: no new evaluation cases, no trigger reruns and no trials. The 1.3.0 scores below stay what they were, for 1.3.0.
+
+**What an upgrade asks of you:**
+1. Update the plugin, and use the new skill names (the table above).
+2. In each project with installed copies, run `scaffold_docs.py --update` and read the plan. Untouched copies and an untouched rules block are replaced. Name every copy changed by hand in `--replace` or `--keep`, and an edited rules block as `guideline:rules-block`, then add `--apply`.
+3. The rules block you keep keeps its old wording, including the old skill names it may mention; replace it when you want the new text.
+4. Commit `tools/specs/` and the guideline file on their own.
+
 ## 1.3.0
 
 The tools inform; they never stop the work. Every check reports what it found and lets the work go on, unless you ask for a strict run. The hooks ask one question per drift instead of blocking. A bug against a clear specification takes a light path, the guard check says what really happened, and a review keeps the warnings it missed before apart.
