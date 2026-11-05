@@ -69,7 +69,7 @@ change or feature on an existing use case goes to
 that do not block exist, one line reads `To clean (not blocking): N format
 findings in M files. Say "clean the specs" to fix them.`; with every use case
 Done it reads `Nothing in flight; N item(s) to clean.` The tracking part ends
-with `Next up:` (the AH IDs of `AHEAD.md`) and `Debt:` (the bullets of
+with `Next up:` (the AH IDs of `AHEAD.md` with their titles) and `Debt:` (the bullets of
 `ACTIVE.md`'s Debt section, at most five, then "and N more"). Give these lines
 to the person as the report prints them.
 

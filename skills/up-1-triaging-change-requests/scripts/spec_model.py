@@ -20,7 +20,7 @@ import unicodedata
 from typing import NamedTuple, Optional
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.4.0"
+UPSPEC_VERSION = "1.5.0"
 
 # --- vocabulary -------------------------------------------------------------
 
@@ -728,6 +728,7 @@ def read_tracking(root):
     abilities: {AB id: {name, status, specs (use case ids), links}}, the status from the ability's row in any index
     table of ABILITIES.md, else from an old entry's Status line; abilities_present: whether ABILITIES.md exists
     (without it nothing is said about abilities); next_up: AH ids in order; items: {AH id: [AB ids]} from AHEAD's index;
+    item_titles: {AH id: title} from AHEAD's index, else from its Next up line;
     debt: the bullets under ACTIVE's `## Debt`, empty when ACTIVE names another home for the current work."""
     if not a_files_present(root):
         return None
@@ -739,7 +740,7 @@ def read_tracking(root):
     if active_home:
         hot = []                           # the current work lives in the kept file; ACTIVE's own fields are not it
     tracking = {"current_work": _field(hot, "Current work"), "blocked_by": _field(hot, "Blocked by"),
-                "waiting_on_owner": _field(hot, "Waiting on owner"), "debt": _debt(hot), "abilities": {}, "next_up": [], "items": {},
+                "waiting_on_owner": _field(hot, "Waiting on owner"), "debt": _debt(hot), "abilities": {}, "next_up": [], "items": {}, "item_titles": {},
                 "abilities_present": abilities_file.present,
                 "active_home": active_home, "abilities_home": _home(root, _hot_zone(abilities_lines)),
                 "ahead_home": _home(root, _hot_zone(ahead))}
@@ -788,7 +789,72 @@ def read_tracking(root):
                 identifier = row.get("ID", "").strip()
                 if RE_AH_ID.fullmatch(identifier):
                     tracking["items"][identifier] = RE_AB_ID.findall(row.get("Ability", ""))
+                    tracking["item_titles"][identifier] = row.get("Title", "").strip()
+    if "## Next up" in text:
+        for line in text.split("## Next up", 1)[1].split("\n## ", 1)[0].splitlines():
+            listed = re.match(r"^\s*(?:\d+\.|[-*])\s*(AH-\d{3})\s+(\S.*?)\s*$", line)
+            if listed and not tracking["item_titles"].get(listed.group(1)):
+                tracking["item_titles"][listed.group(1)] = listed.group(2)
     return tracking
+
+
+# An identifier in a sentence: not part of a path, a file name or a longer name, and with no parenthesis after it yet.
+RE_TITLED = re.compile(r"(?<![\w/.-])(?:(?P<top>(?:UC|FR|NFR|C|AB|AH)-\d{3})|(?P<inner>BR-\d{3}|A\d+))(?![\w-]|\.\w| \()")
+REQUIREMENT_TITLE_LIMIT = 70
+
+
+def requirement_title(req):
+    """What a person calls a requirement: its Title, or, for a row with only a need, the need without its reason."""
+    text = (req.title or re.split(r"\s+so that\s+", req.text or "", maxsplit=1)[0]).strip().rstrip(".")
+    if len(text) <= REQUIREMENT_TITLE_LIMIT:
+        return text
+    return text[:REQUIREMENT_TITLE_LIMIT].rsplit(" ", 1)[0] + "..."
+
+
+def known_titles(root, docs=None, specs=None):
+    """{identifier: title} for what a report may name: use cases, their rules and flows under 'UC-001 BR-002' and
+    'UC-001 A1', requirements, abilities and AHEAD items. A placeholder or empty title is left out."""
+    titles = {}
+
+    def add(key, title):
+        title = (title or "").strip()
+        if key and title and not _is_empty(title) and not title.startswith("<"):
+            titles[key] = title
+
+    for uc in specs if specs is not None else (load_use_cases(docs) if docs else []):
+        add(uc.id, uc.name)
+        for rule in uc.rules:
+            add("%s %s" % (uc.id, rule.id), rule.name)
+        for flow in uc.flows:
+            add("%s %s" % (uc.id, flow.label), flow.name)
+    if docs and docs.requirements:
+        for req in parse_requirements(docs.requirements)[0]:
+            add(req.id, requirement_title(req))
+    tracking = read_tracking(root)
+    if tracking:
+        for identifier, entry in tracking["abilities"].items():
+            add(identifier, entry["name"])
+        for identifier, title in tracking["item_titles"].items():
+            add(identifier, title)
+    return titles
+
+
+def with_titles(text, titles):
+    """Text for a person: each identifier followed by its title in parentheses. A rule or flow takes the title it has
+    in the use case named before it in the text. An identifier with no known title stays as it is."""
+    owner = [None]
+
+    def name(match):
+        found = match.group(0)
+        if match.group("top"):
+            if found.startswith("UC-"):
+                owner[0] = found
+            title = titles.get(found)
+        else:
+            title = titles.get("%s %s" % (owner[0], found))
+        return "%s (%s)" % (found, title) if title else found
+
+    return RE_TITLED.sub(name, text)
 
 
 # The Decision values of a recovery change log that make it the alignment backlog. Case, emphasis

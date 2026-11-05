@@ -73,7 +73,7 @@ import tempfile
 import time
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.4.0"
+UPSPEC_VERSION = "1.5.0"
 
 sys.dont_write_bytecode = True   # a __pycache__ folder in tools/specs/ would be an unexplained file in every change
 
@@ -415,6 +415,17 @@ def _list_digest(lines):
     return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
 
 
+def _titles(root, docs_rel) -> dict:
+    """The identifiers' titles; none when a file cannot be read, since a title is never worth a failed hook."""
+    import spec_model as model
+    try:
+        folder = os.path.join(root, docs_rel)
+        return model.known_titles(root, model.Docs(folder) if os.path.isdir(folder) else None)
+    except (OSError, UnicodeError, ValueError, AttributeError, KeyError, TypeError) as exc:
+        log(root, "titles", PASS, "titles not read: %s" % exc)
+        return {}
+
+
 def open_list(view, docs_rel, slot) -> list[str]:
     """Read git paths and docs only; reuse validation while its inputs stay unchanged."""
     import spec_model as model
@@ -479,7 +490,7 @@ def open_list(view, docs_rel, slot) -> list[str]:
             slot["validated"] = dict(cache)
         _, errors, warnings, first = stored
         if errors or warnings:
-            label = "- %s (%s): %d errors, %d warnings" % (uc, path, errors, warnings)
+            label = "- %s in %s: %d errors, %d warnings" % (uc, path, errors, warnings)
             if first:
                 label += "; " + first.replace("\n", " ")
             if strict and errors:
@@ -490,6 +501,9 @@ def open_list(view, docs_rel, slot) -> list[str]:
             lines.append("- %s: %s -> %s" % (uc, claim.before or "absent", claim.after))
     current_paths = {value[0] for value in current.values()}
     slot["validated"] = {path: value for path, value in cache.items() if path in current_paths}
+    if lines:
+        titles = _titles(view.root, docs_rel)
+        lines = [model.with_titles(line, titles) for line in lines]
     return lines[:OPEN_LINES] + (["... %d more open items" % (len(lines) - OPEN_LINES)] if len(lines) > OPEN_LINES else [])
 
 
@@ -876,8 +890,11 @@ def _gate_command(root):
     return "python3 " + shlex.quote(here if relative.startswith("..") else relative.replace(os.sep, "/"))
 
 
-def question(root, drifts) -> str:
-    """One question per drift, with what each answer means and the command that records 'later'."""
+def question(root, drifts, titles=None) -> str:
+    """One question per drift, with what each answer means and the command that records 'later'. The drifts' keys keep
+    the bare identifiers; only the text a person reads carries their titles."""
+    import spec_model as model
+    titles = titles or {}
     where = ("as an item in AHEAD.md" if later_destination(root) else
              "as a line in %s in the git folder, listed with the open work at session start" % DEFERRED_NAME)
     lines = [QUESTION_HEADING,
@@ -888,10 +905,10 @@ def question(root, drifts) -> str:
     command = _gate_command(root)
     for number, drift in enumerate(drifts, 1):
         lines.append("")
-        lines.append("%d. %s" % (number, drift.title))
-        lines.extend(drift.detail)
-        lines.append("To align: " + drift.align)
-        lines.append("Later: %s later %s" % (command, shlex.quote(drift.later_text)))
+        lines.append("%d. %s" % (number, model.with_titles(drift.title, titles)))
+        lines.extend(model.with_titles(line, titles) for line in drift.detail)
+        lines.append("To align: " + model.with_titles(drift.align, titles))
+        lines.append("Later: %s later %s" % (command, shlex.quote(model.with_titles(drift.later_text, titles))))
     return "\n".join(lines)
 
 
@@ -910,7 +927,7 @@ def before_stop(view, args, event) -> Verdict:
     detail = "baseline %s; open list %d; drifts %d, new %d" % (label, count, len(drifts), len(new))
     if not new:
         return Verdict(PASS, "", detail)
-    text = question(view.root, new)
+    text = question(view.root, new, _titles(view.root, docs_rel))
     if not remember_asked(view.root, session, docs_rel, [key for drift in new for key in drift.keys]):
         # Asking again at every turn would keep the agent working: without a memory it only informs.
         return Verdict(WARN, "The gate cannot remember what it asked, so it does not ask; for information:\n\n"

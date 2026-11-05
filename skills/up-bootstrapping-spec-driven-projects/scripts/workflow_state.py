@@ -49,7 +49,7 @@ import use_case_map
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.4.0"
+UPSPEC_VERSION = "1.5.0"
 
 PLACEHOLDER = re.compile(r"\[[^\]\n]+\](?!\()")
 SOURCE_SUFFIXES = (".py", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".java", ".kt", ".kts", ".go", ".rb", ".php",
@@ -216,7 +216,7 @@ def focus_of(tracking):
     for item in tracking["next_up"][:1]:
         ids = [uc for ability in tracking["items"].get(item, []) for uc in abilities.get(ability, {}).get("specs", [])]
         if ids:
-            return unique(ids), "AHEAD.md Next up (%s)" % item
+            return unique(ids), "AHEAD.md Next up item %s" % item
     return [], None
 
 
@@ -359,7 +359,13 @@ def collect(docs_dir):
                                  for p, l, c, m in findings]
     state["alignment"] = alignment_view(root, docs, use_cases)
     state["tracking"] = tracking_view(root, use_cases, state["alignment"])
+    state["titles"] = model.known_titles(root, docs, specs)
     return state
+
+
+def named(uc):
+    """A use case as a sentence names it."""
+    return "%s (%s)" % (uc["id"], uc["name"]) if uc["name"] else uc["id"]
 
 
 def decide(state):
@@ -422,12 +428,12 @@ def decide(state):
         for code in ("TEST", "IMPLEMENT", "APPROVE", "WRITE", "REVIEW", "SPECIFY", "BUSINESS_REVIEW"):
             uc = next((u for u in focus if u["next"] == code), None)
             if uc:
-                return step(code, uc["id"], "%s %s has Status %s; %s names it" % (uc["id"], uc["name"], uc["status"], tracking["focus_from"]),
+                return step(code, uc["id"], "%s has Status %s; %s names it" % (named(uc), uc["status"], tracking["focus_from"]),
                             by=uc["by"], what=uc["what"])
     for code in ("TEST", "IMPLEMENT", "APPROVE", "WRITE", "REVIEW", "SPECIFY"):
         uc = first(code)
         if uc:
-            return step(code, uc["id"], "%s %s has Status %s" % (uc["id"], uc["name"], uc["status"]), by=uc["by"], what=uc["what"])
+            return step(code, uc["id"], "%s has Status %s" % (named(uc), uc["status"]), by=uc["by"], what=uc["what"])
     if not specified:
         return step("SPECIFY", None, "no use case is specified yet", what="specify the first use case: one behavior that is contested or unclear today")
     if state["requirements_without_use_case"]:
@@ -439,7 +445,7 @@ def decide(state):
                     what="write a journey test case where use cases hand state to each other")
     uc = first("BUSINESS_REVIEW")
     if uc:
-        return step("BUSINESS_REVIEW", uc["id"], "%s %s has Status Tested" % (uc["id"], uc["name"]), by=uc["by"], what=uc["what"])
+        return step("BUSINESS_REVIEW", uc["id"], "%s has Status Tested" % named(uc), by=uc["by"], what=uc["what"])
     return step("IDLE", None, "Nothing in flight; %d item(s) to clean." % to_clean if to_clean else "every use case is Done",
                 what="nothing is in flight; the next request is classified as a change")
 
@@ -453,6 +459,11 @@ def print_text(state):
         print("  by: %s\n  reason: %s" % (nxt["skill"], nxt["why"]))
         return
     guide = state["guideline"]
+
+    def say(text):
+        """A line a person reads: each identifier with its title."""
+        return model.with_titles(text, state.get("titles", {}))
+
     print("Profile: %s%s" % (guide["profile"] or "not recorded", " (%s)" % guide["file"] if guide["file"] else " (no rules block found in AGENTS.md or CLAUDE.md)"))
     if state.get("notice"):
         print(state["notice"])
@@ -475,7 +486,7 @@ def print_text(state):
     if state["mismatches"]:
         print("Mismatches")
         for item in state["mismatches"]:
-            print("  %s" % item)
+            print("  %s" % say(item))
     blocking = [f for f in state.get("format_findings", []) if f["blocking"]]
     if blocking:
         print("Format findings")
@@ -483,9 +494,9 @@ def print_text(state):
             print("  %s:%d: %s: %s" % (f["path"], f["line"], f["code"], f["message"]))
     nxt = state["next"]
     print()
-    print("Next step: %s%s" % (nxt["code"], " " + nxt["target"] if nxt["target"] else ""))
+    print(say("Next step: %s%s" % (nxt["code"], " " + nxt["target"] if nxt["target"] else "")))
     print("  by:     %s" % nxt["by"])
-    print("  reason: %s" % nxt["reason"])
+    print("  reason: %s" % say(nxt["reason"]))
     print("  when:   no other task is in hand; a fix, change or feature on an existing use case goes to up-1 first")
     if nxt["what"]:
         print("  what:   %s" % nxt["what"])
@@ -499,34 +510,34 @@ def print_text(state):
     alignment = state.get("alignment")
     if alignment and any(alignment[key] for key in ("open", "aligned", "dropped", "undecided")):
         print()
-        print(alignment_line(alignment))
+        print(say(alignment_line(alignment)))
         for warning in alignment["warnings"]:
-            print("  warning: %s" % warning)
+            print("  warning: %s" % say(warning))
         for hint in alignment["ready"]:
-            print("  ready: %s" % hint)
+            print("  ready: %s" % say(hint))
 
     tracking = state.get("tracking")
     if tracking:
         print()
         print("Tracking (A-files)")
-        print("  current work:     %s%s" % (tracking["current_work"] or "none",
-                                            "  (focus: %s, from %s)" % (", ".join(tracking["focus"]), tracking["focus_from"]) if tracking["focus"] else ""))
+        print(say("  current work:     %s%s" % (tracking["current_work"] or "none",
+                                                "  (focus: %s, from %s)" % (", ".join(tracking["focus"]), tracking["focus_from"]) if tracking["focus"] else "")))
         if tracking["blocked_by"]:
-            print("  blocked by:       %s" % tracking["blocked_by"])
+            print("  blocked by:       %s" % say(tracking["blocked_by"]))
         if tracking["waiting_on_owner"]:
-            print("  waiting on owner: %s" % tracking["waiting_on_owner"])
+            print("  waiting on owner: %s" % say(tracking["waiting_on_owner"]))
         for line in tracking["mismatches"]:
-            print("  mismatch:         %s" % line)
+            print("  mismatch:         %s" % say(line))
         for line in tracking["warnings"]:
-            print("  warning:          %s" % line)
+            print("  warning:          %s" % say(line))
         for line in tracking["notes"]:
-            print("  note:             %s" % line)
+            print("  note:             %s" % say(line))
         if tracking["next_up"]:
-            print("  Next up:          %s" % ", ".join(tracking["next_up"]))
+            print("  Next up:          %s" % say(", ".join(tracking["next_up"])))
         if tracking["debt"]:
             print("  Debt:")
             for line in tracking["debt"][:DEBT_SHOWN]:
-                print("    - %s" % line)
+                print("    - %s" % say(line))
             if len(tracking["debt"]) > DEBT_SHOWN:
                 print("    and %d more" % (len(tracking["debt"]) - DEBT_SHOWN))
 

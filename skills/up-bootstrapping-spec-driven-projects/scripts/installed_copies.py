@@ -13,7 +13,7 @@ import tempfile
 
 # Identify the release whose installed copies this module helps update.
 # Keep the installation record beside the scripts it describes.
-UPSPEC_VERSION = "1.4.0"
+UPSPEC_VERSION = "1.5.0"
 BUNDLE_NAME = "upspec-installed.json"
 # Match setup's hook copies without importing a module absent from the migration skill.
 HOOK_SET = ("status_claims.py", "hook_gate.py", "workflow_state.py", "validate_use_case.py", "finish_change.py", "scope_audit.py",

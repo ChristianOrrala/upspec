@@ -2,6 +2,10 @@
 
 All notable changes to upspec. Versions follow semantic versioning.
 
+## 1.5.0
+
+Codes come with their titles. The state report and the hooks' open list and questions print `UC-001 (Book Repair)` instead of `UC-001`. A new rule 11 in the rules block asks the agent to do the same in its messages. `--update` brings the rule to a repository whose rules block is untouched. Files, commit lines, code markers and test names keep the bare identifier.
+
 ## 1.4.0
 
 The skill numbers follow daily use. Triage, which you run before every fix, change or feature, becomes `up-1`, and setup, which you run once per project, loses its number. The state report no longer opens every session with cleanup, and it shows what is waiting.

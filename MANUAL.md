@@ -1,6 +1,6 @@
 # upspec: User Manual
 
-Version 1.4.0
+Version 1.5.0
 
 This manual explains how to install the `upspec` skills, how the work
 they support is organized, and how to carry a piece of work from an idea, a
@@ -148,7 +148,11 @@ first and writes nothing.
 The router (`up-0-navigating-spec-driven-work`) reads the repository's state
 and names the single next step and the skill that performs it. It also gives
 the debt from `ACTIVE.md`, the Next up list from `AHEAD.md` and, when format
-findings exist that do not block, one "to clean" line.
+findings exist that do not block, one "to clean" line. The report and the
+hooks' questions name each use case, rule, requirement, ability and AHEAD item
+with its title, as in `UC-001 (Book Repair)`, and rule 11 of the rules block
+asks the agent to do the same in its messages. Files, commit lines, code
+markers and test names keep the bare identifier.
 
 **A fix, a change or a feature.** Just ask for it:
 
