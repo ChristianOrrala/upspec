@@ -16,36 +16,23 @@ description: >-
 
 # Triaging change requests
 
-Work rarely arrives as a new use case. It arrives as a feature request, a
-change of mind, a bug report, or an alarm in production. In a spec-driven
-project all of them are the same kind of thing: a change to a use case. This
-skill decides which kind, finds what it touches, and makes sure the
-specification moves first.
+Work rarely arrives as a new use case. It arrives as a feature request, a change of mind, a bug report, or an alarm in production. In a spec-driven project all of them are the same kind of thing: a change to a use case. This skill decides which kind, finds what it touches, and makes sure the specification moves first.
 
-It does not diagnose technical faults and it does not write the fix. It makes
-sure that whatever is fixed or built afterwards has a specification behind it.
+It does not diagnose technical faults and it does not write the fix. It makes sure that whatever is fixed or built afterwards has a specification behind it.
 
 Shared paths, identifiers and Status values: [references/conventions.md](references/conventions.md).
 
 ## Before anything is read
 
-Look for the rules block in the guideline file, a vision and specifications
-(the rules block records their folder as `**Specs folder:**`, else `docs`).
-With none of the three, say `No upspec setup here; this task runs outside the method. Say "set up" to start.`, ask nothing and stop; the task goes ahead as ordinary work.
+Look for the rules block in the guideline file, a vision and specifications (the rules block records their folder as `**Specs folder:**`, else `docs`). With none of the three, say `No upspec setup here; this task runs outside the method. Say "set up" to start.`, ask nothing and stop; the task goes ahead as ordinary work.
 
 ## The specification is the arbiter
 
-Read the use case before the code, whatever the report says. A bug report
-describes a disagreement between what someone expected and what the system
-did. Only the specification can say who is right. Reading code first answers a
-different question: what the system does, which the reporter already told you.
+Read the use case before the code, whatever the report says. A bug report describes a disagreement between what someone expected and what the system did. Only the specification can say who is right. Reading code first answers a different question: what the system does, which the reporter already told you.
 
 ## Classify
 
-First restate the report as an element: which use case, which step, flow or
-rule. If you cannot, the report is about behavior no specification describes.
-Then find out whether the system already does it (next section) before you
-choose between outcome 5 and 6.
+First restate the report as an element: which use case, which step, flow or rule. If you cannot, the report is about behavior no specification describes. Then find out whether the system already does it (next section) before you choose between outcome 5 and 6.
 
 Then apply the sign-off test:
 
@@ -64,15 +51,27 @@ Then apply the sign-off test:
 | 3 | Test wrong | Code and specification agree; a test expects something else | The test | Unchanged | `up-8-deriving-use-case-tests` |
 | 4 | Specification ambiguous | Two readers defend two readings; the code picked one | The specification, after the owner chooses | Back to `Reviewed` | As 2 |
 | 5 | Enhancement | The specification is right for what was wanted then | The specification; perhaps a requirement | Back to `Reviewed` | As 2 |
+| 5a | Small change | A behavior change inside one use case's existing steps, rules or flows; it adds no entity and no use case, and changes no interface another use case reads | The specification line | `Draft` or `Reviewed` unchanged; a later active Status back to `Reviewed`; no fresh approval wait | up-7's short path |
 | 6 | New use case | A goal no use case covers | Requirement, diagram, new specification | New file starts `Draft` | `up-2-cataloging-requirements`, `up-4-mapping-use-cases`, `up-5-writing-use-case-specs` |
 | 7 | No behavior change | Refactoring, a dependency update, performance inside an existing threshold, infrastructure | Nothing | Unchanged | Proceed; the change carries the line `No behavior change: UC-012`, naming the use case it stays in |
 
+A request authorizes what it asks to happen now, under its stated conditions; preparing for approval authorizes preparation only. A reserved approval requires an owner reply granting the named slice; record its date and words. An agent-written record, tests, a review verdict, a status label or an answer to another question cannot grant it. If a reply is unclear or approves one slice and defers another, work on the approved slice, do as much as it allows, state your reading and say what still waits. A missing specification, format or lint warning, or an open technical name adds no condition. For outcome 6, when the owner explicitly requests the uncovered behavior in this session, say no use case covers it, record the missing use case to write as open work (with the A-files, an item in `AHEAD.md`; otherwise, where upspec's hooks are installed, the deferred list through the hook's `later` command; with neither, name the missing use case in the report and in the commit message), and do the requested work. Agents set `Implemented` and `Tested` when the evidence exists; only a person sets `Approved` and `Done`.
+
+A name or signature the specification leaves open (function, module, file or parameter) is a technical choice (rule 8): pick one, list it in the invention list and go on. Where the specification names an interface, its names bind. Ask about a behavior decision that changes an outcome that the request or specification names; otherwise record the closest reading as an assumption and name it in the handoff.
+
 Details and examples for each: [references/outcomes.md](references/outcomes.md).
+
+## The short path for a small change
+
+Small change is a route within outcome 5, not a new change-record outcome. Run `scripts/impact.py` for the changed element, or read the other use cases' references to it. If another use case reads the changed interface, take the full path.
+
+The owner's request grants the slice under its conditions, including editing an `Approved` line: record the request’s date and words beside the changed specification line. Implement without waiting for fresh approval. A `Draft` or `Reviewed` Status stays as the person set it; a later active Status (`Approved`, `Implemented`, `Tested`, `Done`) goes down to `Reviewed` for the specification edit. A person sets `Approved` or `Done`; the agent never does. Name the resulting Status in the handoff. Acceptance outstanding is not blocked.
+
+A small change gets no change record. Route it to `up-7-implementing-use-cases`: change the specification line, pin it with a test, make the change, run the validator and tests, and put one change-log line in the commit message. Skip the element-to-code table, full invention list unless an invention appears, specification's delta and test derivation. Only a person accepts. The bug light path remains distinct; a change that meets neither path takes the full path.
 
 ## The light path
 
-Triage writes a change record for the outcomes that change a specification:
-2, 4, 5 and 6. The record is the agreement that the review, the
+Triage writes a change record for outcomes 2, 4, 5 and 6, except for a small change on the short path and the explicit uncovered request above. The record is the agreement that the review, the
 implementation and its finish check read. The other three outcomes change no
 specification and get no change record.
 
@@ -91,10 +90,10 @@ specification and get no change record.
   4. The note `Fixes: UC-002 BR-005` in the commit message, naming the use
      case and the element. The spec-first guard and the agent hooks read it
      and do not report the change as code without a specification. Before
-     the commit, the end-of-turn question comes once for the fix; the fitting
-     answer is "at the end of the session" (the commit with its note closes
-     it) or "now", not "later". A `Fixes:` line that names no use case, such
-     as an issue reference, is not the note.
+     the commit, a stop sends the agent one note about the fix, not a
+     question to the owner; commit the fix with its `Fixes:` line, which
+     closes the note. A `Fixes:` line that names no use case, such as an
+     issue reference, is not the note.
 
   No change record, finish check, test derivation or audit. Status stays where
   it is.
@@ -198,7 +197,7 @@ markers. Status changes need no regeneration.
 
 ## Specification first, always
 
-For outcomes 2, 4, 5 and 6 the specification changes before any code:
+For outcomes 2, 4, 5 and 6 the specification changes before any code. The small change short path above replaces the following full path:
 
 1. Hand the specification change to `up-5-writing-use-case-specs` with what was
    decided.
@@ -238,7 +237,7 @@ foreign-key exception), however urgent the fix.
    names. If no specification describes the behavior, check whether the system
    already has it; if so, follow the section above before classifying.
 3. Classify with the sign-off test. State the outcome and why. For outcome 7,
-   give the line `No behavior change: UC-NNN` and stop.
+   give the line `No behavior change: UC-NNN` and stop. If it qualifies for the small change short path, apply the approval rule and hand it to up-7; do not continue through the full workflow below.
 4. Run `impact.py` for the identifiers and nouns involved, state the size line.
 5. For outcomes 2, 4, 5: ask the owner to confirm the classification and the
    decision. For outcome 6: confirm it is in scope.
@@ -272,7 +271,7 @@ Before handing over:
   constraint, the relationship), with the reason.
 - For anything but outcomes 1, 3 and 7, the specification change is described
   and the Status reset is stated.
-- A change record exists for outcomes 2, 4, 5 and 6 only. For outcome 1 the
+- A change record exists for outcomes 2, 4, 5 and 6 only, except the short path and the explicit uncovered request. For outcome 1 the
   hand-over names the failing test and the note `Fixes: UC-XXX <element>`;
   for a foreign-key constraint, the destructive path of the schema procedure
   with the owner's yes (The foreign-key exception).

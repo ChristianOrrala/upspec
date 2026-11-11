@@ -40,13 +40,18 @@ One use case per pull request, containing the specification change and all
 code and tests that follow from it. The reviewer can then judge one thing:
 does this code do what this specification says?
 
+A name or signature the specification leaves open (function, module, file or
+parameter) is a technical choice (rule 8): pick one, list it in the invention
+list and go on. Where the specification names an interface, its names bind.
+Ask about a behavior decision that changes an outcome that the request or specification names; otherwise record the closest reading as an assumption and name it in the handoff.
+
 The template (`pull-request.md` in this skill's templates) fixes the review
 order:
 
 1. **The specification change.** Is this the behavior we want? If not, stop:
    nothing below matters yet.
 2. **The invention list.** What did the implementation decide that the
-   specification left open? Behavior items go to the owner.
+   specification left open? Behavior decisions that change the authorized slice go to the owner.
 3. **The code against the specification.** Does it do that, and only that?
 4. **The tests.** Is every flow and every rule exercised, on both sides of
    each boundary?

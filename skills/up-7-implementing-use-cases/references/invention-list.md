@@ -8,16 +8,22 @@ An invention is any decision you make that the use case, its linked
 requirement rows, the entity model and the guideline file did not make for
 you.
 
+A name or signature the specification leaves open (function, module, file or
+parameter) is a technical choice (rule 8): pick one, list it in the invention
+list and go on. Where the specification names an interface, its names bind.
+Ask about a behavior decision that changes an outcome that the request or specification names; otherwise record the closest reading as an assumption and name it in the handoff.
+
 ## The four tags
 
 | Tag | Test | What happens to it |
 |---|---|---|
-| `behavior` | Could a stakeholder observe the difference between two reasonable choices? Could a test assert it? | **Stop and ask.** The answer goes into the specification |
+| `behavior` | Does the choice change what an actor does or what the system answers? | Record a reading; ask if it changes a named outcome. The answer goes into the specification |
 | `data` | Is the shape or meaning of a business noun undefined? | Ask. The answer goes into the entity model |
-| `mechanism` | Is it only about how the system is built? | Decide from the guideline file and existing code. A new project-wide choice goes into the guideline file; a one-off into a decision record |
-| `free` | Nobody could tell the difference, or the specification leaves it open on purpose (a label, a layout, an internal name) | Decide, list it, move on. It may differ in another implementation |
+| `mechanism` | Is it only about how the system is built, including an unspecified name or signature? | Decide from the guideline file and existing code. A new project-wide choice goes into the guideline file; a one-off into a decision record |
+| `free` | Nobody could tell the difference, or the specification leaves it open on purpose (a label or a layout) | Decide, list it, move on. It may differ in another implementation |
 
-When unsure between `behavior` and `free`, it is `behavior`.
+When unsure between `behavior` and `free`, it is `behavior`. Unspecified
+names and signatures are `mechanism`; do not turn them into behavior questions.
 
 ## Finding the items
 
@@ -52,13 +58,7 @@ UC-012 step 7 [behavior]: "System confirms that the task was assigned."
   (b) only that it succeeded
 ```
 
-Ask the behavior items together, most consequential first. Do not ask about
-mechanism.
-
-If the owner answers and tells you to proceed, implement the chosen reading
-and report it under "asked". The specification still has to change; say so in
-the hand-off. If nobody can answer, leave that part unimplemented and say so.
-Do not pick a reading silently.
+For every unanswered behavior item, choose the reading closest to the specification and record it in the invention list as an assumption. Ask when the choice changes an outcome that the request or specification names, most consequential first. Otherwise use the recorded reading. Never decide silently; name the recorded reading in the handoff. The answer goes into the specification. If the owner says to continue without answering, implement the recorded reading. While a required behavior answer has not arrived, that behavior stays unimplemented unless the owner authorizes the recorded reading, and the independent authorized work goes on. Do not ask about mechanism.
 
 ## Where the list lives
 

@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.5.0"
+UPSPEC_VERSION = "1.7.2"
 
 REQUIRED_SECTIONS = ("Main Success Scenario", "Alternative Flows", "Postconditions")
 EXPECTED_SECTIONS = ("Preconditions", "Business Rules")
@@ -73,6 +73,10 @@ def _first_words_ok(text, actors):
 def check_use_case(uc, report, entity_nouns=(), catalog_exists=False):
     """Append findings for one parsed use case to the reporter."""
     path, uid = uc.path, uc.id or os.path.basename(uc.path)
+    for section, title, line in uc.duplicate_sections:
+        report.error(path, line, "DUPLICATE_SECTION", uid,
+                     "section '## %s' duplicates '## %s' at line %d" %
+                     (title, uc.section_titles[section], uc.section_lines[section]))
     if uc.is_stub:
         return
     if uc.title is None:

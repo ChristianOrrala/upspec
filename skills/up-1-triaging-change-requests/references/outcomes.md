@@ -101,9 +101,21 @@ something else is wanted: a changed rule, another field, a different flow.
   scope in the vision, the vision's Scope section first, by the owner.
 - **Status reset:** back to `Reviewed`.
 
+A name or signature the specification leaves open (function, module, file or
+parameter) is a technical choice (rule 8): pick one, list it in the invention
+list and go on. Where the specification names an interface, its names bind.
+Ask about a behavior decision that changes an outcome that the request or specification names; otherwise record the closest reading as an assumption and name it in the handoff.
+
 ## 6. New use case
 
-A goal no existing use case covers.
+A goal no existing use case covers. When the owner explicitly requests the behavior
+in this session, say no use case covers it, record the missing use case to write
+as open work (with the A-files, an item in `AHEAD.md`; otherwise, where
+upspec's hooks are installed, the deferred list through the hook's `later`
+command; with neither, name the missing use case in the report and in the
+commit message), and do the requested work. Agents set `Implemented` and `Tested`
+when evidence exists; only a person sets `Approved` and `Done`. The usual
+specification steps below remain open work; they do not block this request.
 
 - **Check first** that it is not an alternative flow of an existing use case,
   that it is in scope, and that the system does not already do it. Behavior

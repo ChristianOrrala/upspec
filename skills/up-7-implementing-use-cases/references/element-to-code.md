@@ -67,6 +67,11 @@ flow unless a step says so.
 - Handling for conditions the specification ruled out by a precondition.
 - A secondary actor's own behavior.
 
-If the code seems to need something the specification does not say (an error
-with no flow, an input with no rule), that is a gap. Put it on the invention
-list as `behavior` and ask.
+If an actor action or system answer needs something the specification does
+not say (an error with no flow, an input with no rule), put that gap on the
+invention list as `behavior` and apply the rule below.
+
+A name or signature the specification leaves open (function, module, file or
+parameter) is a technical choice (rule 8): pick one, list it in the invention
+list and go on. Where the specification names an interface, its names bind.
+Ask about a behavior decision that changes an outcome that the request or specification names; otherwise record the closest reading as an assumption and name it in the handoff.

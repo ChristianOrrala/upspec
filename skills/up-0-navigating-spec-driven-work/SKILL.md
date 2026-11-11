@@ -62,6 +62,8 @@ current work does not name as a mismatch, and warns when an ability's status
 disagrees with its use cases. Without `ABILITIES.md` it says nothing about
 abilities.
 
+Check the source before honoring a carried-over blocker and say so. Show implemented and tested work as acceptance outstanding, not blocked; unrelated work goes on. Fix a validator or lint finding, or report it as a tool defect; ask the owner only when it raises a behavior question. Route the fix to the appropriate skill.
+
 The report you pass on has the same parts each time for the same files. The
 Next step block carries a `when:` line (not for MIGRATE): no other task is in hand, and a fix,
 change or feature on an existing use case goes to
@@ -217,8 +219,8 @@ the model.
    rule has a named, passing test and the coverage audit shows it. Never
    propose a Status the evidence does not carry.
    With the A-files, say first what blocks the work or waits on the owner,
-   name the current work, and give each mismatch and warning as something the
-   owner resolves in `ACTIVE.md` or `ABILITIES.md`; you change neither. When a recovery left an alignment backlog, give its count line, its `ready` hints and its warnings; the count never changes the next step.
+   name the current work, and give each mismatch and warning with the appropriate
+   next action in `ACTIVE.md` or `ABILITIES.md`; you change neither. When a recovery left an alignment backlog, give its count line, its `ready` hints and its warnings; the count never changes the next step.
 6. If a slice is in flight on the same use case, say to finish it first.
 
 ## Validation

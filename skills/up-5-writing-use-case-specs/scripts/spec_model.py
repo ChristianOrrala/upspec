@@ -20,7 +20,7 @@ import unicodedata
 from typing import NamedTuple, Optional
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.5.0"
+UPSPEC_VERSION = "1.7.2"
 
 # --- vocabulary -------------------------------------------------------------
 
@@ -1236,6 +1236,18 @@ class _WithFrontMatter:
         return self.front_matter.problems
 
 
+USE_CASE_SECTIONS = {title.casefold(): title for title in (
+    "Goal", "Trigger", "Preconditions", "Main Success Scenario", "Alternative Flows",
+    "Postconditions", "Business Rules",
+)}
+
+
+def canonical_section(title: str) -> str:
+    """Match known use case sections while leaving custom titles unchanged."""
+    normalized = " ".join(title.split()).removesuffix(":").strip().casefold()
+    return USE_CASE_SECTIONS.get(normalized, title)
+
+
 class UseCase(_WithFrontMatter):
     def __init__(self, path):
         self.path = path
@@ -1243,7 +1255,9 @@ class UseCase(_WithFrontMatter):
         self.title_line = 0
         self.front_matter = FrontMatter()
         self.is_stub = False
-        self.section_lines = {}      # section title -> heading line
+        self.section_lines = {}      # canonical section name -> first heading line
+        self.section_titles = {}     # canonical section name -> first title as written
+        self.duplicate_sections = []  # (canonical name, title as written, heading line)
         self.preconditions = []      # (line, text)
         self.steps = []
         self.flows = []
@@ -1333,19 +1347,24 @@ def parse_use_case_lines(lines, path):
                 uc.title_line = number
             continue
         if line.startswith("## "):
-            section, sub, flow, rule = line[3:].strip(), None, None, None
-            uc.section_lines[section] = number
+            title = line[3:].strip()
+            section, sub, flow, rule = canonical_section(title), None, None, None
+            if section in uc.section_lines:
+                uc.duplicate_sections.append((section, title, number))
+            else:
+                uc.section_lines[section] = number
+                uc.section_titles[section] = title
             continue
         if line.startswith("### "):
             sub = line[4:].strip()
             flow = rule = None
             if section == "Alternative Flows":
-                match = re.match(r"^(A\d+)\s*:\s*(.*)$", sub)
-                flow = Flow(match.group(1) if match else sub, match.group(2) if match else "", number)
+                match = re.match(r"^(A\d+)\s*:\s*(.*)$", sub, re.IGNORECASE)
+                flow = Flow(match.group(1).upper() if match else sub, match.group(2) if match else "", number)
                 uc.flows.append(flow)
             elif section == "Business Rules":
-                match = re.match(r"^(BR-\d+)\s*:\s*(.*)$", sub)
-                rule = Rule(match.group(1) if match else sub, match.group(2) if match else "", number)
+                match = re.match(r"^(BR-\d+)\s*:\s*(.*)$", sub, re.IGNORECASE)
+                rule = Rule(match.group(1).upper() if match else sub, match.group(2) if match else "", number)
                 uc.rules.append(rule)
             continue
         if not stripped:

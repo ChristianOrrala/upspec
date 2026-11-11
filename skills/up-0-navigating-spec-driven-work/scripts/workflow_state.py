@@ -49,7 +49,7 @@ import use_case_map
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.5.0"
+UPSPEC_VERSION = "1.7.2"
 
 PLACEHOLDER = re.compile(r"\[[^\]\n]+\](?!\()")
 SOURCE_SUFFIXES = (".py", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".java", ".kt", ".kts", ".go", ".rb", ".php",

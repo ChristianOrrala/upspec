@@ -8,7 +8,7 @@ files and each tool's delivery limits are in `agent-hook-examples.md`.
 - The four hooks and results
 - Generate, review, approve
 - Integration branch
-- Status claims and the one question
+- Status claims, decisions and notes
 - Updating installed copies
 - Proving each hook
 - Recording what was wired
@@ -21,10 +21,10 @@ files and each tool's delivery limits are in `agent-hook-examples.md`.
 | Session starts or resumes | `hook_gate.py session-start` | A session snapshot, the specification state, next step and open-work list |
 | After a file write or edit | `hook_gate.py after-edit` | Validation of the edited use case specifications, as information |
 | Before the agent reads a prompt | `hook_gate.py turn-start` | The open-work list, only when it changed; always exits 0 |
-| Before the agent ends its turn | `hook_gate.py before-stop` | One question for the person per drift, each asked once per session |
+| Before the agent ends its turn | `hook_gate.py before-stop` | Owner decisions asked once; routine notes handed to the agent once |
 
 The tools inform; they never stop the work. No hook blocks, refuses or keeps
-the agent working, except to ask the one question at the end of a turn.
+the agent working, except to deliver decisions and notes once at the end of a turn.
 One gate owns the policy. Each firing uses one view of the change and runs
 the checks in one process; a failed record does not prevent checking others.
 The open-work list reads git paths and specification artifacts only, never source files or the finish check.
@@ -35,7 +35,7 @@ never reimplements a check or guesses the tool from environment variables.
 |---|---|---|
 | 0 | Pass | Session and turn-start text becomes context where supported |
 | 1 | Warn | Information, never blocking; after an edit the findings reach the agent as context where the tool allows, elsewhere they are shown where a warning channel exists |
-| 2 | Ask | Only at the stop: the questions for the person, delivered by continuing the agent's turn once; at any other moment rendered as a warning |
+| 2 | Ask | Only at the stop: owner questions and/or agent notes, delivered by continuing the agent's turn once; at any other moment rendered as a warning |
 | 3 | The gate could not run | Never blocks; shown where the tool permits a warning |
 
 These are the gate's internal results, not universal shell exit meanings.
@@ -123,7 +123,7 @@ base, only uncommitted changes count. Committed pins and tracking warnings
 compare against HEAD when it exists, while the header still names the base
 as `none`. The log names the selected ref and its source. Use an override when detection does not describe the change.
 
-## Status claims and the one question
+## Status claims, decisions and notes
 
 Session start records each use case's Status by id and HEAD in its own
 git-folder file, `up-session-<key>.json`. The key is the first sixteen hex
@@ -163,16 +163,12 @@ spec-first guard reads it: behavior code outside the specification folder,
 tests and `tools/specs/` excluded, with no specification change, no
 `No behavior change:` line and no `Fixes: UC-XXX` note in the change's commit
 messages. The note counts once it is in a commit message. A light-path
-fix is no exception before that: its uncommitted code is asked once at the
-end of the turn, like any other, and the question says which answer fits.
-The fix is committed with its note in the same session, so the person
-answers "at the end of the session", or aligns it now; "later" would add an
-item for work the commit closes. The question is asked before the commit,
-so a fix written and committed in one turn, before any stop, is asked only
-while the change still holds that commit (a fix branch); on the integration
-branch, where the base moves with the commit, it is not asked. Code that
-reaches the session through a pull or a merge is on the base, not in the
-change, and is not asked. A broken A-files
+fix is noted once before its commit. The agent commits it with the `Fixes:`
+note in the same session; no scheduling question is needed. A fix written
+and committed in one turn is noted only while the change still holds that
+commit (a fix branch); on the integration branch, where the base moves with
+the commit, it is not noted. Code that reaches the session through a pull or
+a merge is on the base and is not noted. A broken A-files
 shape is what the project's own `tools/check_tracking.py` reports, run as a
 command with `--strict` (without it for an earlier check that does not know
 the option): exit 1 and its `path:line: ERROR CODE: message` lines are the
@@ -180,22 +176,38 @@ drift. A check that cannot run is logged and skipped. Specification
 errors are never a drift at the stop. The early migration notice still warns
 at session start and at the stop.
 
-Each drift not asked yet in this session becomes one question for the person,
-all in one message, the result 2: align it now, at the end of the session, or
-later. The message says what each answer means: now, align it in this
-session; end of the session, leave it and remind the person once when the
-session ends; later, run the item's `hook_gate.py later TEXT` command. That
-command adds an item to `AHEAD.md` (kind `idea`, state `open`, with its
-entry under Items) when the project uses the A-files and its AHEAD keeps the
-index and the Items section; otherwise it appends a line to `up-deferred.txt`
-in the git folder, which the open-work list shows at session start until the
-line is removed. A drift recorded before is not recorded again. The session snapshot remembers which drifts were asked, so
-the same drift is never raised again in that session, whatever the answer;
-a new session asks again. If the git folder cannot be written, a file in the
-system's temporary folder remembers them (the stop removes such files left
-untouched for a day); if neither can be written, the stop
-does not ask and passes the text on as a warning. With no new drift, the stop
-prints nothing and passes.
+Each drift is a decision or a note. A decision is a
+Status only a person sets (`Approved`, `Done`) that the change sets or relies
+on, or work the owner reserved for approval. Unsupported `Implemented` or
+`Tested` claims, open change records, code without a specification and
+A-files findings are notes. The gate uses the claim's Status and explicit
+reserved-approval metadata; it never infers approval from prose or a label.
+
+Each new decision asks the person once: align now, at the end of the session,
+or later. Now means align it in this session; end of the session means leave
+it and remind the person once at session end; later runs the item's
+`hook_gate.py later TEXT` command. That command adds an `AHEAD.md` item
+(kind `idea`, state `open`, with its entry under Items) when the A-files
+index and Items section are present; otherwise it appends to
+`up-deferred.txt` in the git folder, shown as open work at session start.
+A drift recorded before is not recorded again.
+
+Notes go to the agent as one list: the records out of step and what aligns
+each. It explicitly says none needs the owner, and asks the agent to align
+them now or list them in its handoff within the current task's authorization.
+It offers no now / end of session / later choices. For an explicit request
+for uncovered behavior, record the missing use case as open work directly
+with `hook_gate.py later TEXT`; no owner question is needed.
+
+Both kinds use result 2 on the existing before-stop channel, continuing the
+agent's turn once to receive the message. A mixed stop combines the decision
+question and notes in that one message. The result's historical name is
+`ASK`; notes do not ask the owner anything. The hook never forces alignment.
+The snapshot's `asked` list remembers both kinds by key, so neither is sent
+twice in a session; a new session can receive them again. If the git folder
+cannot be written, a temporary file remembers them (removed after a day
+untouched); if neither can be written, the stop only warns. With no new
+drift, it prints nothing and passes.
 
 The open-work list holds open records, changed use cases' finding counts and
 first error, raises against the change's base, and broken use cases at
@@ -224,9 +236,9 @@ the record's path, the change that code without a specification belongs to,
 known by the name of its base and the current branch, each A-files finding by
 its path, its code and what its message names), never by its problem text, so
 changed line numbers, a count that grows, more code in the same change, more
-commits or pushes on the same branch, or a shorter problem list do not ask
-again, and a new record or finding of the same kind is asked about once. A
-base with no name is known by its commit. Without a session id the questions are
+commits or pushes on the same branch, or a shorter problem list do not send
+again, and a new record or finding of the same kind is sent once. A
+base with no name is known by its commit. Without a session id both kinds are
 remembered under one shared slot. Report what remains rather than inventing
 specification content.
 
@@ -290,11 +302,13 @@ trusted, and check both the tool's behavior and the git-folder log:
    list reaches the agent. An unchanged list prints nothing; an emptied one
    is announced once. Check `turn-start exit=0` and verify timeout or failure
    also lets the prompt through.
-4. **The question:** raise an Approved use case to Implemented without its
-   evidence. The log shows `before-stop exit=2`, and the agent asks the
-   person: align now, at the end of the session, or later. End another turn:
-   the log shows `before-stop exit=0` and nothing is asked again. Restore the
-   Status; a broken Draft spec is never asked about.
+4. **Decisions and notes:** raise an Approved use case to Implemented without
+   its evidence. The log shows `before-stop exit=2`, and the agent receives
+   a note to align or include in its handoff, with no owner question. End
+   another turn: `before-stop exit=0`, with no repeated note. Restore the
+   Status. Raise it to Done without its evidence: the agent asks the person
+   once, with the three scheduling choices. Restore the Status again;
+   a broken Draft specification is never asked about.
 
 The log records internal results, which can differ from the command's exit
 code. Verify the tool version, warning delivery and trust behavior too.

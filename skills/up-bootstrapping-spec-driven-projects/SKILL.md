@@ -64,8 +64,8 @@ for an existing team: [references/profiles.md](references/profiles.md).
 ## Scaffold
 
 ```bash
-python3 scripts/scaffold_docs.py --root . --profile solo
-python3 scripts/scaffold_docs.py --root . --profile team --host github
+python3 "<skill-folder>/scripts/scaffold_docs.py" --root . --profile solo
+python3 "<skill-folder>/scripts/scaffold_docs.py" --root . --profile team --host github
 ```
 
 The script is in this skill's folder; use the base directory shown when the skill
@@ -202,20 +202,22 @@ not install a hook without asking: hooks change how every commit behaves.
 
 With the solo and team profiles, offer four hooks: session state and the
 open-work list at session start, validation after specification edits, the
-open-work list at turn start, and a stop that asks the person one question
-per drift: a Status raised without its evidence, an open change record, code
-changed without a specification, a broken A-files shape. The question is
-align now, at the end of the session, or later; each drift is asked once per
-session. No hook blocks or keeps the agent working, except that stop: it
-continues the agent's turn once, so that the agent can ask. All four call
-`scripts/hook_gate.py`; `scripts/scaffold_docs.py --hooks` copies it into
+open-work list at turn start, and a stop that classifies drift. Only a Status
+reserved for a person (`Approved`, `Done`) or work reserved for the owner's
+approval asks a question: align now, at the end of the session, or later.
+Routine drift (unsupported `Implemented` or `Tested`, an open change record,
+code without a specification, a broken A-files shape) goes to the agent as
+one list to align or include in its handoff, without a question. Each key is
+sent once per session; mixed decisions and notes share one message. No hook
+forces alignment; the stop continues the agent's turn once to deliver it. All four call
+`scripts/hook_gate.py`; `python3 "<skill-folder>/scripts/scaffold_docs.py" --hooks` copies it into
 `tools/specs/` with the scripts it calls.
 Offer `--pre-push` in either profile, using [templates/pre-push.sh](templates/pre-push.sh); [references/profiles.md](references/profiles.md) explains placement and CI's authority.
 
 Generate with `--hooks --tool <tool>`, review, then approve `--apply`, following
 [references/agent-hooks.md](references/agent-hooks.md); labeled examples for
 four tools are in [references/agent-hook-examples.md](references/agent-hook-examples.md).
-For installed copies, use `scaffold_docs.py --update` as the reference explains.
+For installed copies, use `python3 "<skill-folder>/scripts/scaffold_docs.py" --update` as the reference explains.
 You prepare the configuration and show it; the person turns it on. Never
 bypass or widen permissions for it. A hook is done once it was seen firing,
 and a `**Hooks:**` line under the profile in the rules block records it.
@@ -225,7 +227,7 @@ When the person has not turned them on yet, end with the three proof steps of th
 
 1. Decide the profile with the deciding question and the number of people and
    agents working in parallel. For throwaway, write the one line and stop.
-2. Run `scripts/scaffold_docs.py` without `--apply` and show the plan. Ask
+2. Run `python3 "<skill-folder>/scripts/scaffold_docs.py"` without `--apply` and show the plan. Ask
    the questions of "Existing structure and the A-files" when the plan names
    specifications elsewhere or the project has no A-files.
 3. After a yes, run it with `--apply`. With the A-files, run
@@ -289,7 +291,7 @@ need no regeneration.
 A repository with a `CLAUDE.md` of stack rules; one developer.
 
 ```text
-$ python3 scripts/scaffold_docs.py --root . --profile solo
+$ python3 "<skill-folder>/scripts/scaffold_docs.py" --root . --profile solo
 Plan: nothing written; add --apply to write (profile solo, host none)
   create docs/vision.md
   create docs/use_cases/.gitkeep  (keeps the empty folder under version control)

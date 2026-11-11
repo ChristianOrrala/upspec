@@ -2,6 +2,37 @@
 
 All notable changes to upspec. Versions follow semantic versioning.
 
+## 1.7.2
+
+- The session-start hook opens its context with one light note to the agent: before the first edit, say where things stand in four short lines (Finished, Remaining, Blocked by, Next step), or in one short line when the request already says exactly what to do. It goes to the agent only, never blocks or asks the owner, appears at session start only and counts inside the sixty-line budget (0053, AB-047).
+
+**What an upgrade asks of you:** update the plugin. In each project with installed copies, run `scaffold_docs.py --update`, review its plan and apply the agreed updates.
+
+## 1.7.1
+
+- The short path for a small change keeps a `Draft` or `Reviewed` Status as the person set it and lowers only a later active Status (`Approved`, `Implemented`, `Tested`, `Done`) to `Reviewed` for the specification edit; up-1, up-7 and the manual now agree with the request-grants-the-slice rule.
+- The bug light path describes the hook's one-time note to the agent and the commit with its `Fixes:` line that closes it; it no longer tells the agent to answer an end-of-turn question for the owner.
+- The invention list says what stays unimplemented while a required behavior answer has not arrived: that behavior, unless the owner authorizes the recorded reading, while independent authorized work goes on.
+
+## 1.7.0
+
+- Use case section headings now match regardless of case, repeated spaces or a trailing colon; duplicate sections are reported. Flow and rule identifiers match regardless of case.
+- Before stopping, the hook asks only about decisions the owner must make. Routine drift reaches the agent as notes to align or include in its handoff (0051).
+- Install commands quote the plugin path, including paths with spaces.
+- A request authorizes the work it asks for now under its stated conditions. Reserved approval requires an owner reply granting the named work; an agent's record cannot supply it (0048).
+- The agent fixes validator and lint findings or reports a tool defect; acceptance still due is not a blocker (0049).
+- A small change within one use case can follow a short path: update the specification, pin it with a test, implement it, run the validator and tests, and add a change-log line (0050).
+
+**What an upgrade asks of you:** update the plugin. In each project with installed copies, run `scaffold_docs.py --update`, review its plan and apply the agreed updates.
+
+## 1.6.0
+
+A name or signature the specification leaves open is a technical choice: the agent picks one, lists it in the invention list and goes on; specified interface names bind, and the agent still asks about open behavior a user of the system observes.
+
+When the owner explicitly requests behavior no use case covers, the agent names the gap, records the missing use case as open work, and does the requested work. Agents set Implemented and Tested when evidence exists; a person sets Approved and Done. Existing Draft and Reviewed use cases still go through their approval gate.
+
+The stop hook advises answering "later" with the missing use case when the owner explicitly requested uncovered behavior in the session, recording the gap as open work.
+
 ## 1.5.0
 
 Codes come with their titles. The state report and the hooks' open list and questions print `UC-001 (Book Repair)` instead of `UC-001`. A new rule 11 in the rules block asks the agent to do the same in its messages. `--update` brings the rule to a repository whose rules block is untouched. Files, commit lines, code markers and test names keep the bare identifier.

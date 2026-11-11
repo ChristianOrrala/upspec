@@ -1,6 +1,6 @@
 # upspec: User Manual
 
-Version 1.5.0
+Version 1.7.2
 
 This manual explains how to install the `upspec` skills, how the work
 they support is organized, and how to carry a piece of work from an idea, a
@@ -65,8 +65,16 @@ outside the project's folder.
 - An agent that loads skills: Claude Code, or another agent that reads skill
   folders (see [section 11](#11-working-with-different-agents-and-models)).
 
-Nothing is installed into your project by the skills themselves, and no
-script sends anything over the network.
+Installing the project layout and checks reads the plugin's folder: run
+`python3 "<skill-folder>/scripts/scaffold_docs.py" --root . --profile solo`
+in place from the setup skill's base directory, first for its plan, then
+with `--apply` after agreement. Keep the script path quoted when substituting
+the installed folder, including a folder with spaces. The script writes
+the agreed files into the project; the agent does not run a copy command.
+A tool's permission mode may ask for access to that folder. If a step is
+refused or fails, report the command, what is installed and what is missing,
+and commit nothing half-written. Resolve that access or failure before
+resuming. No script sends anything over the network.
 
 ### Claude Code
 
@@ -154,6 +162,16 @@ with its title, as in `UC-001 (Book Repair)`, and rule 11 of the rules block
 asks the agent to do the same in its messages. Files, commit lines, code
 markers and test names keep the bare identifier.
 
+**What authorizes work.** A request authorizes what it asks to happen now, under its stated conditions; preparing for approval authorizes preparation only. A reserved approval requires an owner reply granting the named slice; record its date and words. An agent-written record, tests, a review verdict, a status label or an answer to another question cannot grant it. If a reply is unclear or approves one slice and defers another, work on the approved slice, do as much as it allows, state your reading and say what still waits. A missing specification, format or lint warning, or an open technical name adds no condition.
+
+**An explicit request outside the specifications.** When you explicitly ask in
+the session for behavior no use case covers, the agent says so, records the
+missing use case to write as open work (with the A-files, an item in `AHEAD.md`; otherwise, where
+upspec's hooks are installed, the deferred list through the hook's `later`
+command; with neither, name the missing use case in the report and in the
+commit message), and does the work. A behavior decision goes back to you when it changes an outcome named by the request or specification. Agents set Implemented
+and Tested when evidence exists; only a person sets Approved and Done. A reserved approval still holds until you grant it.
+
 **A fix, a change or a feature.** Just ask for it:
 
 > Members can borrow a sixth book. Bug or feature?
@@ -206,6 +224,11 @@ A use case is one goal of one actor, reached in one sitting: *Book a repair*,
 | Postconditions | What is true on success, and what is guaranteed on every failure |
 | Business rules (`BR-001`, ...) | Named decisions with boundary examples |
 
+Use case section headings match regardless of letter case, repeated spaces or a
+trailing colon: `## Main success scenario` and `## Main  Success Scenario:`
+name the same section. Two headings with the same canonical name are reported
+as `DUPLICATE_SECTION`; diagnostics keep the headings as written.
+
 A specification says what a stakeholder can observe and a test can verify. It
 says nothing about how the system does it.
 
@@ -255,8 +278,13 @@ specification.
 
 When the agent must decide something the specification does not settle, it
 lists the decision instead of hiding it: in the specification's hand-off, in
-the change record's assumptions, and in the implementation report. Behavior
-you could observe is a question for you; a free detail is declared as free.
+the change record's assumptions, and in the implementation report. A free
+detail is declared as free.
+
+A name or signature the specification leaves open (function, module, file or
+parameter) is a technical choice (rule 8): pick one, list it in the invention
+list and go on. Where the specification names an interface, its names bind.
+Ask about a behavior decision that changes an outcome that the request or specification names; otherwise record the closest reading as an assumption and name it in the handoff. Record a reading for each unanswered behavior item. An answer goes into the specification; if you say to continue without answering, the agent implements the recorded reading.
 
 ## 5. The project's files
 
@@ -478,6 +506,10 @@ skill is used. When in doubt, ask the router.
 Each workflow lists who does what. "You" is the owner; "the agent" is the
 coding agent with the skills.
 
+| Workflow | Route |
+|---|---|
+| Small change | short path: one use case's existing steps, rules or flows; no entity, no new use case, and no interface another use case reads changes. |
+
 ### 7.1 Starting a new project
 
 1. **Set up.** Ask the agent to set the repository up. Choose a profile
@@ -551,6 +583,15 @@ The router keeps an aligned entry open, with a warning, while its reports fail t
 
 This is the most common workflow once a project is under specifications.
 
+For a qualifying small change, triage routes to up-7's short path: edit the
+specification line, pin it with a test, make the change, run validator and tests,
+and add one line to the change log in the commit message. It skips the element-to-code table, full
+invention list unless an invention appears, specification delta and test
+derivation. The approval rule still applies; only a person accepts. The bug
+light path remains distinct; changes outside both paths follow the full path.
+Triage checks cross-references with `impact.py` or by reading other use cases; if another use case reads the changed interface, it takes the full path. The owner's request grants the slice under its conditions, including an `Approved` line: record the request’s date and words beside the changed line. A `Draft` or `Reviewed` Status stays as it was; a later active Status (`Approved`, `Implemented`, `Tested`, `Done`) goes down to `Reviewed` for the specification edit. Implement without waiting for fresh approval, and name the resulting Status in the handoff. A person sets `Approved` and `Done`; acceptance outstanding is not blocked. A small change gets no change record.
+
+
 1. **Tell the agent what you want.** "When a code expires unclaimed, tell the
    group too." Triage reads the specification before any code.
 2. **Classification.** The agent applies the sign-off test: would you have
@@ -591,11 +632,19 @@ This is the most common workflow once a project is under specifications.
 
 ### 7.4 Implementing an approved use case
 
+For a qualifying small change, the implementer uses the short path in 7.3,
+skipping the element-to-code table, full invention list unless an invention
+appears, specification delta and test derivation. The approval rule stays,
+and only a person accepts. The bug light path remains available for code wrong
+against a clear specification.
+
 The implementer reads only the use case, its linked requirements, the entity
 model and the guideline file. Then:
 
 1. It shows an element-to-code plan and the decisions the specification leaves
-   open. Behavior decisions stop the run and become questions for you.
+   open. Open actor actions or system answers stop the run and become
+   questions for you; unspecified names and signatures are technical choices
+   the agent picks and lists, as described under Inventions.
 2. It works on a branch for the use case, never on the main branch.
 3. Schema changes follow a guarded procedure with a rehearsal and your
    confirmation; nothing destructive runs unconfirmed. A schema change that
@@ -633,12 +682,11 @@ and a line:
    for it.
 4. The note `Fixes: UC-001 BR-001` in the commit message. The spec-first
    guard and the agent hooks read it and do not report the change as code
-   without a specification. Before the commit, the end-of-turn question
-   comes once for the fix, as for any code without a specification. Answer
-   "at the end of the session" (the commit with its note closes it) or align
-   it now; not "later", which would record work the commit closes. A fix
-   written and committed in one turn, before any stop, is asked only while
-   the change still holds that commit, as on a fix branch.
+   without a specification. If the session stops before the
+   commit, the hook sends the agent one note about the fix, as for any code
+   without a specification; it is not a question to you. The agent commits
+   the fix with its `Fixes:` line, which closes the note. A fix committed
+   with its note before any stop draws no note.
    A `Fixes:` line that names no use case, such as `Fixes: #123`, is not the
    note.
 
@@ -1037,7 +1085,7 @@ same is not detected.
 | `sample_claims.py` (recovery) | A random sample of recovered claims for a second reader | `sample_claims.py --count 10` |
 | `spec_core_metrics.py` (splitting) | Size of the specification set and where it could be cut | `spec_core_metrics.py` |
 | `workflow_state.py` (`up-0`) | The repository's state and the first step that applies, the alignment count of a recovery and its hints | `workflow_state.py` |
-| `scaffold_docs.py` (`up-bootstrapping-spec-driven-projects`) | The setup or installed-copy update plan; writes only with `--apply`, with explicit decisions for customized scripts | `scaffold_docs.py --profile solo` |
+| `scaffold_docs.py` (`up-bootstrapping-spec-driven-projects`) | The setup or installed-copy update plan; writes only with `--apply`, with explicit decisions for customized scripts | `python3 "<skill-folder>/scripts/scaffold_docs.py" --profile solo` |
 
 The overview is generated from the use case files' front matter. Rerun
 `use_case_map.py --docs DIR` after changing an identifier, name, actor or goal.
@@ -1051,6 +1099,8 @@ goes on one "to clean (not blocking)" line and is never the next step.
 
 Use case checks stop with exit 5 and `OLD_FORMAT` on earlier specification
 formats. The router instead reports `MIGRATE` with `up-migrating-spec-formats`.
+Check the source before honoring a carried-over blocker and say so. A blocker names what it stops and a dated owner message, specification identifier or path, or failing check by name; the A-files check advises `BLOCKER_WITHOUT_SOURCE` when no source is named (exit 0 normally, 1 with `--strict`). Implemented and tested work has acceptance outstanding, not blocked; unrelated work continues. Fix a validator or lint finding, or report it as a tool defect; ask the owner only if it raises a behavior question.
+
 Session start and the stop show a migration notice with result 1 (warn).
 After-edit feedback stays local; turn start always exits 0, silently on failure.
 Setup creates `use_cases.md`; `--skip overview` skips it, and `--skip diagram`
@@ -1066,13 +1116,20 @@ Setup offers four moments through one gate, `tools/specs/hook_gate.py`:
 | Session starts or resumes | A Status snapshot, specification state, next step and open-work list |
 | After a write or edit | The validator on the edited use case specifications, as information |
 | Before the agent reads a prompt | The open-work list only when it changed; always exits 0 |
-| Before the agent stops | One question for you per drift, each asked once per session |
+| Before the agent stops | Owner decisions asked once; routine notes handed to the agent once |
 
-No hook blocks, refuses or keeps the agent working, except to ask that one
-question at the end of a turn.
+No hook blocks, refuses or keeps the agent working, except to deliver one
+message of decisions and notes at the end of a turn.
+
+The session-start context opens with one light note to the agent, and to no
+one else: before its first edit, say where things stand in four short lines
+(Finished, Remaining, Blocked by, Next step), or in one short line when the
+request already says exactly what to do. It never blocks, never asks you and
+does not change the result; it is sent at session start only and counts inside
+the sixty lines.
 
 **Generate, review, approve.** Ask the setup skill for hooks. It runs
-`scaffold_docs.py --hooks --tool claude|codex|antigravity|kiro` from the plugin
+`python3 "<skill-folder>/scripts/scaffold_docs.py" --hooks --tool claude|codex|antigravity|kiro` from the plugin
 with `--root DIR`, proposing scripts and wiring without writing. Without
 `--tool`, `--hooks` copies scripts only. The agent reads the plan against
 existing hooks, the tool version, the repository layout and conflicts,
@@ -1097,17 +1154,17 @@ shell (`$SHELL -lc`); startup output can corrupt the JSON, so check it in proof.
 Kiro's after-edit warnings never reach the agent; its documentation says they
 reach the person, which the proof did not see in `--no-interactive` mode and
 which is unproven in the TUI. Its stop cannot deliver an
-ordinary warning, so the question is its one block at the stop. Its generated
+ordinary warning, so the decisions and notes use one block at the stop. Its generated
 command maps invocation failures to exit 3 and never returns exit 1, which
 would accidentally continue the agent. Those firings saw 1.1.0's blocking
-stop and after-edit; the question and the after-edit context of this release
+stop and after-edit; decisions, notes and the after-edit context of this release
 are **not yet proven** in any tool.
 
 Profiles translate the internal results (0 pass, 1 warn, 2 ask, 3 could not
-run) into each tool's contract. Only the stop asks: Claude Code, Codex and
-Kiro receive the question as one `decision: block`, Antigravity as one
+run) into each tool's contract. The stop delivers owner questions and/or
+agent notes: Claude Code, Codex and Kiro receive one `decision: block`; Antigravity receives one
 `decision: continue`, which continues the agent's turn once so it can ask
-you. After an edit, Claude Code and Codex receive the findings as additional
+you about decisions or act on notes. After an edit, Claude Code and Codex receive the findings as additional
 context with a `systemMessage` for you. Result 3 never blocks. Select
 `--emit raw|claude|codex|antigravity|kiro`; the default is `raw`. Gemini CLI,
 Copilot CLI and Cursor have hook systems but no upspec profiles yet. A tool
@@ -1165,28 +1222,40 @@ what remains. A file naming an uncovered use case counts only when the session
 changed it; earlier unpushed spill warns. The other drifts are an open change
 record, behavior code changed without a specification (read as the spec-first
 guard reads it, with the change's commit messages for the `No behavior
-change:` line and the `Fixes:` note; a light-path fix is asked once before
-its commit, like any other code, and code that reaches the session through a
-pull or a merge is not asked) and a broken A-files shape, as the project's own
+change:` line and the `Fixes:` note; a light-path fix is noted once before
+its commit, with advice to commit its `Fixes:` note in the same session;
+code that reaches the session through a pull or merge is not noted) and a broken A-files shape, as the project's own
 `tools/check_tracking.py --strict` reports it on its command line. Broken specifications are never a drift
 at the stop.
 
-**The one question.** Each drift not asked yet in this session becomes one
-question for you, all in one message: align it now, at the end of the
-session, or later? Now means the agent aligns it in this session; end of the
-session means it reminds you once when the session ends; later means it runs
-the item's `hook_gate.py later TEXT` command. With the A-files, that adds an
-`AHEAD.md` item (kind `idea`, state `open`, an entry under Items); otherwise
-it appends a line to `up-deferred.txt` in the git folder, which the open-work
-list shows at session start until you remove the line. A drift recorded
-before is not recorded again. The session snapshot
-remembers what was asked, so the same drift is never raised again in that
-session, whatever you answered; a new session asks again. When the git folder
-cannot be written, a file in the temporary folder remembers it, and such files
-untouched for a day are removed; when nothing
-can be written, the stop does not ask and only informs. With no new drift the
-stop passes quietly. Its log names the baseline, the open-list size and the
-drifts found and new.
+**Decisions and notes.** Questions are reserved for choices only
+you can make: a person-set Status (`Approved`, `Done`) that the change sets
+or relies on, or work you reserved for approval. An unsupported `Implemented`
+or `Tested` claim, an open change record, code without a specification and
+an A-files finding are notes.
+
+Each new decision asks once: align now, at the end of the session, or later.
+Now means align in this session; end of the session means remind you once at
+session end; later runs the item's `hook_gate.py later TEXT` command. With the
+A-files, it adds an `AHEAD.md` item (kind `idea`, state `open`, entry under
+Items); otherwise it appends to `up-deferred.txt` in the git folder, shown
+as open work at session start until removed. It never duplicates an item.
+
+Notes reach the agent as one list of what is out of step and what aligns
+each item. The message says none needs you and tells the agent to align them
+now or include them in its handoff, within the current task's authorization.
+There are no scheduling choices. An explicit request for uncovered behavior
+records its missing use case as open work directly through `hook_gate.py
+later TEXT`, without a question.
+
+Decisions and notes use the same before-stop delivery channel (internal
+result 2, historically `ASK`). A mixed stop carries both in one message.
+The snapshot's `asked` memory covers both kinds: each key is sent once per
+session; a new session can receive it again. A temporary file remembers keys
+when the git folder is read-only; files untouched for a day are removed.
+If nothing can be written, the stop only informs. With no new drift it passes
+quietly. Its log names the baseline, open-list size, drifts found and new.
+The hook never forces alignment.
 
 **Open work.** Session context includes open records, changed specifications'
 finding counts and first error, raises against the change's base and broken
@@ -1245,7 +1314,7 @@ entry is still installed must be decided the same way: `--replace` removes it
 and generates nothing, naming its old adapter as left behind; `--keep`
 retains it.
 
-**Updates.** Run `scaffold_docs.py --update` from the new plugin to see the
+**Updates.** Run `python3 "<skill-folder>/scripts/scaffold_docs.py" --update` from the new plugin to see the
 plan, review it, then approve `--apply`. The plugin's state reader adds one
 advisory line naming older installed versions and the update command, also
 available as JSON `notice` (otherwise `null`). The router passes it on without
@@ -1334,7 +1403,7 @@ previous push tip, the guard checks the last commit and only its message;
 a root commit is checked from an empty tree.
 
 **Optional pre-push hook.** In either profile, plan with
-`scaffold_docs.py --pre-push`; add `--apply` to install. It uses git's hooks
+`python3 "<skill-folder>/scripts/scaffold_docs.py" --pre-push`; add `--apply` to install. It uses git's hooks
 folder, honoring `core.hooksPath`, only inside the work tree or git folder,
 including the common Git folder shared by linked worktrees.
 The plan names a tracked folder as shared by every clone. An existing hook
@@ -1367,7 +1436,7 @@ over to someone else?
 | Validator and lint | — | Run on each specification | Every push and pull request, reporting; Draft findings warn; `--strict` to fail |
 | Review before Approved | — | Cold read, your own sign-off | Independent reviewer and a named person's sign-off |
 | Spec-first guard | — | Warning in a commit hook | Warning on every push and pull request; `--strict` to fail |
-| Agent hooks | — | Offered: session state, after-edit findings, open work at turn start, one question per drift at the stop | Offered; the pipeline reports to everyone |
+| Agent hooks | — | Offered: session state, after-edit findings, open work at turn start, owner decisions asked once and agent notes sent once at the stop | Offered; the pipeline reports to everyone |
 | Push claims check | — | Optional pre-push hook | Every push and pull request in CI; optional pre-push hook |
 | Ownership of `docs/`, pull request template | — | — | Yes |
 | Spec dashboard | — | On demand | Each iteration |
@@ -1447,7 +1516,7 @@ desktop app it is unclear whether workspace hooks run.
 | A deleted file is flagged | Name its exact repository-relative path in the change record, in backticks or as a Markdown link target, so the check can attribute the deletion |
 | A hook never writes to `up-hooks.log` | The tool did not run it: check that the person approved the hook (and trusted the folder), and that the tool runs hooks in this mode or engine |
 | The agent was not told what is open | Check the `turn-start` entry, the tool's start-of-turn support and `up-hooks.log`; Antigravity receives the list at session start only |
-| The stop asked about a drift once and then said nothing | That is the design: each drift is asked once per session. A "later" answer is in `AHEAD.md` or in `up-deferred.txt` in the git folder; the open-work list shows the deferred lines at session start |
+| The stop sent a decision or note once and then said nothing | That is the design: each decision is asked once and each note is sent once per session. A decision's "later" answer is in `AHEAD.md` or in `up-deferred.txt` in the git folder; the open-work list shows the deferred lines at session start |
 | The pipeline passed with findings | Every check reports and exits 0 by default; add `--strict` to a step for a strict pipeline |
 | "unknown revision" from the finish check | Pass the branch or commit the change started from with `--base`, or `HEAD` while nothing is committed |
 | "rests on no source" | Add the flow or rule to the record's sources table: the request, a decision, today, or a listed assumption |

@@ -6,7 +6,7 @@
     hook_gate.py after-edit [PATH ...] [--docs DIR]
         the validator on every use case specification among the edited files
     hook_gate.py before-stop [--docs DIR] [--base REF]
-        one question per drift for the person, each asked once in a session
+        owner decisions asked once; routine notes handed to the agent once
     hook_gate.py turn-start [--docs DIR]
         changed open-work context, always non-blocking
     hook_gate.py later TEXT
@@ -30,9 +30,11 @@ findings are work in progress shown as context. At the end of a turn the gate
 looks for drift: a Status raised in this session without its evidence (against
 the session's snapshot, or HEAD without one), an open change record, behavior
 code changed without a specification, a broken A-files shape. Each drift not
-asked yet in this session becomes one question for the person: align it now,
-at the end of the session, or later. The snapshot remembers what was asked, so
-the same drift is never raised again in that session. Turn start reuses
+sent yet in this session is classified: only a person-set
+Status (Approved, Done) or reserved approval asks the owner to decide now,
+at the end of the session, or later. Other drifts are notes for the agent to
+align or list in its handoff, without a question. Both kinds share one stop
+message and the snapshot's asked memory, so neither is sent twice. Turn start reuses
 validation and prints a changed open-work list within a short wall-clock cap.
 
 The result is the same for every tool; the tool's hook configuration maps it:
@@ -40,8 +42,8 @@ The result is the same for every tool; the tool's hook configuration maps it:
     0  pass; text on stdout, if any, is context to add
     1  warn; information, never blocking: shown where the tool has a channel
        (after an edit, the findings reach the agent as context where it can)
-    2  ask; only at the end of a turn: the questions for the person, which the
-       tool delivers by continuing the agent's turn once
+    2  deliver; only at the end of a turn: owner questions and/or agent notes,
+       which the tool delivers by continuing the agent's turn once
     3  the gate could not run (no git repository, a script missing, bad
        usage); never block on it
 
@@ -73,7 +75,7 @@ import tempfile
 import time
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.5.0"
+UPSPEC_VERSION = "1.7.2"
 
 sys.dont_write_bytecode = True   # a __pycache__ folder in tools/specs/ would be an unexplained file in every change
 
@@ -81,6 +83,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 UC_ID = re.compile(r"\bUC-\d{3}\b")
 STDIN_WAIT = 1.0                # seconds: hook runners write their JSON at once; a terminal never writes
 MAX_CONTEXT_LINES = 60          # a longer state report is cut; the full one is one command away
+# One light line for the agent at session start only; it never asks the owner and never blocks.
+SESSION_NOTE = ("Before your first edit, say where things stand in four short lines: Finished, Remaining, "
+                "Blocked by, Next step. When the request already says exactly what to do, one short line is enough.")
 LOG_LINES = 200                 # a proof session and some days of work; older lines are dropped
 LOG_NAME = "up-hooks.log"
 # Drifts the person chose to align later, when the project keeps no AHEAD.md the gate can add to.
@@ -148,13 +153,21 @@ class Drift(NamedTuple):
 
     keys: its identity in the session, one per subject (a claim, a record, the change code moved in, an A-files
     finding);
-    the drift is asked when one of its keys was not asked yet. title and detail: what to show. align: how to align
-    it now. later_text: the text 'later' records."""
+    the drift is sent when one of its keys was not sent yet. title and detail: what to show. align: how to align
+    it now. later_text: the text 'later' records for a decision. status: the Status the drift sets or relies on;
+    owner_reserved: this drift needs approval the owner reserved, never inferred from its wording."""
     keys: tuple
     title: str
     detail: list
     align: str
     later_text: str
+    status: Optional[str] = None
+    owner_reserved: bool = False
+
+
+def classify_drift(item) -> str:
+    """Only a person-set Status or reserved approval needs an owner decision."""
+    return "decide" if item.status in ("Approved", "Done") or item.owner_reserved else "note"
 
 
 class AheadPlan(NamedTuple):
@@ -579,15 +592,15 @@ def session_start(root, args, event):
     except BaseException as exc:
         log(root, "session-start", PASS, "open list failed: %s" % exc)
         extra = []
-    # Budget includes the heading, cut notice, Next step tail and open-work list.
-    budget = MAX_CONTEXT_LINES - 1 - len(extra)
+    # Budget includes the note, heading, cut notice, Next step tail and open-work list.
+    budget = MAX_CONTEXT_LINES - 2 - len(extra)
     if len(lines) > budget:
         next_step = next((i for i, line in enumerate(lines) if line.startswith("Next step:")), len(lines))
         tail = lines[next_step:][:max(0, budget - 1)]
         head_count = max(0, budget - len(tail) - 1)
         lines = lines[:head_count] + ["... %d more lines: run workflow_state.py for the full state" %
                                      (len(lines) - head_count - len(tail))] + tail
-    return Verdict(PASS, "Specification state of this repository:\n" + "\n".join(lines + extra), "")
+    return Verdict(PASS, SESSION_NOTE + "\nSpecification state of this repository:\n" + "\n".join(lines + extra), "")
 
 
 def validation(paths, docs, error_result, heading):
@@ -708,7 +721,7 @@ def claim_check(view, args, event):
                 ["- " + problem for problem in problems],
                 "Add the evidence, or set the Status back to %s and tell the person what remains."
                 % (claim.before or "Draft"),
-                "%s raised to %s without its evidence" % (claim.uc, claim.after)))
+                "%s raised to %s without its evidence" % (claim.uc, claim.after), status=claim.after))
     # This list reads docs only and is advisory, even when its validation fails.
     try:
         count = len(open_list(view, docs_rel, slot or {"validated": {}}))
@@ -730,9 +743,9 @@ def record_drifts(view):
 def code_drift(view):
     """Behavior code changed without a specification change, a 'No behavior change:' line or a 'Fixes:' note:
     the spec-first guard's own reading (spec_model.read_change) of the change view, with the commit messages since
-    the base. A light-path fix is no exception: it is asked once before its commit, like any other code, and the
-    question says which answer fits it. Code that reaches the session through a pull or a merge is on the base, not
-    in the change, so it is never asked as this session's drift. The hook has no --code patterns; a pipeline that
+    the base. A light-path fix is noted once before its commit, like any other code; the note says how to align it.
+    Code that reaches the session through a pull or a merge is on the base, not
+    in the change, so it is never noted as this session's drift. The hook has no --code patterns; a pipeline that
     passes them to the guard narrows only the guard."""
     import spec_model as model
     messages = ""
@@ -751,15 +764,17 @@ def code_drift(view):
     return [Drift(("code without a specification since %s on %s" % (base, branch),),
                   "Code changed without a specification",
                   ["- %s in a commit message" % reading.summary(view.docs_rel)],
-                  "Change the specification first (up-1-triaging-change-requests); when no behavior changes, "
+                  "If the owner explicitly asked in this session for behavior no use case covers, "
+                  "record the missing use case as open work: run %s later with its description. "
+                  "Otherwise, change the specification first (up-1-triaging-change-requests); when no behavior changes, "
                   "add the line 'No behavior change: UC-XXX' (or 'none' and the reason) to the commit message; "
                   "when the code fixes a bug against a clear specification (the light path), commit it with the note "
-                  "'Fixes: UC-XXX BR-YYY' in this session: for a bug fixed against a clear specification, answer "
-                  "\"at the end of the session\", not \"later\", which would record work that the commit closes.",
+                  "'Fixes: UC-XXX BR-YYY' in this session; that commit closes the code drift."
+                  % _gate_command(view.root),
                   "Code changed without a specification: " + reading.shown())]
 
 
-def a_files_drift(root):
+def a_files_drift(root, asked=None):
     """The project's own A-files check, run as its documentation says (python3 tools/check_tracking.py --strict,
     or without --strict for an earlier check that does not know it): exit 0 is a clean shape, exit 1 with
     'path:line: ERROR CODE: message' lines a broken one. Anything else means the check could not run; that is
@@ -785,6 +800,11 @@ def a_files_drift(root):
     if done.returncode != 1 or not findings:
         last = (done.stderr.strip().splitlines() or ["no output"])[-1]
         log(root, "before-stop", PASS, "A-files check could not run: exit %d: %s" % (done.returncode, last))
+        return []
+    # One A-files drift groups several finding keys. A newly found key must not
+    # resend old notes from that group alongside it.
+    findings = [found for found in findings if a_files_key(found) not in (asked or set())]
+    if not findings:
         return []
     findings.sort(key=lambda found: (found["path"], int(found["line"]), found["code"]))
     lines = ["- " + found.group(0) for found in findings[:A_FILES_LINES]]
@@ -891,7 +911,7 @@ def _gate_command(root):
 
 
 def question(root, drifts, titles=None) -> str:
-    """One question per drift, with what each answer means and the command that records 'later'. The drifts' keys keep
+    """One question per decision, with what each answer means and the command that records 'later'. The drifts' keys keep
     the bare identifiers; only the text a person reads carries their titles."""
     import spec_model as model
     titles = titles or {}
@@ -912,13 +932,26 @@ def question(root, drifts, titles=None) -> str:
     return "\n".join(lines)
 
 
+def handoff_notes(drifts, titles=None) -> str:
+    """Routine drift reaches the agent without spending the owner's attention."""
+    import spec_model as model
+    titles = titles or {}
+    lines = ["Notes for the agent. None of these notes needs the owner. Before you end your turn, "
+             "align them now or list them in your handoff. Change only what the current task authorizes."]
+    for number, drift in enumerate(drifts, 1):
+        lines.extend(["", "%d. %s" % (number, model.with_titles(drift.title, titles))])
+        lines.extend(model.with_titles(line, titles) for line in drift.detail)
+        lines.append("To align: " + model.with_titles(drift.align, titles))
+    return "\n".join(lines)
+
+
 def before_stop(view, args, event) -> Verdict:
-    """Ask once per drift; a drift asked before in this session, and a stop without drift, pass quietly."""
+    """Ask decisions once; hand notes to the agent once; unchanged drift passes quietly."""
     session = event.session_id if event else None
     docs_rel = os.path.relpath(os.path.join(view.root, args.docs), view.root).replace(os.sep, "/")
-    drifts, label, count = claim_check(view, args, event)
-    drifts += record_drifts(view) + code_drift(view) + a_files_drift(view.root)
     asked = asked_keys(view.root, session)
+    drifts, label, count = claim_check(view, args, event)
+    drifts += record_drifts(view) + code_drift(view) + a_files_drift(view.root, asked)
     new = []
     for drift in drifts:
         if not set(drift.keys) <= asked:
@@ -927,7 +960,13 @@ def before_stop(view, args, event) -> Verdict:
     detail = "baseline %s; open list %d; drifts %d, new %d" % (label, count, len(drifts), len(new))
     if not new:
         return Verdict(PASS, "", detail)
-    text = question(view.root, new, _titles(view.root, docs_rel))
+    decisions = [drift for drift in new if classify_drift(drift) == "decide"]
+    notes = [drift for drift in new if classify_drift(drift) == "note"]
+    titles = _titles(view.root, docs_rel)
+    parts = ([question(view.root, decisions, titles)] if decisions else [])
+    if notes:
+        parts.append(handoff_notes(notes, titles))
+    text = "\n\n".join(parts)
     if not remember_asked(view.root, session, docs_rel, [key for drift in new for key in drift.keys]):
         # Asking again at every turn would keep the agent working: without a memory it only informs.
         return Verdict(WARN, "The gate cannot remember what it asked, so it does not ask; for information:\n\n"

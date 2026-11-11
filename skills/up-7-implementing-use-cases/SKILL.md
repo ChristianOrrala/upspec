@@ -9,60 +9,63 @@ description: >-
   changes and handles schema changes as a guarded sub-procedure. Use when the user says implement,
   build, generate, sync or synchronize UC-XXX, asks to bring code in line with a changed use case, or
   asks for a database migration or schema change after the entity model changed, or for an index or
-  partitioning that changes no behavior. Not for work that names no use case and not for deciding
-  whether a report is a bug or a change.
+  partitioning that changes no behavior. Also for behavior the owner explicitly requests in the
+  session that no use case covers; not for deciding whether a report is a bug or a change.
 ---
 
 # Implementing use cases
 
-Turn one approved use case into code, or bring existing code in line with a
-changed one. The specification says what the system must do. You add nothing
-to that and leave nothing of it out.
+Turn one approved use case into code, or bring existing code in line with a changed one. For behavior no use case covers that the owner explicitly requests in this session, follow the gate. The specification says what the system must do. You add nothing to that and leave nothing of it out.
 
-This skill is stack-neutral. It tells you what to read, what to decide before
-writing, and how to prove afterwards that the change is the use case and
-nothing else. How the project is built you learn from the project.
+This skill is stack-neutral. It tells you what to read, what to decide before writing, and how to prove afterwards that the change is the use case and nothing else. How the project is built you learn from the project.
 
 Shared paths, identifiers, Status values and markers: [references/conventions.md](references/conventions.md).
 
 ## The gate
 
-Read `status` in the front matter first.
+A request authorizes what it asks to happen now, under its stated conditions; preparing for approval authorizes preparation only. A reserved approval requires an owner reply granting the named slice; record its date and words. An agent-written record, tests, a review verdict, a status label or an answer to another question cannot grant it. If a reply is unclear or approves one slice and defers another, work on the approved slice, do as much as it allows, state your reading and say what still waits. A missing specification, format or lint warning, or an open technical name adds no condition.
+
+If no use case covers the work and the owner explicitly asks for the behavior in this session, say no use case covers it, record the missing use case to write as open work (with the A-files, an item in `AHEAD.md`; otherwise, where upspec's hooks are installed, the deferred list through the hook's `later` command; with neither, name the missing use case in the report and in the commit message), and do the requested work; the use-case-specific workflow below does not apply to that slice. Agents set `Implemented` and `Tested` when evidence exists; only a person sets `Approved` and `Done`.
+
+Implemented and tested work with acceptance outstanding is not blocked; show acceptance as outstanding and continue work it does not touch. Fix a validator or lint finding, or report it as a tool defect; ask the owner only when it raises a behavior question.
+
+Otherwise read `status` in the front matter first. An explicit owner request to implement a `Draft` or `Reviewed` use case is an owner reply granting that slice; record the request’s date and words beside the use case. The Status stays as the person set it; the agent never sets `Approved`.
 
 | Status | Do |
 |---|---|
 | `Approved`, `Implemented`, `Tested`, `Done` | Proceed |
-| `Draft`, `Reviewed` | Stop. Say the use case is not approved. Ask whether to review it first (`up-6-reviewing-specifications`) or go ahead anyway. Proceed only on an explicit yes |
+| `Draft`, `Reviewed` | Say the use case is not approved. If the request does not authorize implementation now, prepare the review (`up-6-reviewing-specifications`) and wait for the owner’s approval |
 | `Obsolete` | Do not implement |
 
-Never change the `status` field to get through the gate. `Approved` is a human's
-decision.
+Never change the `status` field to get through the gate. `Approved` is a human's decision.
 
-The gate has a second half when the system already has the behavior being
-changed, that is, when a change record in `docs/change-records/` names the use
-case. Run the finish check now, before reading anything else:
+For a qualifying small change, take the short path below after the approval rule above; the finish-check gate and full workflow do not apply.
+
+The gate has a second half when the system already has the behavior being changed, that is, when a change record in `docs/change-records/` names the use case. Run the finish check now, before reading anything else:
 
 ```bash
 python3 scripts/finish_change.py UC-012 --base <start>
 ```
 
-`<start>` is the branch or commit the change starts from; `HEAD` while nothing
-is committed. The script is in this skill's folder. If it lists rows to pin,
-the gate is closed for code: pin each row with a test that passes against
-today's code (`up-8-deriving-use-case-tests`), write the test's name into the
-row's Seen in, commit the pins, and run it again. Code waits until no pinning
-line is left; a pin written after the code changed proves the new code, not
-today's behavior. An existing test is a pin only if it asserts what the row's
-Today cell says: when the change alters that row, the pin has to change with
-it, and the finish check reports a cited test the change left untouched as a
-problem. The
-rest of its list is the checklist of the change.
+`<start>` is the branch or commit the change starts from; `HEAD` while nothing is committed. The script is in this skill's folder. If it lists rows to pin, the gate is closed for code: pin each row with a test that passes against today's code (`up-8-deriving-use-case-tests`), write the test's name into the row's Seen in, commit the pins, and run it again. Code waits until no pinning line is left; a pin written after the code changed proves the new code, not today's behavior. An existing test is a pin only if it asserts what the row's Today cell says: when the change alters that row, the pin has to change with it, and the finish check reports a cited test the change left untouched as a problem. The rest of its list is the checklist of the change.
+
+### A small change on the short path
+
+Use this path for a behavior change inside one use case's existing steps, rules or flows, adding no entity and no use case and changing no interface another use case reads. Check references with up-1's `scripts/impact.py` or read the other use cases' references to the changed element; if another use case reads the interface, take the full path.
+
+The owner's request grants the slice under its conditions, including editing an `Approved` line: record the request’s date and words beside the changed specification line. Apply the approval rule in the gate; implement without waiting for fresh approval. A `Draft` or `Reviewed` Status stays as the person set it; a later active Status (`Approved`, `Implemented`, `Tested`, `Done`) goes down to `Reviewed` for the specification edit. The agent never sets `Approved` or `Done`; a person sets them. Acceptance outstanding is not blocked. Name the resulting Status in the handoff. A small change gets no change record, so the finish-check gate does not apply; only a person accepts.
+
+1. Change the specification line first.
+2. Write a test that pins it.
+3. Make the change.
+4. Run the validator and the tests.
+5. Add one line to the change log in the commit message.
+
+Skip the element-to-code table, the full invention list unless an invention appears, the specification's delta and test derivation. If an invention appears, record it and apply the behavior decision rule. A change outside these conditions takes the full path, unless it qualifies for the distinct bug light path below.
 
 ### A bug fix on the light path
 
-A bug that triage classified as code wrong against a clear specification
-(outcome 1) has no change record. The Status table above still applies; then
-the fix costs a test and a line:
+A bug that triage classified as code wrong against a clear specification (outcome 1) has no change record. The Status table above still applies; then the fix costs a test and a line:
 
 1. A failing test named after the use case and the element the code breaks
    (a rule, a flow, a step, a precondition or a postcondition), run and seen
@@ -73,9 +76,10 @@ the fix costs a test and a line:
    check (`scripts/guard_check.py "UC-012 BR-005" ...`, as in
    `up-8-deriving-use-case-tests`). Its verdict is information.
 4. The commit message carries the note `Fixes: UC-012 BR-005`; the spec-first
-   guard and the agent hooks read it and do not report the change. Before
-   the commit the hooks ask once; answer "at the end of the session", not
-   "later": the commit with its note closes it.
+   guard and the agent hooks read it and do not report the change. If the
+   session stops before the commit, the hook sends the agent one note, not
+   a question to the owner; commit the fix with its `Fixes:` line, which
+   closes the note.
 
 No change list, plan, scope audit or finish check, and Status stays where it
 is. If the fix needs a decision the specification does not make, it is not this
@@ -145,13 +149,9 @@ Before writing anything, fill [templates/implementation-plan.md](templates/imple
    do not make for you. Tag each: `behavior`, `data`, `mechanism`, `free`.
    See [references/invention-list.md](references/invention-list.md).
 
-**Stop on every `behavior` item.** Ask, naming the element (`UC-012 step 7`).
-The answer belongs in the specification, through `up-5-writing-use-case-specs`, not
-only in code. If the owner gives an answer and tells you to continue,
-implement that reading and report it so it reaches the specification.
+A name or signature the specification leaves open (function, module, file or parameter) is a technical choice (rule 8): pick one, list it in the invention list and go on. Where the specification names an interface, its names bind. Ask about a behavior decision that changes an outcome that the request or specification names; otherwise record the closest reading as an assumption and name it in the handoff. Record each reading in the invention list; put an owner answer into the specification through `up-5-writing-use-case-specs`. If told to continue without an answer, implement the recorded reading.
 
-`mechanism` items are settled from the guideline file and existing code.
-`free` items you decide and list.
+`mechanism` items are settled from the guideline file and existing code; `free` items you decide and list.
 
 ## Slices
 
@@ -179,7 +179,7 @@ rule is dropped, the marker goes with the code.
 ## Workflow
 
 1. Resolve the use case id to its file. Check the gate. A bug fix with no
-   change record takes the light path above instead of the steps below.
+   change record takes the light path above instead of the steps below. A qualifying small change takes the short path above instead.
 2. Read the inputs listed above.
 3. Decide: generate or synchronize.
 4. Synchronizing: compute what changed in the specification.
@@ -196,10 +196,10 @@ rule is dropped, the marker goes with the code.
    case specified for the first time within this change has no earlier
    version: the differences from today in its change record are the change
    list. Behavior the code has today that the change list does not touch stays
-   exactly as it is; anything else you would change is an invention: ask.
+   exactly as it is; list other inventions by tag and apply the behavior decision rule above.
 5. Check that the gate's second half is clear: no pinning line left in the
    finish check. Pins come before the failing test of the new behavior.
-6. Write the plan and the invention list. Stop on behavior items.
+6. Write the plan and the invention list. Apply the behavior decision rule above.
 7. Work on a branch for this use case. Never on the main branch.
 8. If the change touches the schema, follow
    [references/schema-changes.md](references/schema-changes.md) exactly. It has
