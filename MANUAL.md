@@ -1,6 +1,6 @@
 # upspec: User Manual
 
-Version 1.7.2
+Version 1.8.0
 
 This manual explains how to install the `upspec` skills, how the work
 they support is organized, and how to carry a piece of work from an idea, a
@@ -338,8 +338,9 @@ and neither moves the other's:
   project keeps `ABILITIES.md`, keeps two rows in step with the use cases
   (P1).
 - An ability in `ABILITIES.md` may name its use cases in a `Specs` line. The
-  router warns when an ability is done while one of its use cases is not, or
-  planned while one is built, and notes use cases no ability names (P2). It
+  router warns when an ability is done while one of its use cases is not,
+  planned while one is built, or in progress while all of them are `Done`,
+  and notes use cases no ability names (P2). It
   reads an ability's status from its row in any index table of
   `ABILITIES.md`, so done rows may sit below the hot zone, and from an old
   entry's Status line when the row has none.
@@ -841,7 +842,11 @@ output. With `--strict` it exits 1 when it found problems (for the lint and
 the validators, an error or a warning), so a strict pipeline is a choice you
 make on purpose, in a command you run. A file the check cannot read is the
 finding `UNREADABLE`, under the same rule. Exit 2 means a usage error, 3 that
-the script could not run (git unavailable, a conflict), 5 `OLD_FORMAT`. A
+the script could not run (git unavailable, a conflict), 5 `OLD_FORMAT`.
+`unrecorded_changes.py` exits 4 when no change record names the use case: there
+is nothing to compare it with, which is not the same as being unable to run.
+Being unable to run wins: without git, or with nothing committed, it exits 3
+whether or not a record names the use case. A
 script that acts or lists instead of checking exits 1 when it cannot do its
 work: the overview writer refuses markers out of order, or an `id` or a
 `goal` it cannot read (`FRONT_MATTER`); the reference check's `apply` refuses
@@ -882,6 +887,14 @@ files; references use business types, and functional rows use Role and Need.
 | `check_use_case_map.py` (`up-4`) | Use case front matter, stubs, overview freshness and catalog coverage | `check_use_case_map.py` |
 | `check_test_case.py` (`up-writing-journey-test-cases`) | Journey test case documents | `check_test_case.py docs/test_cases/TC-001-*.md` |
 | `bpmn_paths.py` (`up-writing-journey-test-cases`) | The start-to-end paths of a BPMN process | `bpmn_paths.py docs/processes/repair.bpmn` |
+
+The lint reports at `INFO`, as `REQ_IMPLEMENTED_UNLINKED`, a requirement of any
+kind whose Status is `Implemented` and that no use case links (a use case that
+is Obsolete does not count): the claim has nothing behind it to read. A
+functional requirement that `FR_UNREALIZED` already reports gets no second
+finding. Like every `INFO`, it changes no exit code, with `--strict` or
+without it, and the baseline does not take it. The reviewer's lint codes
+reference lists every code.
 
 ### Change and implementation checks
 
@@ -1085,6 +1098,7 @@ same is not detected.
 | `sample_claims.py` (recovery) | A random sample of recovered claims for a second reader | `sample_claims.py --count 10` |
 | `spec_core_metrics.py` (splitting) | Size of the specification set and where it could be cut | `spec_core_metrics.py` |
 | `workflow_state.py` (`up-0`) | The repository's state and the first step that applies, the alignment count of a recovery and its hints | `workflow_state.py` |
+| `spec_data.py` (`up-0`) | Prints the whole model of the project as JSON for a program; judges nothing and decides no step (see The model as data, below) | `spec_data.py` |
 | `scaffold_docs.py` (`up-bootstrapping-spec-driven-projects`) | The setup or installed-copy update plan; writes only with `--apply`, with explicit decisions for customized scripts | `python3 "<skill-folder>/scripts/scaffold_docs.py" --profile solo` |
 
 The overview is generated from the use case files' front matter. Rerun
@@ -1106,6 +1120,213 @@ After-edit feedback stays local; turn start always exits 0, silently on failure.
 Setup creates `use_cases.md`; `--skip overview` skips it, and `--skip diagram`
 is accepted as an alias with a note. Installed checks and hooks include the
 overview generator beside the model.
+
+### The model as data
+
+`spec_data.py`, in `up-0-navigating-spec-driven-work`, prints everything the
+scripts read from a project as one JSON document, for a program such as a
+dashboard: every connection the specifications hold, not only the broken
+ones. It reads the files as data and writes nothing, not even a bytecode
+cache beside an installed copy. It decides no step and judges nothing: the
+checks say what is wrong, the state report says what comes next.
+
+```bash
+python3 "<skill-folder>/scripts/spec_data.py"
+```
+
+Setup installs a copy into the project's `tools/specs/` with either set of
+installed scripts (the team profile's checks or the agent hooks), and
+`scaffold_docs.py --update` adds it where it is missing and keeps it current,
+as it does the others; the migration does the same. A program can then run
+the project's own copy, `python3 tools/specs/spec_data.py`, from the
+project's root. No check or hook runs it, and the hook gate runs whether it is
+there or not.
+
+`--docs` defaults to the folder the rules block records, else `docs`;
+`--format json` is accepted and is the only format. Exit 0 when the model was
+printed; 1 when a file or a folder could not be read (the rest is printed and
+it is listed under `unreadable`; every A-file and guideline file that exists
+is read for this, so one that cannot be decoded is listed rather than read as
+empty); 2 on a usage error; 3 when it could not run because the `spec_model.py`
+beside it is of another release, as when an older copy was kept in
+`tools/specs/` (the message names both releases: run `scaffold_docs.py
+--update`); 5 with `OLD_FORMAT` on standard error and nothing printed when the
+project still uses the earlier formats.
+
+How to read it:
+
+- Paths are relative to the project's root, with forward slashes; only
+  `root` is absolute. Lines count from 1.
+- Every element carries `file`, `line` and `fingerprint`: the first 16 hex
+  digits of a SHA-256. A file's fingerprint is of its bytes. A rule's, a
+  flow's, a step's, a precondition's and a postcondition's is of the text the
+  guard check fingerprints for that element, so it can be compared with the
+  guard-check log. A table row's is of the row as written, and any other
+  element's of its text, both with their white space made single spaces.
+- A kind of file the project lacks keeps its key: `present` is `false`, its
+  `file` or `folder` is `null` and its lists are empty. A file that exists
+  and holds nothing, or a folder that exists and is empty, has
+  `present: true` and empty lists. A folder that cannot be listed is present,
+  with empty lists, and named under `unreadable`.
+- `schema` changes only when a key changes its meaning or goes away. A new key
+  keeps the number.
+
+| Key | Holds |
+|---|---|
+| `schema` | The shape of the output: `1` |
+| `upspec_version` | The release of the scripts that printed it |
+| `root`, `docs`, `docs_present` | The project's root (absolute), the specification folder and whether it exists |
+| `files` | For `vision`, `requirements`, `entity_model`, `overview`, `use_cases`, `journeys`, `processes`, `recovery` and `reviews`: `present` and `path` |
+| `rules_block` | `present`, `file` (`AGENTS.md` or `CLAUDE.md`), `profile`, `skipped` (which of requirements, entity model, overview and diagram the Skipped line names), `skipped_text` (that line, lower case), `specs_folder`, `integration_branch` |
+| `use_cases` | `present`, `folder`, `items`: one per use case file |
+| `requirements` | `present`, `file`, `fingerprint`, `items`: one per catalog row |
+| `entities` | `present`, `file`, `fingerprint`, `diagram` (`present`, and `entities` with `name` and `line`), `items`, `relations` (`from`, `to`, `label`), `duplicates` (`name`, `line` of a second section for one entity) |
+| `journeys` | `present`, `folder`, `items`: one per journey test case |
+| `change_records` | `present`, `folders` (each `change-records` folder), `items` |
+| `recovery` | `present`, `folder`, `ledger` (`present`, `file`, `fingerprint`, `rows`), `change_log` (`present`, `file`, `fingerprint`, `entries`) |
+| `reviews` | `present`, `folder`, `items`: one per review report (`<scope>-review.md`, or `<scope>-review-<n>.md` of an earlier release) |
+| `tracking` | `present` (`ACTIVE.md` with its hot-zone marker), `files` (`AGENTS.md`, `CLAUDE.md` and the four A-files, each with `present`, `readable` and `fingerprint`), and what the A-files say (below) |
+| `unreadable` | Each file that could not be read: `file`, `error` |
+
+A use case item:
+
+| Key | Holds |
+|---|---|
+| `id`, `name`, `status`, `stub` | Its identifier (`null` when it cannot be read), name, Status and whether it is a stub |
+| `file`, `fingerprint`, `line_count` | Its file, the fingerprint of the file and its number of lines |
+| `title` | The `# ` heading: `text`, `line`; `null` without one |
+| `front_matter` | `values` (each key with its `value` and `line`), `problems` (`line`, `message`), `refused` (each key refused as a value on several lines, with the line) |
+| `goal`, `trigger` | `text` with its place; `null` when the key is absent |
+| `actors` | `name` and `role` (`primary` or `secondary`) |
+| `requirements` | `id` of each requirement it links |
+| `sections`, `duplicate_sections` | Each known section with its `title` as written and its `line`; a repeated one with `name`, `title`, `line` |
+| `preconditions`, `steps` | `name` (`Pre-1`, `Step 3`), `number`, `text` |
+| `flows` | `label`, `name`, `trigger` (`text`, `steps`: the main steps it names, `flow_steps`: `flow` and `step` for a flow that branches from another, `any_time`), `steps` (named `A1 step 2`), `ending` (`kind` `continues` or `ends`, `step`, `line`; `null` without one), `retired`, `moved_to` (what a retired flow says it moved to, else `null`) |
+| `flows_placeholder` | The italic line that says no step can fail: `text`, `line`; else `null` |
+| `postconditions` | The endings: `success` and `failure`, each item with `name` (`Post-S-1`, `Post-F-1`), `number`, `text` |
+| `rules` | `id`, `name`, `text` (its body without the table), `examples` (`line`, `header`, `rows` with `line` and `cells`; `null` without a table), `retired`, `moved_to` |
+| `citations` | A rule a step or a flow cites: `use_case` (`null` for this one), `rule`, `target` (`UC-001 BR-002`), `where` (`step 4` or the flow's label) |
+| `references` | A citation into another bounded context: `context`, `id`, `rule`, `where` (a step, a flow or `Requirements`) |
+
+The other items:
+
+| Item | Keys |
+|---|---|
+| A requirement | `id`, `kind` (`FR`, `NFR`, `C`), `title` (its Title, or its need without the reason, as the reports name it), `text`, `role`, `need`, `statement`, `status`, `priority`, `columns` (every cell by its column) |
+| An entity | `name`, `description`, `avoid`, `attributes` (`name`, `meaning`, `type`, `rules`, `reference`: the entity a `Reference to` type names, `columns`), `lifecycle` (`text`, `line`), `constraints` (`text`, `line`) |
+| A journey | `id`, `file`, `fingerprint`, `title`, `front_matter`, `goal`, `priority`, `status`, `process`, `use_cases`, `roles`, `preconditions` and `postconditions` (`text`, `line`), `scenarios` (`name`, `line`, `steps`, `problems`), `problems`. A step has `keyword`, `text`, `use_cases` (the ids its comment names) and `flows` (`use_case`, `flow`): a flow the comment names right after an id it annotates, as in `# UC-001 A15`. The flow is kept as data; no check reads it |
+| A change record | `file`, `fingerprint`, `front_matter`, `outcome`, `element`, `use_cases`, `decided_by`, `sections` (each heading with its line), `differences` (the rows of the table with Element and Today columns: `line`, `element`, `use_cases`, `units`, `columns`) |
+| A ledger row | `element`, `use_case`, `part` (the flow or rule, or an entity's aspect such as `required`), `entity`, `state` (lower case, as written), `note`, `evidence` (each location: `text`, `path`, `line`, `last_line` for a range; a location without a line has `line` `null`) |
+| A change log entry | `number`, `kind`, `use_cases`, `evidence`, `decision`, `decided_by` (`null` without the column), `state` (`later`, `in_change`, `aligned`, `dropped`, `undecided`, `settled`), `detail` (the reason of a dropped entry), `paths` (the record or the audit reports), `ahead` |
+| A review report | `scope` (`UC-004`, `TC-001`, `all`), `scope_kind` (`use_case`, `journey`, `all`, `other`), `number` (n of `-review-<n>.md`, else `null`), `title`, `title_line`, `verdicts` (each `Ready for <Status>: yes` or `no`: `status`, `ready`, `line`, read in the Verdict section when there is one), `verdict_line`, `declined` (each bullet of the Declined section but "None": `line`, `text`, `element`), `declined_line` (`null` when the report has no Declined section) |
+
+What the A-files say, under `tracking`: `current_work`, `blocked_by`,
+`waiting_on_owner` and `next_step` (the fields of `ACTIVE.md`, `""` when
+empty); `next_new_work` (the text under its `## Next new work`, `""` when
+empty or a placeholder); `debt`; `abilities` (each with `name`, `status`,
+`specs`, `links`, and `known_limits` and `evidence`: the text of the entry's
+Known limits and Evidence lines with any indented lines below them, `null`
+without the line); `abilities_present`; `next_up`; `items` (each AHEAD item's
+abilities); `item_titles`; `ahead_items` (each AHEAD item with `title`, `kind`,
+`state`, `abilities`, `belongs_to`: the entry's Belongs to line, `section`:
+the heading its row sits under, such as Index or History, and `line`); and
+`active_home`, `abilities_home`, `ahead_home` (the file an A-file names as
+its home, else `null`). Without the A-files every one of these is empty.
+
+**The state reader's JSON** (`workflow_state.py --format json`) keeps every
+key it had and adds:
+
+- `coded_mismatches` beside `mismatches`, and in `tracking` both
+  `coded_mismatches` and `coded_warnings`, and in `alignment`
+  `coded_warnings`: the same items in the same order, each as `code` and
+  `message`, the sentence unchanged. The codes are `UC_NO_ID`,
+  `UC_ID_REUSED` and `UC_STATUS_INVALID` (a use case that needs repair);
+  `IN_PROGRESS_NOT_CURRENT` (built and not named by the current work);
+  `SPECS_UNKNOWN_USE_CASE`, `DONE_ABILITY_NOT_DONE`,
+  `PLANNED_ABILITY_BUILT`, `IN_PROGRESS_ABILITY_DONE` and
+  `DONE_ABILITY_OPEN_ENTRY` (an ability and its use cases disagree);
+  `LATER_WITHOUT_AHEAD` and `AHEAD_ITEM_UNKNOWN` (a change log entry and
+  AHEAD disagree); and, for an aligned entry that stays
+  open, the closure check's code: `AUDIT_REPORT_MISSING`,
+  `AUDIT_REPORT_INVALID`, `AUDIT_REPORT_STALE` or `ALIGNED_INCOMPLETE`.
+- `alignment.dropped_entries`: each dropped change log entry, listed as the
+  open ones are in `entries` (`number`, `state`, `use_cases`, `record`,
+  `ahead`), with its `reason`.
+- `tracking.abilities`: each ability with its `name`, `status` and the
+  `use_cases` its Specs line names, which deliver it.
+- `tracking.abilities_compared`: how many abilities had their status
+  compared with their use cases: those `planned`, `in progress` or `done`
+  whose Specs line names a use case that exists. `0` means nothing was
+  compared, which is not the same as everything agreeing.
+
+These keys leave the text report as it was. One warning is new in both: an
+ability `in progress` whose use cases are all `Done` is warned with the other
+ability-status mismatches (`IN_PROGRESS_ABILITY_DONE`): mark it `done`, or
+name in its Specs line the use case still to build.
+
+### Other commands as data
+
+Several commands also answer as data and for the whole project in one call.
+Each of these modes reads only and writes nothing; what each command printed
+before is unchanged. Run from a project's `tools/specs/`, the model command,
+the state reader, the lint and the unrecorded-changes command leave no
+bytecode cache (`__pycache__`) beside the copies either.
+
+**The dashboard** (`spec_dashboard.py --format json`, in `up-9`) gives the
+evidence of its two tables. `progress` holds `functional_requirements`,
+`use_cases` and `full_test_coverage`, each with `total`, `complete`,
+`in_progress`, `not_started` (numbers, `null` where the table prints `—`) and
+`coverage` (the cell as printed: `25%`, `—`, `not searched`), and
+`regression` with `tests`, `passed`, `failed` (`null` without a report) and
+`result` (`Stable`, `Regressed` or `unknown`). `use_cases` holds one row per
+use case that is not Obsolete: `id`, `name`, `linked_fr` (a list), `status`,
+and the cells `code`, `unit`, `e2e`, `regression` and `integrity`, each the
+word the table prints (`yes`, `partial`, `planned`, `no`, `not searched`,
+`unknown`; `Strong`, `Partial`, `Weak`); `units` (the labels a test named,
+`found`, and the ones none did, `missing`; `null` when no tests folder was
+given); and `journeys` (the journey test cases that include it). `rules` gives
+the lines of "How the cells are computed", and `searched` the folders and the
+report the command was given.
+
+**Tests in several folders.** `spec_dashboard.py`, `coverage_matrix.py` and
+`coverage_units.py` take `--tests` once for each folder that holds tests,
+such as `--tests py/tests --tests web/tests`. A file two of the folders hold
+counts once.
+
+**Every use case at once.** `coverage_matrix.py --all` and
+`coverage_units.py --all` give, in one call, what a call naming each use case
+gives, for every use case that is not Obsolete, in identifier order. The text
+or Markdown is each use case's in turn; the JSON holds them under
+`use_cases`, each item exactly the object a call naming it prints. Naming a
+use case together with `--all`, or neither, is a usage error (exit 2).
+
+**Impact, typed** (`impact.py --format json`, in triage). Each term keeps
+`term`, `upward`, `sideways` and `downward` with their sentences, and adds
+`term_kind` (`requirement`, `rule`, `use_case`, `journey`, `noun`) and, beside
+each group, the same items typed, one for one and in the same order:
+`upward_items`, `sideways_items`, `downward_items`. A typed item holds:
+
+| Key | Holds |
+|---|---|
+| `text` | The sentence the group prints, unchanged |
+| `kind` | `catalog_row` (the term's own catalog row), `rule` (the rule's definition in its use case), `entity`, `attribute`, `missing` (nothing was found), `links` (a use case links a requirement), `cites` (a specification cites a rule), `includes` (a journey includes a use case), `marks` (a code or test file carries the identifier), `mentions` (a specification line names the noun) |
+| `from` | The end that refers: a use case, with the flow or rule when the line sits in one (`UC-004 A1`, `UC-004 BR-001`); a journey; a requirement (a catalog row that names a noun); a code location (`path:line`); or the term itself |
+| `to` | The end referred to: `FR-001`, `UC-002`, `UC-002 BR-001`, `WORK_ORDER`, `WORK_ORDER.status`; `null` for `missing` |
+| `basis` | What the connection rests on: `catalog`, `specification`, `entity_model`, `requirements_line`, `citation` (a rule cited by identifier in a step or a flow), `journey` (a journey's `use_cases` list), `marker` (an identifier in a code or test file, a claim to confirm by reading), `text` (a line's text matches) |
+| `file`, `line` | Where it was found, or `null` |
+
+**Unrecorded changes for every use case** (`unrecorded_changes.py --all`, in
+`up-6` and `up-7`). One call answers for every use case with an identifier, in
+identifier order. Each entry has `use_case`, `state` and `reason` (why it was
+not compared, else `null`), and what a call naming the use case reports
+(`record`, `since`, `changed`, `recorded`, `unrecorded`; `null` or empty when
+it was not compared). The state is `compared`, `no_record` (no change record
+names it, the usual case for a use case nobody is changing), `cannot_tell` (a
+new use case, nothing committed) or `unreadable`. The text gives one line per
+use case and a `Result:` line; the JSON holds the entries under `use_cases`.
+It exits 0 when it ran, 1 with `--strict` when a change is not in its record
+or a file cannot be read, 2 on a usage error (`--record` names one use case's
+record and does not go with `--all`), and 3 outside a git repository.
 
 ### Agent hooks (optional)
 

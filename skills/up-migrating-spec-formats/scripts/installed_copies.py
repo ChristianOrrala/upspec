@@ -13,15 +13,16 @@ import tempfile
 
 # Identify the release whose installed copies this module helps update.
 # Keep the installation record beside the scripts it describes.
-UPSPEC_VERSION = "1.7.2"
+UPSPEC_VERSION = "1.8.0"
 BUNDLE_NAME = "upspec-installed.json"
 # Match setup's hook copies without importing a module absent from the migration skill.
 HOOK_SET = ("status_claims.py", "hook_gate.py", "workflow_state.py", "validate_use_case.py", "finish_change.py", "scope_audit.py",
-            "uc_change_list.py", "unrecorded_changes.py", "spec_model.py", "use_case_map.py", "change_view.py", "hook_profiles.py")
+            "uc_change_list.py", "unrecorded_changes.py", "spec_model.py", "use_case_map.py", "change_view.py", "hook_profiles.py",
+            "spec_data.py")
 # Match setup's pipeline copies; tests pin both tuples to setup's installation lists.
 CHECK_SET = ("spec_model.py", "validate_use_case.py", "spec_lint.py", "use_case_map.py", "spec_first_guard.py",
              "status_claims.py", "finish_change.py", "scope_audit.py", "uc_change_list.py",
-             "unrecorded_changes.py", "change_view.py")
+             "unrecorded_changes.py", "change_view.py", "spec_data.py")
 
 
 def fingerprint(data):

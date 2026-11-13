@@ -14,7 +14,8 @@ State comes from the files, never from memory:
     Specs lines name. An ability's status comes from its row in any index table of
     ABILITIES.md, else from an old entry's Status line. The step for the current work
     comes before the others; a use case in progress that the current work does not
-    name, and an ability whose status disagrees with its use cases, are listed.
+    name, and an ability whose status disagrees with its use cases, are listed: done
+    while one is not Done, planned while one is built, in progress while all are Done.
     Without ABILITIES.md nothing is said about abilities.
   - the alignment backlog of a recovery (docs/recovery/change-log.md): entries decided
     later or in change are open; aligned closes only when the shared closure check
@@ -27,6 +28,19 @@ State comes from the files, never from memory:
 The decision rows are tried top to bottom; the first that matches is the next
 step. Every use case also gets its own next step, so work on another use case
 can go on in parallel.
+
+The JSON also gives, beside every list of sentences that has one, the same items
+with a stable code (coded_mismatches, coded_warnings): UC_NO_ID, UC_ID_REUSED,
+UC_STATUS_INVALID; IN_PROGRESS_NOT_CURRENT; SPECS_UNKNOWN_USE_CASE,
+DONE_ABILITY_NOT_DONE, PLANNED_ABILITY_BUILT, IN_PROGRESS_ABILITY_DONE, DONE_ABILITY_OPEN_ENTRY,
+LATER_WITHOUT_AHEAD, AHEAD_ITEM_UNKNOWN; and for an aligned entry that stays open,
+the code of the closure check (AUDIT_REPORT_MISSING, AUDIT_REPORT_INVALID,
+AUDIT_REPORT_STALE, ALIGNED_INCOMPLETE). The alignment lists its dropped entries
+(dropped_entries) as it lists the open ones, each with its reason; with the A-files
+the tracking gives the use cases that deliver each ability (abilities) and how many
+abilities had their status compared with their use cases (abilities_compared): those
+planned, in progress or done whose Specs line names a use case that exists. Zero
+means nothing was compared, not that everything agrees.
 
 Step codes: SETUP, RECOVER, BASELINE_REVIEW, VISION, REQUIREMENTS, ENTITY_MODEL, DIAGRAM,
 FIX, TEST, IMPLEMENT, APPROVE, REVIEW, SPECIFY, MAP, JOURNEY, BUSINESS_REVIEW, IDLE.
@@ -44,12 +58,14 @@ import os
 import re
 import sys
 
+# a __pycache__ folder beside an installed copy would be a file this read wrote, when a program runs it there
+sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import use_case_map
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.7.2"
+UPSPEC_VERSION = "1.8.0"
 
 PLACEHOLDER = re.compile(r"\[[^\]\n]+\](?!\()")
 SOURCE_SUFFIXES = (".py", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".java", ".kt", ".kts", ".go", ".rb", ".php",
@@ -58,6 +74,8 @@ SOURCE_SUFFIXES = (".py", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".java",
 # Counting stops here: the question is whether there is a code base, not how large it is.
 CODE_COUNT_CAP = 50
 DEBT_SHOWN = 5
+# The ability statuses the pairing rule P2 compares with the use cases an ability names.
+COMPARED_STATUSES = ("planned", "in progress", "done")
 # A use case in these Status values has been built and is waiting for tests or for the business: work in progress.
 IN_PROGRESS = ("Implemented", "Tested")
 # Status values at which a use case can be audited for alignment: the hint names the report that would close it.
@@ -65,7 +83,8 @@ READY = ("Tested", "Done")
 # Inspect both installation sets without depending on the plugin-only installed_copies module.
 INSTALLED_SCRIPTS = ("status_claims.py", "hook_gate.py", "workflow_state.py", "validate_use_case.py", "finish_change.py",
                      "scope_audit.py", "uc_change_list.py", "unrecorded_changes.py", "spec_model.py",
-                     "use_case_map.py", "change_view.py", "hook_profiles.py", "spec_lint.py", "spec_first_guard.py")
+                     "use_case_map.py", "change_view.py", "hook_profiles.py", "spec_lint.py", "spec_first_guard.py",
+                     "spec_data.py")
 # Read a literal release line as data, using the same format as hook_gate and the release checks.
 VERSION_LINE = re.compile(r'^UPSPEC_VERSION = "(\d+\.\d+\.\d+)"$', re.M)
 
@@ -150,14 +169,17 @@ def alignment_view(root, docs, use_cases):
         return None
     status = {u["id"]: u["status"] for u in use_cases}
     counts = {"later": 0, "in_change": 0, "aligned": 0, "dropped": 0, "undecided": 0}
-    open_entries, ready, warnings = [], [], []
+    open_entries, dropped, ready, coded = [], [], [], []
     for entry in entries:
         state = entry["state"]
-        errors = [message for severity, _, message in model.closure_problems(root, entry) if severity == "error"]
-        warnings.extend("change log #%d is aligned, but %s; it stays open" % (entry["number"], message)
-                        for message in errors)
+        errors = [(code, message) for severity, code, message in model.closure_problems(root, entry) if severity == "error"]
+        coded.extend(coded_line(code, "change log #%d is aligned, but %s; it stays open" % (entry["number"], message))
+                     for code, message in errors)
         if state in counts and not errors:
             counts[state] += 1
+        if state == "dropped":
+            dropped.append({"number": entry["number"], "state": state, "use_cases": unique(entry["use_cases"]),
+                            "record": None, "ahead": entry["ahead"], "reason": entry["detail"]})
         if state not in ("later", "in_change") and not errors:
             continue
         record = entry["paths"][0] if state == "in_change" and entry["paths"] else None
@@ -167,8 +189,10 @@ def alignment_view(root, docs, use_cases):
         if state == "in_change" and ids and all(status.get(uc) in READY for uc in ids):
             ready.append("change log #%d: %s; its audit report closes it (aligned: <report>)"
                          % (entry["number"], ", ".join("%s is %s" % (uc, status[uc]) for uc in ids)))
-    return dict(counts, open=len(open_entries), entries=open_entries, ready=ready, warnings=warnings,
-                ahead_items=unique([item for e in open_entries for item in e["ahead"]]), abilities=[])
+    return dict(counts, open=len(open_entries), entries=open_entries, ready=ready,
+                warnings=[item["message"] for item in coded],
+                ahead_items=unique([item for e in open_entries for item in e["ahead"]]), abilities=[],
+                dropped_entries=dropped, coded_warnings=coded)
 
 
 def alignment_line(alignment):
@@ -192,6 +216,11 @@ def count_code(root, docs_dir):
         if count >= CODE_COUNT_CAP:
             break
     return count
+
+
+def coded_line(code, message):
+    """A warning or mismatch as data: its stable code beside its sentence."""
+    return {"code": code, "message": message}
 
 
 def unique(items):
@@ -226,21 +255,31 @@ def tracking_view(root, use_cases, alignment=None):
     if tracking is None:
         return None
     known = {u["id"]: u for u in use_cases}
-    warnings, notes, named_by = [], [], {}
+    coded, notes, named_by = [], [], {}
+    compared = 0
+
+    def warn(code, message):
+        coded.append(coded_line(code, message))
+
     for ability, entry in sorted(tracking["abilities"].items()):
         for uc_id in entry["specs"]:
             named_by.setdefault(uc_id, []).append(ability)
             if uc_id not in known:
-                warnings.append("%s names %s in its Specs line, and no such use case exists" % (ability, uc_id))
+                warn("SPECS_UNKNOWN_USE_CASE", "%s names %s in its Specs line, and no such use case exists" % (ability, uc_id))
         named = [known[u] for u in entry["specs"] if u in known]
+        if named and entry["status"] in COMPARED_STATUSES:
+            compared += 1
         if entry["status"] == "done":
             behind = ["%s is %s" % (u["id"], u["status"]) for u in named if u["status"] != "Done"]
             if behind:
-                warnings.append("%s is done, but %s" % (ability, ", ".join(behind)))
+                warn("DONE_ABILITY_NOT_DONE", "%s is done, but %s" % (ability, ", ".join(behind)))
         if entry["status"] == "planned":
             ahead = ["%s is %s" % (u["id"], u["status"]) for u in named if u["status"] in ("Implemented", "Tested", "Done")]
             if ahead:
-                warnings.append("%s is planned, but %s" % (ability, ", ".join(ahead)))
+                warn("PLANNED_ABILITY_BUILT", "%s is planned, but %s" % (ability, ", ".join(ahead)))
+        if entry["status"] == "in progress" and named and all(u["status"] == "Done" for u in named):
+            warn("IN_PROGRESS_ABILITY_DONE", "%s is in progress, but every use case it names is Done: %s"
+                 % (ability, ", ".join(u["id"] for u in named)))
     if alignment:
         open_on = {}
         for item in alignment["entries"]:
@@ -250,14 +289,15 @@ def tracking_view(root, use_cases, alignment=None):
         for ability, entry in sorted(tracking["abilities"].items()):
             left = ["#%d on %s" % (n, uc_id) for uc_id in entry["specs"] for n in open_on.get(uc_id, [])]
             if entry["status"] == "done" and left:
-                warnings.append("%s is done, but change log %s %s still open" % (ability, ", ".join(left), "is" if len(left) == 1 else "are"))
+                warn("DONE_ABILITY_OPEN_ENTRY", "%s is done, but change log %s %s still open"
+                     % (ability, ", ".join(left), "is" if len(left) == 1 else "are"))
         if not tracking["ahead_home"]:
             for item in alignment["entries"]:
                 if item["state"] == "later" and not item["ahead"]:
-                    warnings.append("change log #%d is later and names no AHEAD item: draft its item (the hand-off at the end of the baseline review)" % item["number"])
+                    warn("LATER_WITHOUT_AHEAD", "change log #%d is later and names no AHEAD item: draft its item (the hand-off at the end of the baseline review)" % item["number"])
                 for ahead in item["ahead"]:
                     if ahead not in tracking["items"]:
-                        warnings.append("change log #%d names %s, which AHEAD.md does not list" % (item["number"], ahead))
+                        warn("AHEAD_ITEM_UNKNOWN", "change log #%d names %s, which AHEAD.md does not list" % (item["number"], ahead))
     if tracking["abilities_present"] and not tracking["abilities_home"]:
         unnamed = [u["id"] for u in use_cases if u["id"] not in named_by and u["status"] != "Obsolete"]
         if unnamed:
@@ -279,13 +319,17 @@ def tracking_view(root, use_cases, alignment=None):
             and tracking["abilities_present"]):
         notes.append("AHEAD.md's Next up starts with %s, which names no ability with a Specs line" % tracking["next_up"][0])
     mentioned = focus if focus_from == "ACTIVE.md current work" else []
-    mismatches = [] if tracking["active_home"] else [
-        "%s is %s and the current work does not name it" % (u["id"], u["status"])
+    coded_mismatches = [] if tracking["active_home"] else [
+        coded_line("IN_PROGRESS_NOT_CURRENT", "%s is %s and the current work does not name it" % (u["id"], u["status"]))
         for u in use_cases if u["status"] in IN_PROGRESS and u["id"] not in mentioned]
+    abilities = {ability: {"name": entry["name"], "status": entry["status"], "use_cases": list(entry["specs"])}
+                 for ability, entry in sorted(tracking["abilities"].items())}
     return {"current_work": tracking["current_work"], "blocked_by": tracking["blocked_by"],
             "waiting_on_owner": tracking["waiting_on_owner"], "focus": focus, "focus_from": focus_from,
-            "mismatches": mismatches, "warnings": warnings, "notes": notes,
-            "next_up": tracking["next_up"], "debt": tracking["debt"]}
+            "mismatches": [item["message"] for item in coded_mismatches], "warnings": [item["message"] for item in coded],
+            "notes": notes, "next_up": tracking["next_up"], "debt": tracking["debt"],
+            "abilities": abilities, "coded_mismatches": coded_mismatches, "coded_warnings": coded,
+            "abilities_compared": compared}
 
 
 def collect(docs_dir):
@@ -311,21 +355,21 @@ def collect(docs_dir):
     artifacts["diagram"]["current"] = bool(docs and use_case_map.current(docs))
     state["artifacts"] = artifacts
 
-    use_cases, mismatches = [], []
+    use_cases, coded = [], []
     specs = model.load_use_cases(docs) if docs else []
     seen = {}
     for uc in specs:
         rel = os.path.relpath(uc.path, root)
         if not uc.id:
-            mismatches.append("%s has no Use Case ID" % rel)
+            coded.append(coded_line("UC_NO_ID", "%s has no Use Case ID" % rel))
             continue
         if uc.id in seen:
-            mismatches.append("%s is used by %s and %s" % (uc.id, seen[uc.id], rel))
+            coded.append(coded_line("UC_ID_REUSED", "%s is used by %s and %s" % (uc.id, seen[uc.id], rel)))
             continue
         seen[uc.id] = rel
         status = uc.status
         if status not in model.UC_STATUSES:
-            mismatches.append("%s has Status '%s', which is not a Status" % (uc.id, status))
+            coded.append(coded_line("UC_STATUS_INVALID", "%s has Status '%s', which is not a Status" % (uc.id, status)))
         step = (("WRITE", "up-5-writing-use-case-specs", "write the stub's specification")
                 if uc.is_stub else PER_STATUS.get(status))
         use_cases.append({"id": uc.id, "name": uc.name, "status": status, "file": rel,
@@ -335,7 +379,8 @@ def collect(docs_dir):
     recovered = recovered_ids(docs)
     state["recovery"] = {"ledger": bool(recovered),
                          "draft": [u["id"] for u in use_cases if u["id"] in recovered and u["status"] == "Draft"]}
-    state["mismatches"] = mismatches
+    state["mismatches"] = [item["message"] for item in coded]
+    state["coded_mismatches"] = coded
 
     unrealized = []
     if docs and docs.requirements:

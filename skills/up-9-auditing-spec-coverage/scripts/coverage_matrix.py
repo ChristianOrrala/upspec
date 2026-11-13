@@ -27,9 +27,13 @@ Exit code 0, 1 when a file cannot be read, 2 on usage errors, 5 on earlier
 specification formats.
 
 Usage:
-    coverage_matrix.py UC-001 [--docs DIR] [--code DIR] [--tests DIR] [--ledger FILE] [--format md|json]
+    coverage_matrix.py UC-001 [--docs DIR] [--code DIR] [--tests DIR ...] [--ledger FILE] [--format md|json]
+    coverage_matrix.py --all [--docs DIR] [--code DIR] [--tests DIR ...] [--ledger FILE] [--format md|json]
 
---ledger defaults to DIR/recovery/ledger.md when that file exists.
+--ledger defaults to DIR/recovery/ledger.md when that file exists. Give --tests
+once for each folder when the tests live in several. --all gives the matrix of
+every use case that is not Obsolete, in identifier order, each as a call naming
+it would print it; the JSON holds them under use_cases.
 
 Requires Python 3.9+, standard library only. Reads files as data; writes nothing.
 """
@@ -45,6 +49,30 @@ import spec_model as model  # noqa: E402  (local module, same folder)
 
 def under(path, folder):
     return folder and os.path.abspath(path).startswith(os.path.abspath(folder) + os.sep)
+
+
+def under_any(path, folders):
+    return any(under(path, folder) for folder in folders or [])
+
+
+# The code read once per run for the uncalled-marker check: (code_dir, docs_dir, tests) -> (texts, lines by path).
+_CODE = {}
+
+
+def code_texts(code_dir, docs_dir, tests):
+    key = (code_dir, docs_dir, tuple(tests or []))
+    if key not in _CODE:
+        texts, cache = [], {}
+        for path in model.iter_source_files(code_dir):
+            if under(path, docs_dir) or under_any(path, tests):
+                continue
+            try:
+                cache[path] = model.read_lines(path)
+            except (OSError, UnicodeDecodeError):
+                continue
+            texts.append("\n".join(cache[path]))
+        _CODE[key] = (texts, cache)
+    return _CODE[key]
 
 
 def ledger_locations(path, uc_id):
@@ -63,17 +91,9 @@ def ledger_locations(path, uc_id):
     return found
 
 
-def uncalled_markers(code_dir, docs_dir, tests_dir, rule_hits):
+def uncalled_markers(code_dir, docs_dir, tests, rule_hits):
     """Rule -> [(path:line, function name)] for markers right above a function nothing else refers to."""
-    texts, cache = [], {}
-    for path in model.iter_source_files(code_dir):
-        if under(path, docs_dir) or under(path, tests_dir):
-            continue
-        try:
-            cache[path] = model.read_lines(path)
-        except (OSError, UnicodeDecodeError):
-            continue
-        texts.append("\n".join(cache[path]))
+    texts, cache = code_texts(code_dir, docs_dir, tests)
     found = {}
     for rule, hits in rule_hits.items():
         for path, line in hits:
@@ -83,8 +103,10 @@ def uncalled_markers(code_dir, docs_dir, tests_dir, rule_hits):
     return found
 
 
-def build(uc, docs_dir, code_dir, tests_dir, ledger=None):
-    """Return (rows, code files, test files, stale markers)."""
+def build(uc, docs_dir, code_dir, tests, ledger=None):
+    """Return (rows, code files, test files, stale markers); tests is a list of folders, or a single folder."""
+    if isinstance(tests, str):
+        tests = [tests]
     located = ledger_locations(ledger, uc.id)
     rule_ids = {r.id for r in uc.rules}
     flow_numbers = {int(f.label[1:]) for f in uc.flows if re.fullmatch(r"A\d+", f.label)}
@@ -92,7 +114,7 @@ def build(uc, docs_dir, code_dir, tests_dir, ledger=None):
     qualified = re.compile(r"%s\s+(BR-\d{3})" % re.escape(uc.id))
     if code_dir:
         for path, line, text in model.find_markers(code_dir, uc.id):
-            if under(path, docs_dir) or under(path, tests_dir):
+            if under(path, docs_dir) or under_any(path, tests):
                 continue
             if path not in code_files:
                 code_files.append(path)
@@ -102,10 +124,10 @@ def build(uc, docs_dir, code_dir, tests_dir, ledger=None):
                     rule_hits.setdefault(rule, []).append((path, line))
                 else:
                     stale.append((path, line, "code marks %s %s, which the specification does not define" % (uc.id, rule)))
-    uncalled = uncalled_markers(code_dir, docs_dir, tests_dir, rule_hits) if code_dir else {}
+    uncalled = uncalled_markers(code_dir, docs_dir, tests, rule_hits) if code_dir else {}
     test_files, test_hits = ([], {})
-    if tests_dir:
-        test_files, test_hits = model.scan_units(tests_dir, uc)
+    if tests:
+        test_files, test_hits = model.scan_units_in(tests, uc)
         for path in test_files:
             try:
                 lines = model.read_lines(path)
@@ -148,54 +170,23 @@ def build(uc, docs_dir, code_dir, tests_dir, ledger=None):
     return rows, code_files, test_files, stale
 
 
-def main(argv):
-    parser = argparse.ArgumentParser(description="Start the coverage matrix of a use case from markers.")
-    parser.add_argument("use_case", help="identifier, for example UC-001")
-    parser.add_argument("--docs", help="the specification folder (default: the one the rules block records, else docs)")
-    parser.add_argument("--code", help="folder with the implementation")
-    parser.add_argument("--tests", help="folder with the tests")
-    parser.add_argument("--ledger", help="recovery ledger (default: <docs>/recovery/ledger.md when it exists)")
-    parser.add_argument("--format", choices=("md", "json"), default="md")
-    args = parser.parse_args(argv)
-    args.docs = args.docs or model.docs_default()
-    docs_model = model.Docs(args.docs)
-    # A list or a measure cannot be made without the file: an unreadable one stops it with 1.
-    stop = model.stop_if_old(docs_model, strict=True)
-    if stop:
-        return stop
-    if not re.fullmatch(r"UC-\d{3}", args.use_case):
-        print("use case identifier must look like UC-001", file=sys.stderr)
-        return 2
-    for folder in (args.docs, args.code, args.tests):
-        if folder and not os.path.isdir(folder):
-            print("no such folder: %s" % folder, file=sys.stderr)
-            return 2
-    path = model.find_use_case(model.Docs(args.docs), args.use_case)
-    if not path:
-        print("no specification file for %s under %s: an audit needs the specification, never one reconstructed from code" % (args.use_case, args.docs), file=sys.stderr)
-        return 2
-    try:
-        uc = model.parse_use_case(path)
-    except (OSError, UnicodeDecodeError) as exc:
-        print("cannot read %s: %s" % (path, exc), file=sys.stderr)
-        return 2
-    ledger = args.ledger or os.path.join(args.docs, "recovery", "ledger.md")
-    if args.ledger and not os.path.isfile(args.ledger):
-        print("no such file: %s" % args.ledger, file=sys.stderr)
-        return 2
+def matrix_of(uc, path, args, ledger):
+    """What one call prints for a use case, as data."""
     rows, code_files, test_files, stale = build(uc, args.docs, args.code, args.tests, ledger)
+    return {"use_case": uc.id, "name": uc.name, "status": uc.status, "specification": os.path.relpath(path),
+            "code_files": [os.path.relpath(f) for f in code_files], "test_files": [os.path.relpath(f) for f in test_files],
+            "rows": rows, "stale_markers": [{"path": os.path.relpath(p), "line": n, "message": m} for p, n, m in stale]}
+
+
+def print_markdown(result, args):
+    rows = result["rows"]
     has_ledger = any(row["ledger"] for row in rows)
-    if args.format == "json":
-        print(json.dumps({"use_case": uc.id, "name": uc.name, "status": uc.status, "specification": os.path.relpath(path),
-                          "code_files": [os.path.relpath(f) for f in code_files], "test_files": [os.path.relpath(f) for f in test_files],
-                          "rows": rows, "stale_markers": [{"path": os.path.relpath(p), "line": n, "message": m} for p, n, m in stale]},
-                         indent=2, ensure_ascii=False))
-        return 0
-    print("## %s %s: evidence from markers" % (uc.id, uc.name))
+    uc_id = result["use_case"]
+    print("## %s %s: evidence from markers" % (uc_id, result["name"]))
     print()
-    print("Specification: %s, Status %s" % (os.path.relpath(path), uc.status))
-    print("Code files carrying %s: %s" % (uc.id, ", ".join(os.path.relpath(f) for f in code_files) or ("none" if args.code else "not searched")))
-    print("Test files carrying %s: %s" % (uc.id, ", ".join(os.path.relpath(f) for f in test_files) or ("none" if args.tests else "not searched")))
+    print("Specification: %s, Status %s" % (result["specification"], result["status"]))
+    print("Code files carrying %s: %s" % (uc_id, ", ".join(result["code_files"]) or ("none" if args.code else "not searched")))
+    print("Test files carrying %s: %s" % (uc_id, ", ".join(result["test_files"]) or ("none" if args.tests else "not searched")))
     print()
     if has_ledger:
         print("| Unit | Description | Code evidence | Test evidence | Recovered from (ledger) | From markers |")
@@ -211,11 +202,63 @@ def main(argv):
     print()
     print("### Markers without a counterpart in the specification")
     print()
-    if stale:
-        for p, n, m in stale:
-            print("- %s:%d  %s" % (os.path.relpath(p), n, m))
+    if result["stale_markers"]:
+        for stale in result["stale_markers"]:
+            print("- %s:%d  %s" % (stale["path"], stale["line"], stale["message"]))
     else:
         print("- none")
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(description="Start the coverage matrix of a use case from markers.")
+    parser.add_argument("use_case", nargs="?", help="identifier, for example UC-001")
+    parser.add_argument("--all", action="store_true", help="every use case that is not Obsolete, in one call")
+    parser.add_argument("--docs", help="the specification folder (default: the one the rules block records, else docs)")
+    parser.add_argument("--code", help="folder with the implementation")
+    parser.add_argument("--tests", action="append", help="folder with the tests; give it once for each folder")
+    parser.add_argument("--ledger", help="recovery ledger (default: <docs>/recovery/ledger.md when it exists)")
+    parser.add_argument("--format", choices=("md", "json"), default="md")
+    args = parser.parse_args(argv)
+    args.docs = args.docs or model.docs_default()
+    docs_model = model.Docs(args.docs)
+    # A list or a measure cannot be made without the file: an unreadable one stops it with 1.
+    stop = model.stop_if_old(docs_model, strict=True)
+    if stop:
+        return stop
+    if args.all == bool(args.use_case):
+        print("name one use case or give --all, not both", file=sys.stderr)
+        return 2
+    if args.use_case and not re.fullmatch(r"UC-\d{3}", args.use_case):
+        print("use case identifier must look like UC-001", file=sys.stderr)
+        return 2
+    for folder in [args.docs, args.code] + (args.tests or []):
+        if folder and not os.path.isdir(folder):
+            print("no such folder: %s" % folder, file=sys.stderr)
+            return 2
+    path = None if args.all else model.find_use_case(model.Docs(args.docs), args.use_case)
+    if not args.all and not path:
+        print("no specification file for %s under %s: an audit needs the specification, never one reconstructed from code" % (args.use_case, args.docs), file=sys.stderr)
+        return 2
+    try:
+        if args.all:
+            chosen = [(found, uc) for _, found, uc in model.every_use_case(model.Docs(args.docs), obsolete=False)]
+        else:
+            chosen = [(path, model.parse_use_case(path))]
+    except (OSError, UnicodeDecodeError) as exc:
+        print("cannot read %s: %s" % (path or getattr(exc, "filename", None) or args.docs, exc), file=sys.stderr)
+        return 2
+    ledger = args.ledger or os.path.join(args.docs, "recovery", "ledger.md")
+    if args.ledger and not os.path.isfile(args.ledger):
+        print("no such file: %s" % args.ledger, file=sys.stderr)
+        return 2
+    results = [matrix_of(uc, found, args, ledger) for found, uc in chosen]
+    if args.format == "json":
+        print(json.dumps({"use_cases": results} if args.all else results[0], indent=2, ensure_ascii=False))
+        return 0
+    for number, result in enumerate(results):
+        if number:
+            print()
+        print_markdown(result, args)
     return 0
 
 

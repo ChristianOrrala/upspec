@@ -62,6 +62,12 @@ current work does not name as a mismatch, and warns when an ability's status
 disagrees with its use cases. Without `ABILITIES.md` it says nothing about
 abilities.
 
+For a program rather than a person, `scripts/spec_data.py` prints the whole
+model as JSON: every use case with its elements, the requirements, entities,
+journeys, change records, recovery records, review reports and A-files, each
+element with its file, line and fingerprint. It decides no step and writes
+nothing; the state report stays the answer you give the person.
+
 Check the source before honoring a carried-over blocker and say so. Show implemented and tested work as acceptance outstanding, not blocked; unrelated work goes on. Fix a validator or lint finding, or report it as a tool defect; ask the owner only when it raises a behavior question. Route the fix to the appropriate skill.
 
 The report you pass on has the same parts each time for the same files. The

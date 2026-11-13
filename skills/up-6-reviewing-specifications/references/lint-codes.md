@@ -63,6 +63,7 @@ files; references use business types, and functional rows use Role and Need.
 | INFO | `EXTERNAL_REF` | A citation into another bounded context (`billing/UC-003 BR-002`); it is not checked here | The cross-context review |
 | INFO | `SPELLING` | An older file or folder spelling is in use | — |
 | INFO | `BASELINE_STALE` | A baseline entry no longer matches a finding | Refresh the baseline |
+| INFO | `REQ_IMPLEMENTED_UNLINKED` | A requirement of any kind whose Status is `Implemented` and that no use case links (an Obsolete one does not count), unless `FR_UNREALIZED` already reports it; it never fails a run, `--strict` included | up-2-cataloging-requirements, or the use case that realizes it |
 | INFO | `CATALOG_PENDING` | The guideline file's rules block expects `docs/requirements.md`, which is not written and not recorded as skipped | up-2-cataloging-requirements, or record the skip |
 
 ## Per-file codes

@@ -40,7 +40,8 @@ JOURNAL = 'upspec-migration.json'
 # Exact union of scaffold_docs.CHECK_SCRIPTS and HOOK_SCRIPTS; tested against setup.
 INSTALLED_SCRIPTS = ('status_claims.py', 'spec_model.py', 'validate_use_case.py', 'spec_lint.py', 'use_case_map.py',
                      'spec_first_guard.py', 'hook_gate.py', 'workflow_state.py', 'finish_change.py',
-                     'scope_audit.py', 'uc_change_list.py', 'unrecorded_changes.py', 'change_view.py', 'hook_profiles.py')
+                     'scope_audit.py', 'uc_change_list.py', 'unrecorded_changes.py', 'change_view.py', 'hook_profiles.py',
+                     'spec_data.py')
 TYPE_MAP = {'String': 'Text', 'Integer': 'Number', 'Boolean': 'Yes/No',
             'Date': 'Date', 'DateTime': 'Date and time'}
 

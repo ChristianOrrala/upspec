@@ -20,14 +20,25 @@ changed main step, precondition or postcondition is left to the reviewer.
 Exit code 0 when it ran, whether or not every changed flow and rule is named in
 the record, an unreadable file included (with --strict 1 when some are not or a
 file is unreadable), 2 on usage errors, 3 when it
-cannot tell: no change record, no git, or a
+cannot tell: no git, nothing committed, or a
 specification that did not exist when the change began (a new use case is all
-change, and its sources table covers it).
+change, and its sources table covers it); 4 when no change record names the
+use case and it could run (without git or a commit it is 3, whether or not a
+record names the use case).
+
+--all answers for every use case with an identifier, in identifier order, in
+one call: each with its state (compared, no_record, cannot_tell or unreadable),
+its reason when it was not compared, and what one call reports when it was.
+A use case without a change record is a state there, not an exit code. --all
+exits 0 when it ran (with --strict 1 when some change is not named or a file
+is unreadable), 3 outside a git repository, and refuses --record.
 
 Usage:
     unrecorded_changes.py UC-012 [--docs DIR] [--record FILE] [--since REF] [--format text|json] [--strict]
+    unrecorded_changes.py --all [--docs DIR] [--since REF] [--format text|json] [--strict]
 
-Requires Python 3.9+, standard library only, and git. Reads only; changes nothing.
+Requires Python 3.9+, standard library only, and git. Reads only; changes nothing, not even a bytecode cache beside
+an installed copy.
 """
 import argparse
 import json
@@ -35,17 +46,26 @@ import os
 import re
 import sys
 
+sys.dont_write_bytecode = True   # a __pycache__ folder beside an installed copy would be a file this command wrote
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.7.2"
+UPSPEC_VERSION = "1.8.0"
 
 UNIT = re.compile(r"\b(A\d+|BR-\d{3})\b")
 
 
+# The exit code of a run for one use case that no change record names, apart from 3 (cannot tell).
+NO_RECORD_EXIT = 4
+
+
 class Undecidable(Exception):
     """The comparison cannot be made; the message says why."""
+
+
+class NoRecord(Undecidable):
+    """No change record names the use case: there is nothing to compare it with."""
 
 
 def units_for(text, uc_id):
@@ -124,12 +144,15 @@ def check(docs_dir, uc_id, record=None, since=None):
     if not path:
         raise SystemExit("no specification file for %s under %s" % (uc_id, docs_dir))
     record = record or find_record(docs_dir, uc_id)
-    if not record:
-        raise Undecidable("no change record names %s" % uc_id)
+    # Could not run wins over no record: without git, or without a commit to compare with, the answer is 3.
     code, top = model.git(["rev-parse", "--show-toplevel"], cwd=os.path.dirname(os.path.abspath(path)))
     if code != 0:
         raise Undecidable("not a git repository, or git is not available")
     repo = top.strip()
+    if not record:
+        if model.git(["rev-parse", "--verify", "HEAD"], cwd=repo)[0] != 0:
+            raise Undecidable("nothing is committed yet")
+        raise NoRecord("no change record names %s" % uc_id)
 
     def rel(target):
         return os.path.relpath(os.path.realpath(target), os.path.realpath(repo)).replace(os.sep, "/")
@@ -157,9 +180,66 @@ def check(docs_dir, uc_id, record=None, since=None):
             "unrecorded": [c for c in changed if c["unit"] not in recorded]}
 
 
+def check_all(docs_dir, since=None):
+    """[{use_case, state, reason, record, since, changed, recorded, unrecorded}] for every identified use case."""
+    results = []
+    for uc_id, _, _ in model.every_use_case(model.Docs(docs_dir)):
+        entry = {"use_case": uc_id, "state": "compared", "reason": None, "record": None, "since": None,
+                 "changed": [], "recorded": [], "unrecorded": []}
+        try:
+            entry.update(check(docs_dir, uc_id, None, since))
+        except NoRecord as exc:
+            entry.update(state="no_record", reason=str(exc))
+        except Undecidable as exc:
+            entry.update(state="cannot_tell", reason=str(exc))
+        except SystemExit as exc:
+            entry.update(state="cannot_tell", reason=str(exc))
+        except (OSError, UnicodeDecodeError) as exc:
+            entry.update(state="unreadable", reason="cannot read: %s" % exc)
+        results.append(entry)
+    return results
+
+
+def listed(items):
+    return ", ".join("%s (%s)" % (c["unit"], c["change"]) for c in items) or "none"
+
+
+def main_all(args):
+    """--all: every use case in one call."""
+    code, _ = model.git(["rev-parse", "--show-toplevel"], cwd=os.path.abspath(args.docs))
+    if code != 0:
+        print("cannot tell: not a git repository, or git is not available", file=sys.stderr)
+        return 3
+    if args.since:
+        code, _ = model.git(["rev-parse", "--verify", args.since + "^{commit}"], cwd=os.path.abspath(args.docs))
+        if code != 0:
+            print("unknown revision: %s" % args.since, file=sys.stderr)
+            return 2
+    try:
+        results = check_all(args.docs, args.since)
+    except (OSError, UnicodeDecodeError) as exc:
+        print("%s:0: ERROR UNREADABLE: cannot read: %s" % (args.docs, exc), file=sys.stderr)
+        return 1 if args.strict else 0
+    if args.format == "json":
+        print(json.dumps({"use_cases": results}, indent=2, ensure_ascii=False))
+    else:
+        for entry in results:
+            if entry["state"] == "compared":
+                print("%s  against %s since %s: not in the record: %s" % (entry["use_case"], entry["record"],
+                                                                          entry["since"][:12], listed(entry["unrecorded"])))
+            else:
+                print("%s  %s: %s" % (entry["use_case"], entry["state"].replace("_", " "), entry["reason"]))
+        unnamed = [entry["use_case"] for entry in results if entry["unrecorded"]]
+        print("Result: %s" % ("%d use case(s) with changes their record does not name: %s" % (len(unnamed), ", ".join(unnamed))
+                              if unnamed else "every compared use case's changed flows and rules are in its record"))
+    failed = any(entry["unrecorded"] or entry["state"] == "unreadable" for entry in results)
+    return 1 if failed and args.strict else 0
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description="Specification changes a change record does not name.")
-    parser.add_argument("use_case", help="identifier, for example UC-012")
+    parser.add_argument("use_case", nargs="?", help="identifier, for example UC-012")
+    parser.add_argument("--all", action="store_true", help="every use case with an identifier, in one call")
     parser.add_argument("--docs", help="the specification folder (default: the one the rules block records, else docs)")
     parser.add_argument("--record", help="the change record (default: the newest one naming the use case)")
     parser.add_argument("--since", help="the commit the change began from (default: before the record was added)")
@@ -167,7 +247,13 @@ def main(argv):
     parser.add_argument("--strict", action="store_true", help="exit 1 when it finds problems (default: exit 0, the findings are reported)")
     args = parser.parse_args(argv)
     args.docs = args.docs or model.docs_default()
-    if not re.fullmatch(r"UC-\d{3}", args.use_case):
+    if args.all == bool(args.use_case):
+        print("name one use case or give --all, not both", file=sys.stderr)
+        return 2
+    if args.all and args.record:
+        print("--record names the record of one use case; it does not go with --all", file=sys.stderr)
+        return 2
+    if args.use_case and not re.fullmatch(r"UC-\d{3}", args.use_case):
         print("use case identifier must look like UC-012", file=sys.stderr)
         return 2
     if not os.path.isdir(args.docs):
@@ -183,8 +269,13 @@ def main(argv):
     stop = model.stop_if_old(docs, strict=args.strict)
     if stop is not None:
         return stop
+    if args.all:
+        return main_all(args)
     try:
         result = check(args.docs, args.use_case, args.record, args.since)
+    except NoRecord as exc:
+        print("%s: cannot tell: %s" % (args.use_case, exc), file=sys.stderr)
+        return NO_RECORD_EXIT
     except Undecidable as exc:
         print("%s: cannot tell: %s" % (args.use_case, exc), file=sys.stderr)
         return 3
@@ -198,8 +289,6 @@ def main(argv):
     if args.format == "json":
         print(json.dumps(result, indent=2, ensure_ascii=False))
     else:
-        def listed(items):
-            return ", ".join("%s (%s)" % (c["unit"], c["change"]) for c in items) or "none"
         print("%s  specification changes since %s, against %s" % (result["use_case"], result["since"][:12], result["record"]))
         print("Changed flows and rules: %s" % listed(result["changed"]))
         print("Named in the record:     %s" % (", ".join(result["recorded"]) or "none"))

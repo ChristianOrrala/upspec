@@ -19,7 +19,8 @@ WARN   a functional requirement no use case realizes; a requirement Status its
 INFO   a use case of the diagram without a specification yet; an older file
        spelling; a use case no journey test case includes; a citation into
        another bounded context (billing/UC-003 BR-002); a stale baseline entry;
-       a requirements catalog the guideline file expects and that is not written yet.
+       a requirements catalog the guideline file expects and that is not written yet;
+       a requirement marked Implemented that no use case links (unless FR_UNREALIZED reports it).
 
 Output: path:line: SEVERITY CODE [element]: message
 Exit code 0 when it ran, whatever it found, an unreadable file (UNREADABLE)
@@ -45,13 +46,15 @@ import os
 import re
 import sys
 
+# a __pycache__ folder beside an installed copy would be a file this read wrote, when a program runs it there
+sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spec_model as model  # noqa: E402  (local module, same folder)
 import use_case_map
 import validate_use_case  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.7.2"
+UPSPEC_VERSION = "1.8.0"
 
 BASELINE_NAME = ".spec-lint-baseline.json"
 
@@ -221,6 +224,7 @@ def lint(project):
 
     # requirement coverage and status
     linking = project.linking()
+    unrealized = set()
     if project.requirements and project.use_cases:
         pending = any(uc.is_stub for uc in project.use_cases)
         for req in project.requirements:
@@ -230,10 +234,18 @@ def lint(project):
             if req.kind == "FR" and not ucs:
                 add = report.info if pending else report.warn
                 add(docs.requirements, req.line, "FR_UNREALIZED", req.id, "no use case specification links this requirement")
+                unrealized.add(req.id)
             wanted = derived_status(ucs)
             if wanted and req.status in model.REQ_PROGRESS and req.status != wanted:
                 detail = ", ".join("%s %s" % (u.id, u.status) for u in ucs)
                 report.warn(docs.requirements, req.line, "REQ_STATUS_DRIFT", req.id, "Status is '%s' but its use cases make it '%s' (%s)" % (req.status, wanted, detail))
+    # A requirement of any kind marked Implemented that no use case links: the claim has nothing behind it to read.
+    # INFO, so that it never fails a project that passes; a functional one FR_UNREALIZED already reports is not
+    # reported twice.
+    for req in project.requirements:
+        if req.status == "Implemented" and not linking.get(req.id) and req.id not in unrealized:
+            report.info(docs.requirements, req.line, "REQ_IMPLEMENTED_UNLINKED", req.id,
+                        "Status is 'Implemented', but no use case specification links this requirement")
 
     # copied rules
     texts = {}

@@ -49,8 +49,9 @@ The replacement set includes `scripts/spec_model.py`,
 `scripts/spec_first_guard.py`, `scripts/hook_gate.py`, `scripts/hook_profiles.py`,
 `scripts/workflow_state.py`, `scripts/status_claims.py`,
 `scripts/finish_change.py`, `scripts/scope_audit.py` (both import
-`scripts/change_view.py`), `scripts/uc_change_list.py`
-and `scripts/unrecorded_changes.py`. `scripts/known_scripts.json` holds released
+`scripts/change_view.py`), `scripts/uc_change_list.py`,
+`scripts/unrecorded_changes.py` and the model command `scripts/spec_data.py`.
+`scripts/known_scripts.json` holds released
 fingerprints, consumed by the migration. Never silently overwrite custom
 checks. Benefits and titles stay in requirement context; Next instructions
 stay in Consequences and on the judgment list. Process labels and routes

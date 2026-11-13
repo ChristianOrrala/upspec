@@ -20,7 +20,7 @@ import unicodedata
 from typing import NamedTuple, Optional
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.7.2"
+UPSPEC_VERSION = "1.8.0"
 
 # --- vocabulary -------------------------------------------------------------
 
@@ -56,6 +56,9 @@ RE_GHERKIN_STEP = re.compile(r"^\s*(Given|When|Then|And|But)\s+(\S.*?)\s*$")
 # A comment line that starts with use case ids annotates the next step: "# UC-001", "# UC-001, UC-002",
 # "# UC-001 Book Repair". Any other comment line is ignored.
 RE_GHERKIN_ANNOTATION = re.compile(r"^\s*#\s*(UC-\d{3}(?:\s*,\s*UC-\d{3})*)\b")
+# A flow such a comment names right after a use case id it annotates: "# UC-001 A15". The flow is kept as data
+# (Scenario.named_flows); it adds no check.
+RE_ANNOTATED_FLOW = re.compile(r"\b(UC-\d{3})\s+([Aa]\d+)\b")
 
 
 def entity_type_ok(text):
@@ -469,6 +472,18 @@ def is_retired(name):
     return bool(re.match(r"retired\b", (name or "").strip(), re.IGNORECASE))
 
 
+# Where a retired rule or flow says it went: the text after 'moved to', without a closing full stop.
+RE_MOVED_TO = re.compile(r"\bmoved\s+to\s+(.*?)\s*\.?\s*$", re.IGNORECASE)
+
+
+def moved_to(name):
+    """What a retired rule or flow says it moved to ('UC-022 BR-025'), or None: not retired, or no target named."""
+    if not is_retired(name):
+        return None
+    match = RE_MOVED_TO.search(name.strip())
+    return match.group(1) if match and match.group(1) else None
+
+
 def local_links(lines):
     """Relative link targets in Markdown text: [(line number, target without its #anchor)].
 
@@ -721,15 +736,48 @@ def _debt(hot):
             and re.search(r"[^\W_]", re.sub(r"<[^<>]*>", "", bullet))]
 
 
+def _next_new_work(hot):
+    """The text under `## Next new work` in ACTIVE's hot zone, its lines joined by spaces, up to the next heading or
+    the `Below:` line; '' when it is empty, says none, or holds only the template's `<...>` placeholder."""
+    lines, inside = [], False
+    for _, line in outside_fences(hot):
+        if re.match(r"^#{1,6}\s", line):
+            inside = re.match(r"^##\s+Next new work\s*$", line) is not None
+            continue
+        if inside and line.strip().startswith("Below:"):
+            break
+        if inside and line.strip():
+            lines.append(line.strip())
+    text = " ".join(lines)
+    return "" if _is_empty(text) or not re.search(r"[^\W_]", re.sub(r"<[^<>]*>", "", text)) else text
+
+
+def _heading_of_line(lines):
+    """For each line number, the `## ` heading above it (outside fences), or None: {line number: heading}."""
+    found, current = {}, None
+    for number, line in outside_fences(lines):
+        heading = re.match(r"^##\s+(.*?)\s*$", line)
+        if heading:
+            current = heading.group(1)
+        found[number] = current
+    return found
+
+
 def read_tracking(root):
     """What the A-files say about the work, or None when the project does not use them.
 
-    current_work, blocked_by, waiting_on_owner: the text of ACTIVE's fields, '' when empty;
-    abilities: {AB id: {name, status, specs (use case ids), links}}, the status from the ability's row in any index
-    table of ABILITIES.md, else from an old entry's Status line; abilities_present: whether ABILITIES.md exists
-    (without it nothing is said about abilities); next_up: AH ids in order; items: {AH id: [AB ids]} from AHEAD's index;
+    current_work, blocked_by, waiting_on_owner, next_step: the text of ACTIVE's fields, '' when empty;
+    next_new_work: the text under ACTIVE's `## Next new work`, '' when empty;
+    abilities: {AB id: {name, status, specs (use case ids), links, known_limits, evidence}}, the status from the
+    ability's row in any index table of ABILITIES.md, else from an old entry's Status line; known_limits and evidence
+    are the text of the entry's Known limits and Evidence lines as written, None without the line;
+    abilities_present: whether ABILITIES.md exists (without it nothing is said about abilities);
+    next_up: AH ids in order; items: {AH id: [AB ids]} from AHEAD's index;
     item_titles: {AH id: title} from AHEAD's index, else from its Next up line;
-    debt: the bullets under ACTIVE's `## Debt`, empty when ACTIVE names another home for the current work."""
+    ahead_items: {AH id: {title, kind, state, abilities, belongs_to, section, line}}: each row of an AHEAD table with
+    the columns ID and Ability (the index and the history), with the `## ` heading it sits under and its line, and
+    the entry's Belongs to line as written (None without one); an entry with no row has kind, state, section and line
+    None; debt: the bullets under ACTIVE's `## Debt`, empty when ACTIVE names another home for the current work."""
     if not a_files_present(root):
         return None
     hot = _hot_zone(_optional_file(root, "ACTIVE.md").lines)
@@ -743,25 +791,35 @@ def read_tracking(root):
                 "waiting_on_owner": _field(hot, "Waiting on owner"), "debt": _debt(hot), "abilities": {}, "next_up": [], "items": {}, "item_titles": {},
                 "abilities_present": abilities_file.present,
                 "active_home": active_home, "abilities_home": _home(root, _hot_zone(abilities_lines)),
-                "ahead_home": _home(root, _hot_zone(ahead))}
+                "ahead_home": _home(root, _hot_zone(ahead)),
+                "next_step": _field(hot, "Next step"), "next_new_work": _next_new_work(hot), "ahead_items": {}}
 
     def ability(identifier, name):
         """The ability's record, made the first time an entry heading or an index row names it."""
-        return tracking["abilities"].setdefault(identifier, {"name": name, "status": None, "specs": [], "links": []})
+        return tracking["abilities"].setdefault(identifier, {"name": name, "status": None, "specs": [], "links": [],
+                                                             "known_limits": None, "evidence": None})
 
     current = None
+    running = None      # the Known limits or Evidence line that indented lines below it continue
     for _, line in outside_fences([] if tracking["abilities_home"] else abilities_lines):
         heading = re.match(r"^###\s+(AB-\d{3})\s*(.*?)\s*$", line)
         if heading:
-            current = ability(heading.group(1), heading.group(2))
+            current, running = ability(heading.group(1), heading.group(2)), None
             continue
         if line.startswith("#"):
-            current = None
+            current = running = None
             continue
         field = RE_FIELD.match(re.sub(r"^\s*[-*]\s*", "", line))
+        if running and current is not None and not field and line[:1] in " \t" and line.strip():
+            current[running] = (current[running] + "\n" + line.strip()).strip()
+        elif line.strip():
+            running = None
         if current is None or not field:
             continue
         label, value = field.group(1).strip().lower(), field.group(2)
+        if label in ("known limits", "evidence"):
+            running = label.replace(" ", "_")
+            current[running] = value.strip()
         if label == "status":
             current["status"] = value.strip("` ").lower()
         elif label == "specs":
@@ -783,13 +841,33 @@ def read_tracking(root):
     text = "\n".join(_hot_zone(ahead))
     if "## Next up" in text:
         tracking["next_up"] = RE_AH_ID.findall(text.split("## Next up", 1)[1].split("\n## ", 1)[0])
+    under = _heading_of_line(ahead)
     for table in read_tables(ahead):
         if "ID" in table["header"] and "Ability" in table["header"]:
-            for _, row, _ in table["rows"]:
+            for line, row, _ in table["rows"]:
                 identifier = row.get("ID", "").strip()
                 if RE_AH_ID.fullmatch(identifier):
                     tracking["items"][identifier] = RE_AB_ID.findall(row.get("Ability", ""))
                     tracking["item_titles"][identifier] = row.get("Title", "").strip()
+                    tracking["ahead_items"][identifier] = {
+                        "title": row.get("Title", "").strip(), "kind": row.get("Kind", "").strip("` ").lower() or None,
+                        "state": row.get("State", "").strip("` ").lower() or None,
+                        "abilities": RE_AB_ID.findall(row.get("Ability", "")), "belongs_to": None,
+                        "section": under.get(line), "line": line}
+    entry = None
+    for _, line in outside_fences(ahead):
+        heading = re.match(r"^###\s+(AH-\d{3})\s*(.*?)\s*$", line)
+        if heading:
+            entry = tracking["ahead_items"].setdefault(heading.group(1), {
+                "title": heading.group(2), "kind": None, "state": None, "abilities": [], "belongs_to": None,
+                "section": None, "line": None})
+            continue
+        if line.startswith("#"):
+            entry = None
+            continue
+        field = RE_FIELD.match(re.sub(r"^\s*[-*]\s*", "", line))
+        if entry is not None and field and field.group(1).strip().lower() == "belongs to":
+            entry["belongs_to"] = field.group(2).strip()
     if "## Next up" in text:
         for line in text.split("## Next up", 1)[1].split("\n## ", 1)[0].splitlines():
             listed = re.match(r"^\s*(?:\d+\.|[-*])\s*(AH-\d{3})\s+(\S.*?)\s*$", line)
@@ -921,6 +999,121 @@ def parse_change_log(path):
     return entries
 
 
+# A ledger row's element: a use case with an optional flow or rule, or an entity with an optional aspect
+# (ENTITY CUSTOMER required, ENTITY ORDER lifecycle).
+RE_LEDGER_USE_CASE = re.compile(r"^(UC-\d{3})(?:\s+(A\d+|BR-\d{3}))?$")
+RE_LEDGER_ENTITY = re.compile(r"^ENTITY\s+([A-Za-z_][\w-]*)(?:\s+(\S.*?))?$")
+# One evidence location: path:line or path:first-last.
+RE_EVIDENCE = re.compile(r"(.+?):(\d+)(?:-(\d+))?")
+
+
+def evidence_locations(cell):
+    """The code locations of a ledger Evidence cell, separated by semicolons: [{text, path, line, last_line}].
+    A location without a line number keeps its path with line and last_line None; last_line is None unless the
+    location is a range."""
+    found = []
+    for item in (part.strip().strip("`") for part in (cell or "").split(";")):
+        if not item:
+            continue
+        match = RE_EVIDENCE.fullmatch(item)
+        found.append({"text": item, "path": match.group(1) if match else item,
+                      "line": int(match.group(2)) if match else None,
+                      "last_line": int(match.group(3)) if match and match.group(3) else None})
+    return found
+
+
+def parse_ledger(path):
+    """Rows of a recovery ledger in file order, [] when there is none: every row of a table whose first column is
+    Element, except a template row (an empty element or one in [brackets]). Each row: line, element (without code
+    marks), use_case, part (the flow or rule of a use case, the aspect of an entity), entity, state (lower case, as
+    written), note, evidence (evidence_locations of its Evidence cell)."""
+    if not path or not os.path.isfile(path):
+        return []
+    rows = []
+    for table in read_tables(read_lines(path)):
+        if not table["header"] or table["header"][0].strip().lower() != "element":
+            continue
+        column = table["header"][0]
+        for line, row, _ in table["rows"]:
+            element = row.get(column, "").strip().strip("`")
+            if not element or element.startswith("["):
+                continue
+            use_case, entity = RE_LEDGER_USE_CASE.match(element), RE_LEDGER_ENTITY.match(element)
+            rows.append({"line": line, "element": element,
+                         "use_case": use_case.group(1) if use_case else None,
+                         "part": use_case.group(2) if use_case else (entity.group(2) if entity else None),
+                         "entity": entity.group(1) if entity else None,
+                         "state": row.get("State", "").strip().lower(), "note": row.get("Note", "").strip(),
+                         "evidence": evidence_locations(row.get("Evidence", ""))})
+    return rows
+
+
+# --- review reports (DIR/reviews/<scope>-review.md, or <scope>-review-<n>.md of an earlier release) ---
+
+RE_REVIEW_FILE = re.compile(r"^(?P<scope>.+?)-review(?:-(?P<number>\d+))?\.md$")
+# A verdict line: 'Ready for Reviewed: yes. Ready for Approved: no.' Only a Status counts, and only a plain yes or no:
+# the template's '[yes | no]' is no verdict.
+RE_VERDICT = re.compile(r"\bReady for\s+[*_`]*(?P<status>[A-Za-z]+)[*_`]*\s*:\s*[*_`]*\s*(?P<answer>yes|no)\b",
+                        re.IGNORECASE)
+RE_REVIEW_HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
+# The element a decline names: a use case or journey with an optional part, or a requirement.
+RE_DECLINED_ELEMENT = re.compile(r"\b(?:(?:UC|TC)-\d{3}(?:\s+(?:BR-\d{3}|A\d+|[Ss]tep\s+\d+|Pre-\d+|Post-[SF]-\d+))?"
+                                 r"|(?:FR|NFR|C)-\d{3})\b")
+
+
+def _review_section(lines, title):
+    """(heading line, [(line, text)]) of the first heading whose text starts with title, up to the next heading of
+    the same or a higher level; (None, []) when there is none. Fenced blocks are skipped."""
+    start, level, body = None, 0, []
+    for number, text in outside_fences(lines):
+        heading = RE_REVIEW_HEADING.match(text)
+        if heading and start is not None and len(heading.group(1)) <= level:
+            break
+        if heading and start is None and re.match(r"%s\b" % re.escape(title), heading.group(2), re.IGNORECASE):
+            start, level = number, len(heading.group(1))
+            continue
+        if start is not None:
+            body.append((number, text))
+    return start, body
+
+
+def read_review_report(path):
+    """What a review report says, read as data: {file, scope, scope_kind, number, title, title_line, verdicts,
+    verdict_line, declined, declined_line}.
+
+    scope comes from the file name (UC-004, TC-001, all), scope_kind is use_case, journey, all or other, number is n
+    of <scope>-review-<n>.md, else None. title is the first heading. verdicts: [{status, ready, line}], one per
+    'Ready for <Status>: yes|no', read in the Verdict section when there is one, else in the whole report.
+    declined: [{line, text, element}], the bullets of the Declined section other than 'None'; declined_line is that
+    section's heading line, None when the report has no such section. OSError or UnicodeDecodeError when it cannot
+    be read."""
+    lines = read_lines(path)
+    named = RE_REVIEW_FILE.match(os.path.basename(path))
+    scope = named.group("scope") if named else os.path.splitext(os.path.basename(path))[0]
+    kind = ("use_case" if RE_UC_ID.fullmatch(scope) else "journey" if RE_TC_ID.fullmatch(scope)
+            else "all" if scope.lower() == "all" else "other")
+    title = next(((number, RE_REVIEW_HEADING.match(text).group(2)) for number, text in outside_fences(lines)
+                  if RE_REVIEW_HEADING.match(text)), (None, None))
+    verdict_line, body = _review_section(lines, "Verdict")
+    verdicts = []
+    for number, text in (body if verdict_line is not None else list(outside_fences(lines))):
+        for match in RE_VERDICT.finditer(text):
+            status = match.group("status").capitalize()
+            if status in UC_STATUSES or status in TC_STATUSES:
+                verdicts.append({"status": status, "ready": match.group("answer").lower() == "yes", "line": number})
+    declined_line, body = _review_section(lines, "Declined")
+    declined = []
+    for number, text in body:
+        bullet = RE_BULLET.match(text)
+        if not bullet or re.fullmatch(r"(?i)none\W*", bullet.group(1).strip()):
+            continue
+        element = RE_DECLINED_ELEMENT.search(bullet.group(1))
+        declined.append({"line": number, "text": bullet.group(1), "element": element.group(0) if element else None})
+    return {"file": path, "scope": scope, "scope_kind": kind, "number": int(named.group("number")) if named and named.group("number") else None,
+            "title": title[1], "title_line": title[0], "verdicts": verdicts, "verdict_line": verdict_line,
+            "declined": declined, "declined_line": declined_line}
+
+
 # An audit names the recovery entries it can close on a Change log line; label emphasis is optional.
 RE_AUDIT_CHANGE_LOG = re.compile(r"^[*_]*Change log[*_]*:[*_]*(.*)$", re.IGNORECASE)
 # Entry citations are whole numbers after #, rather than use case identifiers or prose on other lines.
@@ -1039,6 +1232,10 @@ class Docs:
 
     def process_files(self):
         return _matching(self.process_dir, r".*\.bpmn$")
+
+    def review_files(self):
+        """The review reports of the reviews folder: <scope>-review.md and <scope>-review-<n>.md."""
+        return _matching(self.reviews_dir, RE_REVIEW_FILE.pattern)
 
 
 def _matching(directory, pattern):
@@ -1207,6 +1404,10 @@ class Flow:
     def retired(self):
         return is_retired(self.name)
 
+    @property
+    def moved_to(self):
+        return moved_to(self.name)
+
 
 class Rule:
     def __init__(self, rid, name, line):
@@ -1221,6 +1422,10 @@ class Rule:
     @property
     def retired(self):
         return is_retired(self.name)
+
+    @property
+    def moved_to(self):
+        return moved_to(self.name)
 
 
 class _WithFrontMatter:
@@ -1426,6 +1631,30 @@ def load_use_cases(docs):
     return [parse_use_case(path) for path in docs.use_case_files()]
 
 
+def every_use_case(docs, obsolete=True):
+    """Each identified use case once, in identifier order, for a command's --all mode: [(id, path, parsed)].
+
+    A use case whose id cannot be read is left out, and so is an Obsolete one unless obsolete is True. The file
+    is the one find_use_case gives for the id, the one a call naming the id reads; when no file name carries
+    the id, the first file whose front matter holds it. Raises OSError or UnicodeDecodeError on a file that
+    cannot be read."""
+    found = {}
+    for uc in load_use_cases(docs):
+        if uc.id and uc.id not in found and (obsolete or uc.status != "Obsolete"):
+            found[uc.id] = uc
+    result = []
+    for uc_id in sorted(found):
+        path = find_use_case(docs, uc_id)
+        if path and os.path.abspath(path) != os.path.abspath(found[uc_id].path):
+            uc = parse_use_case(path)
+            if not uc.id or not (obsolete or uc.status != "Obsolete"):
+                continue
+        else:
+            path, uc = found[uc_id].path, found[uc_id]
+        result.append((uc_id, path, uc))
+    return result
+
+
 def unidentified_use_cases(use_cases):
     """{identifier in the file name: path} for each use case whose id was refused as a value on several lines.
 
@@ -1446,6 +1675,7 @@ class Scenario:
     def __init__(self, name, line):
         self.name, self.line = name, line
         self.steps = []  # (line, keyword, text, annotated use case ids)
+        self.named_flows = []  # (step line, use case id, flow label): a flow the comment above a step names
         self.problems = []
 
 
@@ -1490,29 +1720,32 @@ def parse_test_case(path):
     start = tc.front_matter.body_start
     section = fence = scenario = None
     gherkin = False
-    annotations = []
+    annotations, flows = [], []
     for number, line in enumerate(lines[start:], start + 1):
         stripped = line.strip()
         opening = re.match(r"^\s*(`{3,}|~{3,})(.*)$", line)
         if fence:
             if re.fullmatch(re.escape(fence[0]) + r"{%d,}\s*" % len(fence), stripped):
-                fence, gherkin, annotations = None, False, []
+                fence, gherkin, annotations, flows = None, False, [], []
                 continue
             if not gherkin:
                 continue
             if stripped.startswith("Scenario:"):
                 scenario = Scenario(stripped[len("Scenario:"):].strip(), number)
                 tc.scenarios.append(scenario)
-                annotations = []
+                annotations, flows = [], []
             elif stripped.startswith("#"):
                 match = RE_GHERKIN_ANNOTATION.match(line)
                 if match:
-                    annotations += RE_UC_ID.findall(match.group(1))
+                    ids = RE_UC_ID.findall(match.group(1))
+                    annotations += ids
+                    flows += [(uc_id, flow.upper()) for uc_id, flow in RE_ANNOTATED_FLOW.findall(line) if uc_id in ids]
             elif stripped:
                 step = RE_GHERKIN_STEP.match(line)
                 if step and scenario:
                     scenario.steps.append((number, step.group(1), step.group(2), annotations))
-                    annotations = []
+                    scenario.named_flows += [(number, uc_id, flow) for uc_id, flow in flows]
+                    annotations, flows = [], []
                 else:
                     message = "'%s' is not a Given, When, Then, And or But step" % stripped
                     (scenario.problems if scenario else tc.gherkin_problems).append((number, message))
@@ -1584,7 +1817,20 @@ def scan_units(root, uc, suffixes=None):
     Inside such a file, a line counts for a unit when it carries the unit's label.
     Lines that carry the qualified form (UC-001 BR-002) count wherever they are.
     """
-    files = sorted({path for path, _, _ in find_markers(root, uc.id, suffixes)})
+    return scan_units_in([root], uc, suffixes)
+
+
+def scan_units_in(roots, uc, suffixes=None):
+    """scan_units over several folders, for a project that keeps its tests in more than one: (files, hits).
+
+    The files of each folder come in the order scan_units gives them, folder after folder; a file that two
+    overlapping folders both hold counts once."""
+    files, seen = [], set()
+    for root in roots:
+        for path in sorted({path for path, _, _ in find_markers(root, uc.id, suffixes)}):
+            if os.path.abspath(path) not in seen:
+                seen.add(os.path.abspath(path))
+                files.append(path)
 
     def sources():
         for path in files:
@@ -1900,8 +2146,7 @@ class Element(NamedTuple):
         with its trigger, steps and ending, a step, a precondition, a postcondition. None when the use case has no
         such element."""
         if self.kind == "BR-":
-            return next(("\n".join([norm_text(rule.name)] + [norm_text(text) for _, text in rule.body if text.strip()])
-                         for rule in uc.rules if rule.id == self.name), None)
+            return next((rule_text(rule) for rule in uc.rules if rule.id == self.name), None)
         if self.kind == "A":
             return next((flow_text(flow) for flow in uc.flows if flow.label == self.name), None)
         if self.kind == "Step ":
@@ -2175,6 +2420,12 @@ def _diff_steps(prefix, old, new, changes):
             changes.append({"change": "removed", "element": "%s (was %d)" % (prefix, old[i].number), "old": old_texts[i], "new": None})
         for j in added:
             changes.append({"change": "added", "element": "%s %d" % (prefix, new[j].number), "old": None, "new": new_texts[j]})
+
+
+def rule_text(rule):
+    """A rule as the guard check fingerprints it: its name, then each line of its body and Examples table, whitespace
+    normalized, one per line."""
+    return "\n".join([norm_text(rule.name)] + [norm_text(text) for _, text in rule.body if text.strip()])
 
 
 def flow_text(flow):

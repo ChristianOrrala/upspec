@@ -111,10 +111,13 @@ BLOCK_PATHS = ("", "use_cases/", "requirements.md", "entity_model.md")
 # CI claims need the finish check and its dependencies, without agent wiring.
 CHECK_SCRIPTS = ("spec_model.py", "validate_use_case.py", "spec_lint.py", "use_case_map.py", "spec_first_guard.py",
                  "status_claims.py", "finish_change.py", "scope_audit.py", "uc_change_list.py",
-                 "unrecorded_changes.py", "change_view.py")
+                 "unrecorded_changes.py", "change_view.py", "spec_data.py")
 # The gate of the agent hooks and every script it calls; copied together so that the gate runs from the project.
+# Both sets end with the model command (spec_data.py), which no check or hook runs: it is there so that a program can
+# read the project's model through the project's own copy, whichever set is installed.
 HOOK_SCRIPTS = ("status_claims.py", "hook_gate.py", "workflow_state.py", "validate_use_case.py", "finish_change.py", "scope_audit.py",
-                "uc_change_list.py", "unrecorded_changes.py", "spec_model.py", "use_case_map.py", "change_view.py", "hook_profiles.py")
+                "uc_change_list.py", "unrecorded_changes.py", "spec_model.py", "use_case_map.py", "change_view.py", "hook_profiles.py",
+                "spec_data.py")
 VISION_SECTIONS = ("Mission", "Target Users", "Goals", "Core Terms", "In Scope", "Out of Scope", "Neighboring Systems",
                    "Constraints", "Success Measures")
 # What a solo project may leave out, and the words recorded for it in the rules block.

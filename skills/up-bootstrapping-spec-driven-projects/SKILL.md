@@ -90,7 +90,9 @@ so the pipeline runs without anything installed.
 The identical copies of `scripts/finish_change.py`, `scripts/change_view.py`, `scripts/scope_audit.py`,
 `scripts/uc_change_list.py` and `scripts/unrecorded_changes.py` serve for CI and the agent hooks.
 The hooks also install `scripts/workflow_state.py`, their entry point `scripts/hook_gate.py`
-and its module `scripts/hook_profiles.py`.
+and its module `scripts/hook_profiles.py`. Either set also installs the model command
+`scripts/spec_data.py`, which no check or hook runs, so that a program can read the
+project's model through the project's own copy.
 
 Setup and migration share the module `scripts/installed_copies.py` and released
 fingerprints in `scripts/known_scripts.json`; both stay in the plugin.
