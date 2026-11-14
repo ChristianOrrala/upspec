@@ -26,7 +26,6 @@ Requires Python 3.9+, standard library only, and git. Reads only; changes nothin
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import sys
@@ -37,7 +36,7 @@ import spec_model as model  # noqa: E402  (local module, same folder)
 import change_view  # noqa: E402
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.8.0"
+UPSPEC_VERSION = "1.8.1"
 
 
 def attribute(view: change_view.ChangeView, uc_ids: set[str], record: str | None = None) -> dict[str, list[dict]]:
@@ -86,6 +85,12 @@ def main(argv):
     stop = model.stop_if_old(model.Docs(args.docs), strict=args.strict)
     if stop is not None:
         return stop
+    reason = args.record and model.why_unreadable(args.record)
+    if reason:
+        # Named before git is asked: a record there as a link that cannot be resolved, or behind one or a folder that
+        # cannot be searched, is unreadable, not missing.
+        print("%s:0: ERROR UNREADABLE: cannot read: %s" % (args.record, reason), file=sys.stderr)
+        return 1 if args.strict else 0
     if not re.fullmatch(r"UC-\d{3}", args.use_case):
         print("use case identifier must look like UC-012", file=sys.stderr)
         return 2
@@ -107,7 +112,8 @@ def main(argv):
     record = os.path.abspath(record) if record else None
     groups = attribute(view, {args.use_case}, record)
     if args.format == "json":
-        print(json.dumps({"use_case": args.use_case, "base": args.base, "groups": groups}, indent=2))
+        # Plain ASCII, with JSON's \u escapes, as this command has always printed it (and every output can write it).
+        model.print_data({"use_case": args.use_case, "base": args.base, "groups": groups}, ascii_only=True)
     else:
         print("%s  changes since %s" % (args.use_case, args.base))
         notes = {"specification": "the use case's own file",

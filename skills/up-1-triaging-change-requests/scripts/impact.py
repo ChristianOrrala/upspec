@@ -41,7 +41,6 @@ current folder). The docs folder itself is never searched as code.
 Requires Python 3.9+, standard library only. Reads files as data; writes nothing.
 """
 import argparse
-import json
 import os
 import re
 import sys
@@ -253,7 +252,7 @@ def main(argv):
         return stop
     for folder in (args.docs, args.code):
         if not os.path.isdir(folder):
-            print("no such folder: %s" % folder, file=sys.stderr)
+            print(model.no_such("folder", folder), file=sys.stderr)
             return 2
     try:
         index = Index(args.docs, args.code)
@@ -262,7 +261,7 @@ def main(argv):
         return 2
     results = [impact_of(term, index) for term in args.terms]
     if args.format == "json":
-        print(json.dumps(results, indent=2, ensure_ascii=False))
+        model.print_data(results)
         return 0
     for result in results:
         print("== %s" % result["term"])

@@ -45,7 +45,14 @@ means nothing was compared, not that everything agrees.
 Step codes: SETUP, RECOVER, BASELINE_REVIEW, VISION, REQUIREMENTS, ENTITY_MODEL, DIAGRAM,
 FIX, TEST, IMPLEMENT, APPROVE, REVIEW, SPECIFY, MAP, JOURNEY, BUSINESS_REVIEW, IDLE.
 
-Exit code 0, 2 on usage errors.
+Exit code 0; 2 on usage errors, and when a specification file cannot be read: each is named on standard error, a
+link that cannot be resolved in place of a file or a folder included, which is never read as missing, so no step
+asks to write it; so is a specification folder behind such a link or behind a folder that cannot be searched, which
+never gets SETUP. The earlier formats are looked for in every file first: they win, as MIGRATE (exit 0), and each
+file that cannot be read is named beside it ("unreadable:" lines; in JSON, migration.unreadable as file and error).
+A folder under the specification folder that cannot be listed and that the method does not own (a tool's cache,
+node_modules) changes no exit code and no step: a "note: ... was not searched for change records" line on standard
+error names it, in either format, and the JSON lists it under not_searched as folder and error.
 
 Usage:
     workflow_state.py [--docs DIR] [--format text|json]
@@ -53,7 +60,6 @@ Usage:
 Requires Python 3.9+, standard library only. Reads files as data; writes nothing.
 """
 import argparse
-import json
 import os
 import re
 import sys
@@ -65,7 +71,7 @@ import use_case_map
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.8.0"
+UPSPEC_VERSION = "1.8.1"
 
 PLACEHOLDER = re.compile(r"\[[^\]\n]+\](?!\()")
 SOURCE_SUFFIXES = (".py", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".java", ".kt", ".kts", ".go", ".rb", ".php",
@@ -332,14 +338,33 @@ def tracking_view(root, use_cases, alignment=None):
             "abilities_compared": compared}
 
 
+class Unreadable(Exception):
+    """Specification files that cannot be read: files is [(path, error)], and the message names each one, for a caller
+    that shows it (the hook gate)."""
+
+    def __init__(self, files):
+        super().__init__("; ".join("cannot read %s: %s" % (path, error) for path, error in files))
+        self.files = files
+
+
 def collect(docs_dir):
     root = model.project_root(docs_dir)
     notice = update_notice(root)
     docs = model.Docs(docs_dir)
-    earlier = model.old_formats(docs)
+    # Every file is looked at for the earlier formats, also past one that cannot be read; the earlier formats win.
+    # A folder the search for change records could not look into and that the method does not own stops nothing:
+    # it is named (not_searched), so that no one takes that search for complete.
+    unreadable, not_searched = [], []
+    earlier = model.old_formats(docs, unreadable, not_searched)
+    if unreadable and not earlier:
+        raise Unreadable(unreadable)
+    not_searched = [{"folder": path, "error": str(error)} for path, error in not_searched]
     if earlier:
-        return {"docs": docs_dir, "notice": notice, "migration": {"code": "MIGRATE", "skill": "up-migrating-spec-formats",
-                                               "why": "%d files in earlier formats" % len(earlier)}}
+        # The unreadable files are named beside the migration, as the checks name them beside OLD_FORMAT.
+        return {"docs": docs_dir, "notice": notice, "migration": {
+            "code": "MIGRATE", "skill": "up-migrating-spec-formats", "why": "%d files in earlier formats" % len(earlier),
+            "unreadable": [{"file": path, "error": str(error)} for path, error in unreadable]},
+            "not_searched": not_searched}
     state = {"docs": docs_dir, "docs_exists": os.path.isdir(docs_dir), "notice": notice}
     guideline, profile, skipped = model.read_rules_block(root)
     state["guideline"] = {"file": guideline, "profile": profile,
@@ -405,6 +430,7 @@ def collect(docs_dir):
     state["alignment"] = alignment_view(root, docs, use_cases)
     state["tracking"] = tracking_view(root, use_cases, state["alignment"])
     state["titles"] = model.known_titles(root, docs, specs)
+    state["not_searched"] = not_searched
     return state
 
 
@@ -495,6 +521,12 @@ def decide(state):
                 what="nothing is in flight; the next request is classified as a change")
 
 
+def not_searched_lines(state):
+    """A note for each folder the search for change records could not look into, which stops nothing."""
+    return ["note: %s was not searched for change records: %s" % (entry["folder"], entry["error"])
+            for entry in state.get("not_searched", [])]
+
+
 def print_text(state):
     if "migration" in state:
         nxt = state["migration"]
@@ -502,6 +534,8 @@ def print_text(state):
         if state.get("notice"):
             print(state["notice"])
         print("  by: %s\n  reason: %s" % (nxt["skill"], nxt["why"]))
+        for entry in nxt.get("unreadable", []):
+            print("  unreadable: %s: %s" % (entry["file"], entry["error"]))
         return
     guide = state["guideline"]
 
@@ -598,12 +632,20 @@ def main(argv):
         return 2
     try:
         state = collect(args.docs)
+    except Unreadable as exc:
+        for path, error in exc.files:
+            print("cannot read the specifications: %s: %s" % (path, error), file=sys.stderr)
+        return 2
     except (OSError, UnicodeDecodeError) as exc:
         print("cannot read the specifications: %s" % exc, file=sys.stderr)
         return 2
     state["next"] = decide(state)
+    # A folder the search for change records could not look into stops nothing; a note on standard error names it, in
+    # either format, beside the JSON key.
+    for line in not_searched_lines(state):
+        print(line, file=sys.stderr)
     if args.format == "json":
-        print(json.dumps(state, indent=2, ensure_ascii=False))
+        model.print_data(state)
     else:
         print_text(state)
     return 0

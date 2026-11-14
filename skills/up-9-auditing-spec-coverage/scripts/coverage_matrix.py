@@ -38,7 +38,6 @@ it would print it; the JSON holds them under use_cases.
 Requires Python 3.9+, standard library only. Reads files as data; writes nothing.
 """
 import argparse
-import json
 import os
 import re
 import sys
@@ -231,9 +230,15 @@ def main(argv):
     if args.use_case and not re.fullmatch(r"UC-\d{3}", args.use_case):
         print("use case identifier must look like UC-001", file=sys.stderr)
         return 2
+    reason = args.ledger and model.why_unreadable(args.ledger)
+    if reason:
+        # A ledger there as a link that cannot be resolved, or behind one or a folder that cannot be searched, is
+        # unreadable, not missing; the matrix needs it.
+        print("%s:0: ERROR UNREADABLE: cannot read: %s" % (args.ledger, reason), file=sys.stderr)
+        return 1
     for folder in [args.docs, args.code] + (args.tests or []):
         if folder and not os.path.isdir(folder):
-            print("no such folder: %s" % folder, file=sys.stderr)
+            print(model.no_such("folder", folder), file=sys.stderr)
             return 2
     path = None if args.all else model.find_use_case(model.Docs(args.docs), args.use_case)
     if not args.all and not path:
@@ -253,7 +258,7 @@ def main(argv):
         return 2
     results = [matrix_of(uc, found, args, ledger) for found, uc in chosen]
     if args.format == "json":
-        print(json.dumps({"use_cases": results} if args.all else results[0], indent=2, ensure_ascii=False))
+        model.print_data({"use_cases": results} if args.all else results[0])
         return 0
     for number, result in enumerate(results):
         if number:

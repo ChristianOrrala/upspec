@@ -42,7 +42,8 @@ counts or Status values into the records by hand, they go stale.
 
 Output: path:line: SEVERITY CODE [element]: message
 Exit code 0 when it ran, whatever it found, an unreadable file included (with --strict 1 on any
-ERROR or WARN), 2 on usage errors.
+ERROR or WARN), 2 on usage errors and when there is no ledger. A record there as a link that
+cannot be resolved, the ledger included, is not absent: it is the finding UNREADABLE.
 
 Usage:
     check_recovery_ledger.py [--docs DIR] [--ledger FILE] [--root DIR] [--strict]
@@ -228,7 +229,8 @@ def check(docs, ledger_path, root, report):
     known = Known(specs)
     record_dir = os.path.dirname(ledger_path)
     suspects_path = os.path.join(record_dir, "suspects.md")
-    suspect_ids, suspect_counts = (check_suspects(report, suspects_path, root) if os.path.isfile(suspects_path) else (None, (0, 0)))
+    suspect_ids, suspect_counts = (check_suspects(report, suspects_path, root) if readable_record(report, suspects_path)
+                                   else (None, (0, 0)))
 
     seen, states = set(), {state: 0 for state in STATES}
     for line, row in rows:
@@ -288,10 +290,12 @@ def check(docs, ledger_path, root, report):
     open_entries = entries = 0
     backlog = {"later": 0, "in_change": 0, "aligned": 0, "dropped": 0}
     change_dir = os.path.join(record_dir, "change-records")
-    extra = sorted(os.path.join("change-records", n) for n in os.listdir(change_dir) if n.endswith(".md")) if os.path.isdir(change_dir) else []
+    extra = (sorted(os.path.join("change-records", n) for n in os.listdir(change_dir) if n.endswith(".md"))
+             if readable_record(report, change_dir, folder=True) else [])
     for name in list(RECORDS) + extra:
         path = os.path.join(record_dir, name)
-        if not os.path.isfile(path):
+        # suspects.md was looked at above, and a broken link in its place reported there.
+        if not (os.path.isfile(path) if name == "suspects.md" else readable_record(report, path)):
             continue
         record = model.read_lines(path)
         check_status_claims(report, path, record)
@@ -314,6 +318,16 @@ def check(docs, ledger_path, root, report):
     return {"map": len(spec_ids), "specified": len(spec_ids), "statuses": statuses,
             "rows": sum(states.values()), "states": states, "suspects": suspect_counts if suspect_ids is not None else None,
             "entries": entries, "open": open_entries, "backlog": backlog}
+
+
+def readable_record(report, path, folder=False):
+    """Whether an optional record (or the folder of change records) is there to read. A link that cannot be resolved in
+    its place is not an absent record: it is reported as UNREADABLE, naming the link, and left out."""
+    reason = model.why_unreadable(path)
+    if reason:
+        report.error(path, 0, "UNREADABLE", "-", "cannot read: %s" % reason)
+        return False
+    return os.path.isdir(path) if folder else os.path.isfile(path)
 
 
 def print_summary(counts):
@@ -343,15 +357,23 @@ def main(argv):
         print("no such folder: %s" % (args.docs if not os.path.isdir(args.docs) else args.root), file=sys.stderr)
         return 2
     ledger = args.ledger or os.path.join(args.docs, "recovery", "ledger.md")
+    report = model.Reporter(os.getcwd())
+    reason = model.why_unreadable(ledger)
+    if reason:
+        # A ledger there as a link that cannot be resolved, or behind one or a folder that cannot be searched, is not a
+        # missing ledger: it is unreadable, a finding.
+        report.error(ledger, 0, "UNREADABLE", "-", "cannot read: %s" % reason)
+        report.print_text()
+        return report.exit_code(args.strict)
     if not os.path.isfile(ledger):
         print("no ledger at %s" % ledger, file=sys.stderr)
         return 2
-    report = model.Reporter(os.getcwd())
     counts = None
     try:
         counts = check(model.Docs(args.docs), ledger, args.root, report)
     except (OSError, UnicodeDecodeError) as exc:
-        report.error(ledger, 0, "UNREADABLE", "-", "cannot read: %s" % exc)
+        path = getattr(exc, "spec_path", None) or getattr(exc, "filename", None) or ledger
+        report.error(path, 0, "UNREADABLE", "-", "cannot read: %s" % model.explained(exc, path))
     report.print_text()
     if counts:
         print_summary(counts)

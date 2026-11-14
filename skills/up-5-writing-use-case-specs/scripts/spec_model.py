@@ -9,10 +9,14 @@ All files are read as data. Nothing here writes to a project.
 
 Requires Python 3.9+, standard library only.
 """
+import codecs
 import difflib
+import errno
 import glob
 import hashlib
+import json
 import os
+import posixpath
 import re
 import subprocess
 import sys
@@ -20,7 +24,7 @@ import unicodedata
 from typing import NamedTuple, Optional
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.8.0"
+UPSPEC_VERSION = "1.8.1"
 
 # --- vocabulary -------------------------------------------------------------
 
@@ -175,6 +179,88 @@ class Reporter:
         if strict and (self.count("ERROR") or self.count("WARN")):
             return 1
         return 0
+
+
+# --- data printed as JSON -----------------------------------------------------
+
+def data_text(value, encoding=None, ascii_only=False):
+    """value as the indented JSON a command prints as data, for an output of the given encoding.
+
+    An output that writes Unicode (UTF-8, UTF-16 or UTF-32; None for a text buffer) gets every character as it
+    is. Any other, such as a legacy Windows code page, gets plain ASCII with JSON's \\u escapes, which every
+    ASCII-compatible decoding reads alike, so a program that decodes it as UTF-8 reads the same data. A lone
+    surrogate, which a name that is not UTF-8 decodes to and no encoding writes, is escaped the same way. The text
+    is valid JSON whatever the encoding. With ascii_only, every output gets plain ASCII: the bytes of a command that
+    printed its JSON so before (scope_audit.py), which keeps them."""
+    if ascii_only:
+        return json.dumps(value, indent=2)
+    text = json.dumps(value, indent=2, ensure_ascii=False)
+    try:
+        if codecs.lookup(encoding or "utf-8").name.startswith("utf"):
+            text.encode(encoding or "utf-8")
+            return text
+    except (LookupError, UnicodeEncodeError):
+        pass
+    return json.dumps(value, indent=2)
+
+
+def print_data(value, stream=None, ascii_only=False):
+    """Print value as JSON on standard output (or stream): data_text for the stream's encoding (plain ASCII with
+    ascii_only). Every command that prints JSON as data prints it here."""
+    stream = stream or sys.stdout
+    stream.write(data_text(value, getattr(stream, "encoding", None), ascii_only) + "\n")
+
+
+# The error handlers that never end a write in an encoding error. Every other one can: strict, surrogateescape (which
+# a C locale gives standard output), surrogatepass on an encoding other than UTF, and any a program registers.
+SAFE_ERRORS = ("backslashreplace", "namereplace", "xmlcharrefreplace", "replace", "ignore")
+ESCAPED = "+backslashreplace"
+
+
+def _escaping(errors):
+    """The name of an error handler that writes a character as the handler errors writes it, and as its Python escape
+    (\\u2192) where that handler would end the write in an error; registered on first use."""
+    name = errors + ESCAPED
+    try:
+        codecs.lookup_error(name)
+    except LookupError:
+        original = codecs.lookup_error(errors)
+
+        def handler(exc):
+            if not isinstance(exc, UnicodeEncodeError):
+                return original(exc)
+            one = UnicodeEncodeError(exc.encoding, exc.object, exc.start, exc.start + 1, exc.reason)
+            try:
+                return original(one)
+            except UnicodeEncodeError:
+                return codecs.backslashreplace_errors(one)
+
+        codecs.register_error(name, handler)
+    return name
+
+
+def writable_output(*streams):
+    """Make standard output and standard error (or the streams given) write any text. A character the stream's
+    encoding cannot write, as on a legacy Windows code page or under a C locale, is written as its Python escape
+    (\\u2192 for an arrow) instead of ending the command in an encoding error; every other character is written as it
+    is. A stream keeps what its error handler does where that handler writes a character: under surrogateescape, a
+    name that is not text in the encoding is still written as its bytes. A handler that never raises, and UTF with
+    surrogatepass, which writes every character, are left as they are. Every script that imports this module gets it
+    when it imports it (below); JSON goes through print_data, which gives such a stream plain ASCII, so the escapes in
+    it are JSON's."""
+    for stream in streams or (sys.stdout, sys.stderr):
+        errors, encoding = getattr(stream, "errors", None), getattr(stream, "encoding", None) or ""
+        if not errors or errors in SAFE_ERRORS or errors.endswith(ESCAPED) or not hasattr(stream, "reconfigure"):
+            continue
+        try:
+            if errors == "surrogatepass" and codecs.lookup(encoding).name.startswith("utf"):
+                continue
+            stream.reconfigure(errors="backslashreplace" if errors == "strict" else _escaping(errors))
+        except (LookupError, ValueError, OSError):
+            pass
+
+
+writable_output()
 
 
 # --- low-level reading ------------------------------------------------------
@@ -568,7 +654,10 @@ def docs_default(root="."):
 
 def project_root(docs_dir):
     """The project's root for a specification folder: the nearest folder above it whose rules block records this
-    folder; else the nearest folder above it that holds AGENTS.md, CLAUDE.md or .git; else its parent."""
+    folder; else the nearest folder above it that holds AGENTS.md, CLAUDE.md or .git, a link that cannot be resolved
+    in its place included; else its parent, or, when something on the way stops a reader before the parent's contents
+    (a link that cannot be resolved, a folder that cannot be searched, the parent included), the folder above the first
+    such folder from the top of the file system."""
     docs_abs = os.path.abspath(docs_dir)
     parent = os.path.dirname(docs_abs)
     probe = parent
@@ -581,11 +670,18 @@ def project_root(docs_dir):
         probe = os.path.dirname(probe)
     probe = parent
     while True:
-        if any(os.path.exists(os.path.join(probe, name)) for name in ("AGENTS.md", "CLAUDE.md", ".git")):
+        if any(os.path.lexists(os.path.join(probe, name)) for name in ("AGENTS.md", "CLAUDE.md", ".git")):
             return probe
         if os.path.dirname(probe) == probe:
-            return parent
+            break
         probe = os.path.dirname(probe)
+
+    # Every part of the path is looked at, from the top of the file system: a missing part behind a link that cannot be
+    # resolved is not absent, and neither is one in a folder that cannot be searched.
+    stop = _first_stop(parent)
+    if stop is None and unsearchable(parent):
+        stop = parent, None
+    return os.path.dirname(stop[0]) if stop else parent
 
 
 # --- the A-files, when the project tracks its work in them ---
@@ -978,7 +1074,10 @@ def _decision_paths(state, detail):
 def parse_change_log(path):
     """Entries of a recovery change log in file order, [] when there is none. Each entry:
     number, line, kind, use_cases, evidence, decision, decided_by (None without the column),
-    state and detail (from decision_of), paths (record or reports), ahead (AH ids, [] without the column)."""
+    state and detail (from decision_of), paths (record or reports), ahead (AH ids, [] without the column).
+    OSError for a link that cannot be resolved in its place (link_error): it is not an absent change log."""
+    if path and unresolved_link(path):
+        raise link_error(path)
     if not path or not os.path.isfile(path):
         return []
     entries = []
@@ -1007,28 +1106,109 @@ RE_LEDGER_ENTITY = re.compile(r"^ENTITY\s+([A-Za-z_][\w-]*)(?:\s+(\S.*?))?$")
 RE_EVIDENCE = re.compile(r"(.+?):(\d+)(?:-(\d+))?")
 
 
-def evidence_locations(cell):
-    """The code locations of a ledger Evidence cell, separated by semicolons: [{text, path, line, last_line}].
-    A location without a line number keeps its path with line and last_line None; last_line is None unless the
-    location is a range."""
+# The drive of a Windows path, as written with forward slashes: C: or a share, //server/share.
+RE_DRIVE = re.compile(r"^(?:[A-Za-z]:|//[^/]+/[^/]+)")
+
+
+def project_path(written, root):
+    """A path as a project's file writes it, given as the data gives paths: (path, place).
+
+    Backslashes are separators, as on Windows. A relative path is relative to root. place is 'project' when the
+    path is in the project, and path is then relative to root with forward slashes; 'outside' when it leaves the
+    project (a relative path that climbs out, or an absolute one elsewhere), and path is then the path normalized
+    with forward slashes, relative if it was written relative; 'other_drive' when it names a drive or a share the
+    root is not on, and path is then as written with forward slashes. A root on a drive (Windows) compares without
+    regard to case, as Windows does. An absolute path the root does not hold as written is still in the project when it
+    leads there on the file system: through a link, or another spelling of a folder on the way (/var for /private/var
+    on macOS), decided by the identity of the deepest part of it that exists (_resolved_inside)."""
+    path = written.strip().replace("\\", "/")
+    base = root.replace("\\", "/")
+    drive, base_drive = RE_DRIVE.match(path), RE_DRIVE.match(base)
+    # The path as the system names it, for _resolved_inside: one rooted on the root's own drive gets that drive.
+    whole = base_drive.group(0) + path if base_drive and not drive else path
+    fold = (lambda text: text.lower()) if base_drive else (lambda text: text)
+    if drive:
+        if not base_drive or fold(drive.group(0)) != fold(base_drive.group(0)):
+            return path, "other_drive"
+        path, base = path[drive.end():] or "/", base[base_drive.end():] or "/"
+    elif base_drive and path.startswith("/"):
+        base = base[base_drive.end():] or "/"          # a path rooted on the root's own drive
+    if not path.startswith("/"):
+        relative = posixpath.normpath(path)
+        return relative, ("outside" if relative == ".." or relative.startswith("../") else "project")
+    path, base = posixpath.normpath(path), posixpath.normpath(base)
+    if fold(path) == fold(base):
+        return ".", "project"
+    prefix = base.rstrip("/") + "/"
+    if fold(path).startswith(fold(prefix)):
+        return path[len(prefix):], "project"
+    inside = _resolved_inside(whole, root)
+    if inside is not None:
+        return inside, "project"
+    return (drive.group(0) if drive else "") + path, "outside"
+
+
+def _resolved_inside(path, root):
+    """Where path leads in the project whose root is root: the path from the root with forward slashes ('.' for the
+    root itself), or None when it leads elsewhere or that cannot be asked. Both must be absolute paths of this system.
+    The real path of path is walked up to the folder that is root itself on the file system (the same device and file
+    number), so that a link, an alias of a folder on the way or another capitalisation on a file system blind to case
+    leads in; a part that does not exist yet keeps its name. Where the system gives no file numbers (zero), identity
+    cannot be asked and the answer is None, so the lexical answer stands."""
+    if not (os.path.isabs(path) and os.path.isabs(root)):
+        return None
+    try:
+        mark = os.stat(root)
+        current = os.path.realpath(path)
+    except (OSError, ValueError):
+        return None
+    if not mark.st_ino:
+        return None             # no file numbers on this system: identity cannot be asked, the lexical answer stands
+    tail = []
+    while True:
+        try:
+            status = os.stat(current)
+            if status.st_ino and os.path.samestat(status, mark):
+                return "/".join(reversed(tail)) or "."
+        except (OSError, ValueError):
+            pass
+        parent = os.path.dirname(current)
+        if parent == current:
+            return None
+        tail.append(os.path.basename(current))
+        current = parent
+
+
+def evidence_locations(cell, root=None):
+    """The code locations of a ledger Evidence cell, separated by semicolons: [{text, path, place, line,
+    last_line}]. text is the location as written; path and place are project_path of its path against root (the
+    project's root), so path is relative to the project with forward slashes, and place says when it is not in the
+    project. A location without a line number keeps its path with line and last_line None; last_line is None
+    unless the location is a range."""
     found = []
     for item in (part.strip().strip("`") for part in (cell or "").split(";")):
         if not item:
             continue
         match = RE_EVIDENCE.fullmatch(item)
-        found.append({"text": item, "path": match.group(1) if match else item,
+        path, place = project_path(match.group(1) if match else item, root or os.getcwd())
+        found.append({"text": item, "path": path, "place": place,
                       "line": int(match.group(2)) if match else None,
                       "last_line": int(match.group(3)) if match and match.group(3) else None})
     return found
 
 
-def parse_ledger(path):
+def parse_ledger(path, root=None):
     """Rows of a recovery ledger in file order, [] when there is none: every row of a table whose first column is
     Element, except a template row (an empty element or one in [brackets]). Each row: line, element (without code
     marks), use_case, part (the flow or rule of a use case, the aspect of an entity), entity, state (lower case, as
-    written), note, evidence (evidence_locations of its Evidence cell)."""
+    written), note, evidence (evidence_locations of its Evidence cell). root is the project's root its evidence
+    paths are relative to; by default the root of the specification folder the ledger sits in (DIR/recovery/).
+    OSError for a link that cannot be resolved in its place (link_error): it is not an absent ledger."""
+    if path and unresolved_link(path):
+        raise link_error(path)
     if not path or not os.path.isfile(path):
         return []
+    root = os.path.abspath(root or project_root(os.path.dirname(os.path.dirname(os.path.abspath(path)))))
     rows = []
     for table in read_tables(read_lines(path)):
         if not table["header"] or table["header"][0].strip().lower() != "element":
@@ -1044,7 +1224,7 @@ def parse_ledger(path):
                          "part": use_case.group(2) if use_case else (entity.group(2) if entity else None),
                          "entity": entity.group(1) if entity else None,
                          "state": row.get("State", "").strip().lower(), "note": row.get("Note", "").strip(),
-                         "evidence": evidence_locations(row.get("Evidence", ""))})
+                         "evidence": evidence_locations(row.get("Evidence", ""), root)})
     return rows
 
 
@@ -1125,12 +1305,15 @@ CLEAN_VERDICTS = ("covered", "not applicable", "n/a")
 
 
 def closure_problems(root, entry):
-    """Shared closure check: (severity, code, message) findings for an aligned entry."""
+    """Shared closure check: (severity, code, message) findings for an aligned entry. OSError or UnicodeDecodeError
+    when a report cannot be read, a link that cannot be resolved in its place included (link_error)."""
     if entry["state"] != "aligned":
         return []
     problems, named = [], set()
     for target in entry["paths"]:
         full = os.path.join(root, target)
+        if unresolved_link(full):
+            raise link_error(full)
         if not os.path.isfile(full):
             problems.append(("error", "AUDIT_REPORT_MISSING", "%s does not exist under %s" % (target, root)))
             continue
@@ -1169,9 +1352,375 @@ def closure_problems(root, entry):
 DOC_FILES = {"vision": ("vision.md",), "requirements": ("requirements.md", "requirements_catalog.md"),
              "entity_model": ("entity_model.md", "entity-model.md"), "overview": ("use_cases.md",)}
 # Classifying removed paths must use the same folder spellings as discovery.
+# The recovery records in the recovery folder, by the key Docs.unresolved gives each when it is a broken link.
+RECOVERY_FILES = {"recovery_ledger": "ledger.md", "recovery_change_log": "change-log.md"}
 DOC_FOLDERS = {"use_case_dir": ("use_cases", "use-cases", "usecases"),
                "test_case_dir": ("test_cases", "test-cases"), "process_dir": ("processes",),
                "recovery_dir": ("recovery",), "reviews_dir": ("reviews",)}
+
+
+def unresolved_link(path):
+    """Whether path is a link (or a junction) that cannot be resolved: its target is missing, or it leads back to
+    itself. Such a path is not an absent file: whoever reads it cannot, and should say so."""
+    return os.path.lexists(path) and not os.path.exists(path)
+
+
+def absent(path):
+    """Whether there is nothing at path: the system answers that no such file exists. A link that cannot be resolved is
+    there, and so is a file in a folder that cannot be searched, or one behind a link that cannot be resolved on the
+    way to it, at any depth (unreachable): whoever reads any of them cannot, and should say so instead of calling it
+    missing."""
+    try:
+        os.lstat(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return _first_stop(os.path.abspath(path)) is None
+    except ValueError:
+        return True
+    except OSError:
+        return False
+    return False
+
+
+def no_such(kind, path):
+    """The usage error for a file or folder a command was given and cannot use: 'no such folder: PATH', or for a link
+    that cannot be resolved 'cannot read PATH: ...', naming it as a link (link_error), never as missing; the same for a
+    path behind such a link or behind a folder that cannot be searched (unreachable), naming what stops the reader."""
+    if unresolved_link(path):
+        return "cannot read %s: %s" % (path, link_error(path))
+    blocked = unreachable(path)
+    if blocked:
+        return "cannot read %s: %s" % (path, blocked[1])
+    return "no such %s: %s" % (kind, path)
+
+
+def link_error(path):
+    """The error to report for a link that cannot be resolved: an OSError that names it as such, with the target it
+    gives and the reason the system gives, so that a reader is not told only that a file it can see is missing."""
+    try:
+        os.stat(path)
+    except OSError as exc:
+        reason, number = exc.strerror or str(exc), exc.errno
+    else:
+        reason, number = "no longer resolves", None
+    try:
+        target = " to %s" % os.readlink(path)
+    except (OSError, ValueError, AttributeError):
+        target = ""
+    return OSError(number, "a link that cannot be resolved%s (%s)" % (target, reason), path)
+
+
+def why_unreadable(path):
+    """Why a reader cannot reach path although it may be there, as the error to report: link_error for a link that
+    cannot be resolved in its place, the error of unreachable for a path behind such a link or a folder that cannot be
+    searched, at any depth. None when path can be reached, or is plainly absent."""
+    if unresolved_link(path):
+        return link_error(path)
+    blocked = unreachable(path)
+    return blocked[1] if blocked else None
+
+
+def explained(exc, path):
+    """exc, or why_unreadable(path) when exc is an error of the system and something on the way to path, or a link in
+    its place, stops the reader: the error then names that, not a file that seems missing."""
+    if isinstance(exc, OSError) and path:
+        return why_unreadable(path) or exc
+    return exc
+
+
+def way_error(folder, exc):
+    """The error to report for a folder on the way to a file or folder that cannot be searched: an OSError that names
+    the folder, with the reason the system gives, so that what lies behind it is not called missing."""
+    return OSError(getattr(exc, "errno", None), "a folder on the way that cannot be searched (%s)"
+                   % (getattr(exc, "strerror", None) or exc), folder)
+
+
+def _first_stop(full):
+    """The first folder on the way from the top of the file system down to full (an absolute path), full included,
+    that stops a reader: (folder, error), the folder absolute and the error naming it (link_error for a link that
+    cannot be resolved, way_error for a folder that cannot be searched); None when nothing on the way stops a reader,
+    so that full is there or plainly absent."""
+    full = os.path.normpath(full)
+    drive, rest = os.path.splitdrive(full)
+    current = drive + os.sep                    # the top: / on POSIX, C:\ or \\server\share\ on Windows
+    parts = [part for part in rest.split(os.sep) if part]
+    for part in parts + [None]:
+        if unresolved_link(current):
+            return current, link_error(current)
+        if part is None:
+            return None
+        child = os.path.join(current, part)
+        try:
+            os.lstat(child)
+        except (FileNotFoundError, NotADirectoryError, ValueError):
+            return None
+        except OSError as exc:
+            return current, way_error(current, exc)
+        current = child
+    return None
+
+
+def unreachable(path):
+    """What keeps a reader from path although it may be there: (folder, error) for the first folder on the way down
+    from the top of the file system to path, path included, that is a link that cannot be resolved (link_error) or a
+    folder that cannot be searched (way_error). Every part of the path is looked at before a missing part is read as
+    absence. None when nothing on the way stops a reader: path is then there, or plainly absent. folder, and the path
+    the error names, are spelled as path is: relative when path is relative."""
+    found = _first_stop(os.path.abspath(path))
+    if found is None:
+        return None
+    folder = found[0]
+    if not os.path.isabs(path):
+        try:
+            folder = os.path.relpath(folder)
+        except ValueError:      # another drive than the current folder's
+            pass
+    exc = found[1]
+    return folder, OSError(exc.errno, exc.strerror, folder)
+
+
+def unsearchable(folder):
+    """The error to report for a folder whose names may be listed and that cannot be searched (read without execute):
+    nothing in it can be reached, a file or a folder it lists included, so that whoever reads it cannot and should say
+    so instead of calling what it holds missing. None when folder can be searched, or is no folder."""
+    try:
+        os.lstat(os.path.join(folder, os.curdir))
+    except (FileNotFoundError, NotADirectoryError, ValueError):
+        return None
+    except OSError as exc:
+        return OSError(exc.errno, "a folder that cannot be searched (%s)" % (exc.strerror or exc), folder)
+    return None
+
+
+def folder_present(path):
+    """Whether a command can take path as the specification folder it was given: a folder, a link in its place that
+    cannot be resolved, or a path behind such a link or behind a folder that cannot be searched (unreachable). All but
+    the first are present and unreadable, never missing: the old-format check (stop_if_old) then reports them as the
+    finding UNREADABLE instead of the command answering that there is no such folder."""
+    return os.path.isdir(path) or unresolved_link(path) or unreachable(path) is not None
+
+
+# What os.lstat reports on Windows for a junction: the reparse point attribute, and the reparse tag of a mount point.
+FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+IO_REPARSE_TAG_MOUNT_POINT = 0xA0000003
+
+
+def junction_status(status):
+    """Whether a status from os.lstat is a Windows junction's: the reparse point attribute set and the reparse tag of a
+    mount point. False for a status without them, as on every other system."""
+    attributes = getattr(status, "st_file_attributes", 0) or 0
+    return bool(attributes & FILE_ATTRIBUTE_REPARSE_POINT) and \
+        getattr(status, "st_reparse_tag", None) == IO_REPARSE_TAG_MOUNT_POINT
+
+
+def _is_link(path):
+    """A symbolic link, or a Windows junction: os.path.isjunction tells one from Python 3.12, and before it what
+    os.lstat reports (junction_status)."""
+    if os.path.islink(path):
+        return True
+    isjunction = getattr(os.path, "isjunction", None)
+    if callable(isjunction):
+        return bool(isjunction(path))
+    try:
+        return junction_status(os.lstat(path))
+    except (OSError, ValueError):
+        return False
+
+
+def _within(path, folder):
+    """Whether path is folder or under it, both resolved paths.
+
+    Decided by the identity of the folders on the file system: path or one of the folders above it is folder itself.
+    So a second spelling of a folder, as another capitalisation on a file system blind to case, is the same folder.
+    The paths are compared as strings only where the identity cannot be asked: folder cannot be reached, the system
+    gives no file numbers, or no folder above path matched and one of them could not be reached."""
+    try:
+        mark = os.stat(folder)
+    except (OSError, ValueError):
+        mark = None
+    if mark is not None and mark.st_ino:
+        current, unknown = path, False
+        while True:
+            try:
+                if os.path.samestat(os.stat(current), mark):
+                    return True
+            except (OSError, ValueError):
+                unknown = True
+            parent = os.path.dirname(current)
+            if parent == current:
+                break
+            current = parent
+        if not unknown:
+            return False
+    try:
+        return os.path.commonpath([os.path.normcase(path), os.path.normcase(folder)]) == os.path.normcase(folder)
+    except ValueError:          # another drive
+        return False
+
+
+def outside_link(path, root):
+    """The link through which path is read from outside the project whose root is root: (link, target), the link
+    as a path under root and the real path of path itself. None when no link on the way from the
+    root to path leads out of the project: a link that stays inside it gets no mark. A link inside the project that
+    leads to a link out of it is not the one that leaves; the second is. None also for a path not under root."""
+    base = os.path.abspath(root)
+    full = os.path.abspath(path)
+    try:
+        relative = os.path.relpath(full, base)
+    except ValueError:          # another drive
+        return None
+    if relative == os.curdir or relative == os.pardir or relative.startswith(os.pardir + os.sep):
+        return None
+    real_root = os.path.realpath(base)
+    current = base
+    for part in relative.split(os.sep):
+        current = os.path.join(current, part)
+        if _is_link(current) and not _within(os.path.realpath(current), real_root):
+            return current, os.path.realpath(full)
+    return None
+
+
+def _identity(path):
+    """What makes two paths one file or folder: its device and file number, else its resolved path; None when it
+    cannot be reached."""
+    try:
+        status = os.stat(path)
+    except OSError:
+        return None
+    if status.st_ino:
+        return status.st_dev, status.st_ino
+    return os.path.normcase(os.path.realpath(path))
+
+
+def walk_folders(top, unreadable=None):
+    """Every folder under top, top included, each real folder once, whatever the links between them.
+
+    A folder reached without a link comes before one reached only through a link, so an alias never stands in for
+    the folder it names; a link that leads into a folder already visited, a loop back to top included, ends there.
+    A link to a folder outside top is followed. Hidden folders (a name starting with a dot) are left out, as a
+    recursive glob leaves them out. A folder that cannot be listed is yielded; its contents are not, and when
+    unreadable is a list the folder is added to it as (path, error): what the walk could not look into. So is, never
+    skipped in silence, a folder it lists and cannot reach (in a folder that can be listed and not searched), and an
+    entry it cannot tell a folder from something else, such as a link whose target it is denied. A path that is
+    plainly gone is left out, and so is a link that cannot be resolved (its target missing, or a loop back to
+    itself), as a recursive glob leaves it out: it is no folder to search, and one in place of an artifact or a
+    change-records folder is reported where it stands (Docs.unresolved, record_search)."""
+    seen, found, links = set(), [], [top]
+
+    def denied(path, exc):
+        if unreadable is not None and not isinstance(exc, (FileNotFoundError, NotADirectoryError)) \
+                and getattr(exc, "errno", None) != errno.ELOOP:
+            unreadable.append((path, exc))
+
+    while links:
+        stack = [links.pop(0)]
+        while stack:
+            folder = stack.pop()
+            try:
+                status = os.stat(folder)
+            except OSError as exc:
+                denied(folder, exc)
+                continue
+            key = (status.st_dev, status.st_ino) if status.st_ino else os.path.normcase(os.path.realpath(folder))
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append(folder)
+            try:
+                with os.scandir(folder) as entries:
+                    entries = sorted(entries, key=lambda entry: entry.name)
+            except OSError as exc:
+                denied(folder, exc)
+                continue
+            children = []
+            for entry in entries:
+                if entry.name.startswith("."):
+                    continue
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        children.append(entry.path)
+                    elif entry.is_symlink() and entry.is_dir():
+                        links.append(entry.path)
+                except OSError as exc:
+                    denied(entry.path, exc)
+            stack.extend(reversed(children))
+    return found
+
+
+def _owned_by_the_method(root):
+    """A test of whether a folder under the specification folder root is one the method owns: root itself, one of its
+    canonical folders (DOC_FOLDERS, any of their spellings), or a change-records folder at any depth, a link in its
+    place included. A folder is told by its identity on the file system where it can be asked, so another spelling of
+    one on a file system blind to case is the same folder, and by its path where it cannot."""
+    base = os.path.normcase(os.path.normpath(root))
+    spellings = {spelling for names in DOC_FOLDERS.values() for spelling in names}
+    known = {_identity(root)} | {_identity(os.path.join(root, spelling)) for spelling in spellings}
+    known.discard(None)
+
+    def owned(path):
+        path = os.path.normpath(path)
+        parent, name = os.path.dirname(path), os.path.basename(path)
+        if name == "change-records" or os.path.normcase(path) == base:
+            return True
+        if os.path.normcase(parent) == base and name in spellings:
+            return True
+        key = _identity(path)
+        return key is not None and (key in known or key == _identity(os.path.join(parent, "change-records")))
+    return owned
+
+
+def record_search(root):
+    """The search for change records under a specification folder: (folders, unreadable, not_searched).
+
+    folders is every change-records folder, in path order, each real folder once. The name is looked up in each
+    folder walk_folders gives, the specification folder included, as upspec 1.8.0's recursive search for
+    **/change-records did: a file system blind to case also finds a folder spelled Change-Records, under the spelling
+    change-records. A folder link inside the specification folder neither repeats one nor loops, and the path that is
+    not a link wins over an alias of it. The name is looked up in a folder that cannot be listed too: one that can
+    still be searched (execute without read) gives its change-records folder.
+
+    What the search could not look into is [(path, error)], in two lists. unreadable is what the method owns, so that
+    no change record is taken for absent that may be there: a change-records link that cannot be resolved
+    (link_error), a folder that cannot be listed that is the specification folder, one of its canonical folders or
+    a change-records folder, and a change-records folder found that cannot be searched, an empty one included
+    (unsearchable). not_searched is every other folder that cannot be listed, such as a tool's cache or
+    node_modules: the method writes no change record there, so it stops nothing, and it is named all the same, since a
+    change record under it, if any, is not read."""
+    candidates, problems = [], []
+    for order, folder in enumerate(walk_folders(root, problems)):
+        path = os.path.join(folder, "change-records")
+        if os.path.isdir(path):
+            candidates.append((_is_link(path), order, path))
+        elif unresolved_link(path):
+            problems.append((path, link_error(path)))
+    found, seen = [], set()
+    for _, _, path in sorted(candidates):
+        key = _identity(path)
+        if key is not None and key not in seen:
+            seen.add(key)
+            found.append(path)
+    # A change-records folder that can be listed and not searched holds no record that can be read, an empty one
+    # included, whose listing alone would show nothing amiss.
+    problems += [(path, unsearchable(path)) for path in found if unsearchable(path)]
+    owned = _owned_by_the_method(root)
+    unreadable = [(path, exc) for path, exc in problems if owned(path)]
+    not_searched = [(path, exc) for path, exc in problems if not owned(path)]
+    return sorted(found), sorted(unreadable, key=lambda item: item[0]), sorted(not_searched, key=lambda item: item[0])
+
+
+def change_record_folders(root):
+    """Every change-records folder under a specification folder, in path order, each real folder once (record_search,
+    which also says what the search could not look into)."""
+    return record_search(root)[0]
+
+
+def not_searched_notes(not_searched, stream=None):
+    """Write a note for each folder the search for change records could not look into and that stops nothing
+    (record_search's not_searched), so that no one takes the search for complete: 'note: PATH was not searched for
+    change records: ERROR'. On standard error unless stream is given."""
+    stream = sys.stderr if stream is None else stream
+    for path, exc in not_searched:
+        stream.write("note: %s was not searched for change records: %s\n" % (path, exc))
+
 
 class Docs:
     """Paths of the specification artifacts under a docs folder, with tolerated older spellings."""
@@ -1183,6 +1732,20 @@ class Docs:
             setattr(self, attribute, self._first(*names))
         for attribute, names in DOC_FOLDERS.items():
             setattr(self, attribute, self._first(*names, want_dir=True))
+        # {attribute: path} for an artifact the project has only as a link that cannot be resolved. The attribute
+        # stays None, so a check reads it as absent as before; the old-format check (old_formats) and the model
+        # command list it as unreadable. The recovery records count too, under the keys of RECOVERY_FILES.
+        self.unresolved = {}
+        for attribute, names in list(DOC_FILES.items()) + list(DOC_FOLDERS.items()):
+            if getattr(self, attribute) is None:
+                broken = [os.path.join(docs_dir, name) for name in names
+                          if unresolved_link(os.path.join(docs_dir, name))]
+                if broken:
+                    self.unresolved[attribute] = broken[0]
+        for key, name in RECOVERY_FILES.items():
+            path = os.path.join(self.recovery_dir, name) if self.recovery_dir else None
+            if path and unresolved_link(path):
+                self.unresolved[key] = path
 
     def _first(self, *names, **options):
         want_dir = options.get("want_dir", False)
@@ -1227,8 +1790,20 @@ class Docs:
     def test_case_files(self):
         return _matching(self.test_case_dir, r"^TC-\d{3}.*\.md$")
 
+    def record_search_unreadable(self, not_searched=None):
+        """[(path, error)] for what the search for change records could not look into and the method owns
+        (record_search's unreadable). When not_searched is a list, every other folder the search could not look into
+        is added to it as (path, error)."""
+        _, unreadable, others = record_search(self.root)
+        if not_searched is not None:
+            not_searched.extend(others)
+        return unreadable
+
     def change_record_files(self):
-        return sorted(glob.glob(os.path.join(self.root, "**", "change-records", "*.md"), recursive=True))
+        """Every change record under the specification folder: the .md files of each change-records folder, each
+        folder once (change_record_folders)."""
+        return sorted(path for folder in change_record_folders(self.root)
+                      for path in glob.glob(os.path.join(glob.escape(folder), "*.md")))
 
     def process_files(self):
         return _matching(self.process_dir, r".*\.bpmn$")
@@ -1631,23 +2206,34 @@ def load_use_cases(docs):
     return [parse_use_case(path) for path in docs.use_case_files()]
 
 
-def every_use_case(docs, obsolete=True):
+def every_use_case(docs, obsolete=True, unreadable=None):
     """Each identified use case once, in identifier order, for a command's --all mode: [(id, path, parsed)].
 
     A use case whose id cannot be read is left out, and so is an Obsolete one unless obsolete is True. The file
     is the one find_use_case gives for the id, the one a call naming the id reads; when no file name carries
     the id, the first file whose front matter holds it. Raises OSError or UnicodeDecodeError on a file that
-    cannot be read."""
+    cannot be read, unless unreadable is a list: the file is then added to it once as (path, error) and left out,
+    and so is the id whose file, the one a call naming it reads, cannot be read."""
+    def parse(path):
+        if unreadable is None:
+            return parse_use_case(path)
+        try:
+            return parse_use_case(path)
+        except (OSError, UnicodeDecodeError) as exc:
+            if all(os.path.abspath(path) != os.path.abspath(known) for known, _ in unreadable):
+                unreadable.append((path, exc))
+            return None
+
     found = {}
-    for uc in load_use_cases(docs):
+    for uc in filter(None, (parse(path) for path in docs.use_case_files())):
         if uc.id and uc.id not in found and (obsolete or uc.status != "Obsolete"):
             found[uc.id] = uc
     result = []
     for uc_id in sorted(found):
         path = find_use_case(docs, uc_id)
         if path and os.path.abspath(path) != os.path.abspath(found[uc_id].path):
-            uc = parse_use_case(path)
-            if not uc.id or not (obsolete or uc.status != "Obsolete"):
+            uc = parse(path)
+            if uc is None or not uc.id or not (obsolete or uc.status != "Obsolete"):
                 continue
         else:
             path, uc = found[uc_id].path, found[uc_id]
@@ -1824,12 +2410,14 @@ def scan_units_in(roots, uc, suffixes=None):
     """scan_units over several folders, for a project that keeps its tests in more than one: (files, hits).
 
     The files of each folder come in the order scan_units gives them, folder after folder; a file that two
-    overlapping folders both hold counts once."""
+    folders both hold counts once, under the first folder's spelling: overlapping folders, one folder given under
+    two spellings on a file system blind to case, or a folder and a link to it."""
     files, seen = [], set()
     for root in roots:
         for path in sorted({path for path, _, _ in find_markers(root, uc.id, suffixes)}):
-            if os.path.abspath(path) not in seen:
-                seen.add(os.path.abspath(path))
+            key = _identity(path) or os.path.abspath(path)
+            if key not in seen:
+                seen.add(key)
                 files.append(path)
 
     def sources():
@@ -2275,7 +2863,9 @@ def _element_name(text):
 def read_guard_log(path):
     """Every row of the guard-check log in file order, the newest last, as GuardRow. The element is in the finish
     check's spelling when it names one. An empty list when there is no log; OSError or UnicodeDecodeError when it
-    cannot be read."""
+    cannot be read, a link that cannot be resolved in its place included (link_error)."""
+    if unresolved_link(path):
+        raise link_error(path)
     if not os.path.isfile(path):
         return []
     rows, header, current = [], None, False
@@ -2307,8 +2897,11 @@ def read_guard_log(path):
 
 def append_guard_row(docs_dir, row):
     """Append one GuardRow to the log; a log whose last table is not of GUARD_COLUMNS, an earlier log or one edited
-    by hand, gets a new table below it. Returns the log's path; OSError when it cannot be written."""
+    by hand, gets a new table below it. Returns the log's path; OSError when it cannot be written, and before anything
+    is written when a link that cannot be resolved stands in its place: nothing is written through it."""
     path = os.path.join(docs_dir, GUARD_LOG_NAME)
+    if unresolved_link(path):
+        raise link_error(path)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     text = ""
     if os.path.isfile(path):
@@ -2498,9 +3091,53 @@ RE_OLD_UC_FIELD = re.compile(r"^\*\*Use Case ID:\*\*")
 RE_OLD_TC_FIELD = re.compile(r"^\*\*ID:\*\*")
 
 
-def old_formats(docs):
-    """Every file still in an earlier format: [(path, line, what)]. Reads nothing else of the project."""
+def old_formats(docs, unreadable=None, not_searched=None):
+    """Every file still in an earlier format: [(path, line, what)]. Reads nothing else of the project but the vision, the
+    overview and the recovery ledger and change log, which it reads only to name one that cannot be read.
+
+    A file that cannot be read raises OSError or UnicodeDecodeError, unless unreadable is a list: the file is then
+    added to it as (path, error) and the other files are still read, so that one unreadable file does not hide an
+    earlier format in another. A link that cannot be resolved, in place of the specification folder or of an
+    artifact in it (Docs.unresolved, the recovery records included), is such a file: never an absent one, and its
+    error names it as a link (link_error). So is a specification folder behind such a link or behind a folder that
+    cannot be searched, on the way from the top of the file system (unreachable), and the specification folder or a
+    canonical folder that can be listed and not searched (unsearchable). The listing of a folder is part of the same
+    pass: a folder that cannot be listed is such a file too, and so is whatever the search for change records could
+    not look into and the method owns (Docs.record_search_unreadable). Each path is added once.
+
+    Any other folder the search for change records could not look into (a tool's cache, node_modules) is not such a
+    file: it never raises nor goes into unreadable. When not_searched is a list it is added to it as (path, error)."""
     found = []
+    seen = {os.path.abspath(path) for path, _ in unreadable or [] if path}
+
+    def note(path, exc):
+        exc = explained(exc, path)
+        if unreadable is None:
+            raise exc
+        if not path or os.path.abspath(path) not in seen:
+            seen.add(os.path.abspath(path) if path else None)
+            unreadable.append((path, exc))
+
+    def tolerant(read, path):
+        try:
+            return read()
+        except (OSError, UnicodeDecodeError) as exc:
+            note(path, exc)
+            return []
+
+    def lines(path):
+        return tolerant(lambda: read_lines(path), path)
+
+    blocked = unreachable(docs.root) or (docs.root, unsearchable(docs.root))
+    if blocked[1]:
+        note(docs.root, blocked[1])
+    for path in sorted(getattr(docs, "unresolved", {}).values()):
+        note(path, link_error(path))
+    # A canonical folder whose names can be listed and that cannot be searched holds nothing that can be read.
+    for attribute in DOC_FOLDERS:
+        folder = getattr(docs, attribute, None)
+        if folder and unsearchable(folder):
+            note(folder, unsearchable(folder))
     for name in ("use_cases.puml", "use-cases.puml"):
         path = os.path.join(docs.root, name)
         if os.path.isfile(path):
@@ -2509,59 +3146,85 @@ def old_formats(docs):
         path = os.path.join(docs.root, name)
         if os.path.isfile(path):
             found.append((path, 1, "older file name (the convention is %s)" % convention))
-    for path in docs.use_case_files():
-        hit = next((n for n, line in outside_fences(read_lines(path)) if RE_OLD_UC_FIELD.match(line.strip())), None)
+    for path in tolerant(docs.use_case_files, docs.use_case_dir):
+        hit = next((n for n, line in outside_fences(lines(path)) if RE_OLD_UC_FIELD.match(line.strip())), None)
         if hit:
             found.append((path, hit, "bold Overview fields instead of front matter"))
-    for path in docs.test_case_files():
-        hit = next((n for n, line in outside_fences(read_lines(path)) if line.strip() == "## Flow"), None)
+    for path in tolerant(docs.test_case_files, docs.test_case_dir):
+        hit = next((n for n, line in outside_fences(lines(path)) if line.strip() == "## Flow"), None)
         if hit:
             found.append((path, hit, "journey Flow table"))
     if docs.entity_model:
-        hit = next((n for n, line in outside_fences(read_lines(docs.entity_model)) if "Length/Precision" in line), None)
+        hit = next((n for n, line in outside_fences(lines(docs.entity_model)) if "Length/Precision" in line), None)
         if hit:
             found.append((docs.entity_model, hit, "database columns in the entity model"))
     if docs.requirements:
-        hit = next((n for n, line in outside_fences(read_lines(docs.requirements)) if "User Story" in line), None)
+        hit = next((n for n, line in outside_fences(lines(docs.requirements)) if "User Story" in line), None)
         if hit:
             found.append((docs.requirements, hit, "user story column in the requirements"))
+    # Read whole in the same pass, though no earlier format lives in them: the vision, the overview and the recovery
+    # ledger and change log, which the router, the lint, the overview generator and the model read. One that cannot be
+    # read is named here, never left to end a command in a decoding error or to be reported under no name.
+    recovery = [os.path.join(docs.recovery_dir, name) for name in RECOVERY_FILES.values()] if docs.recovery_dir else []
+    for path in [docs.vision, docs.overview] + recovery:
+        if path and os.path.isfile(path):
+            lines(path)
+    search = getattr(docs, "record_search_unreadable", None)
+    for path, exc in (search() if not_searched is None else search(not_searched)) if search else []:
+        note(path, exc)
     for path in docs.change_record_files():
-        hit = next((n for n, line in outside_fences(read_lines(path)) if line.strip() == "### Classification"), None)
+        hit = next((n for n, line in outside_fences(lines(path)) if line.strip() == "### Classification"), None)
         if hit:
             found.append((path, hit, "the long change record"))
     return found
 
 
-def stop_if_old(docs, stream=None, report=None, *, strict):
+def stop_if_old(docs, stream=None, report=None, *, strict, unreadable=None):
     """Return the exit code the caller stops with, or None when it can go on.
 
-    Earlier formats stop with 5. An unreadable artifact stops the caller too,
-    because no caller continues parsing after a read error, and is reported as
-    the finding UNREADABLE, to the supplied reporter or to the same stream as
-    the migration notice. It then stops with 0, or 1 when strict, as any other
-    finding. strict is required and has two states: a check passes its --strict;
-    a script that writes or lists passes True, because it cannot do its work
-    without the file; a library whose own result is 1 on a problem (the finish
-    check, the validator) passes True and leaves --strict to its command line.
+    Every file is checked for the earlier formats, also past one that cannot be read, a link that cannot be resolved
+    in place of an artifact included. Earlier formats stop with 5, and each unreadable file is named beside them as
+    UNREADABLE on the same stream as the migration notice: the earlier formats win.
+
+    Without an earlier format, an unreadable file stops the caller too, because no caller continues parsing after a
+    read error, and is reported as the finding UNREADABLE, one per file, to the supplied reporter or to the same
+    stream as the migration notice. It then stops with 0, or 1 when strict, as any other finding. strict is required
+    and has two states: a check passes its --strict; a script that writes or lists passes True, because it cannot
+    do its work without the file; a library whose own result is 1 on a problem (the finish check, the validator)
+    passes True and leaves --strict to its command line.
+
+    With unreadable, a list, a file that cannot be read does not stop the caller: it is added to the list as
+    (path, error) for the caller to report, and only an earlier format stops it.
+
+    A folder the search for change records could not look into and that the method does not own (old_formats'
+    not_searched) stops nothing, with --strict too: it gets a note on the stream (not_searched_notes), whatever the
+    caller then does.
     """
     stream = sys.stderr if stream is None else stream
-    try:
-        found = old_formats(docs)
-    except (OSError, UnicodeDecodeError) as exc:
-        path = getattr(exc, "spec_path", None) or getattr(exc, "filename", None) or docs.root
-        message = "cannot read specification artifacts for old-format recognition: %s" % exc
-        if report is not None:
-            report.error(path, 0, "UNREADABLE", "-", message)
-        else:
-            stream.write("%s:0: ERROR UNREADABLE: %s\n" % (path, message))
-        return 1 if strict else 0
-    if not found:
+    files = [] if unreadable is None else unreadable
+    not_searched = []
+    found = old_formats(docs, files, not_searched)
+    not_searched_notes(not_searched, stream)
+
+    def message(exc):
+        return "cannot read specification artifacts for old-format recognition: %s" % exc
+
+    if found:
+        for path, line, what in found:
+            stream.write("%s:%d: ERROR OLD_FORMAT: %s\n" % (path, line, what))
+        for path, exc in files:
+            stream.write("%s:0: ERROR UNREADABLE: %s\n" % (path, message(exc)))
+        stream.write("This project uses upspec's earlier formats. Migrate it first: the skill up-migrating-spec-formats "
+                     "(scripts/migrate_formats.py plan).\n")
+        return OLD_FORMAT_EXIT
+    if unreadable is not None or not files:
         return None
-    for path, line, what in found:
-        stream.write("%s:%d: ERROR OLD_FORMAT: %s\n" % (path, line, what))
-    stream.write("This project uses upspec's earlier formats. Migrate it first: the skill up-migrating-spec-formats "
-                 "(scripts/migrate_formats.py plan).\n")
-    return OLD_FORMAT_EXIT
+    for path, exc in files:
+        if report is not None:
+            report.error(path, 0, "UNREADABLE", "-", message(exc))
+        else:
+            stream.write("%s:0: ERROR UNREADABLE: %s\n" % (path, message(exc)))
+    return 1 if strict else 0
 
 
 class ChangeRecord(_WithFrontMatter):

@@ -1356,10 +1356,21 @@ def main(argv):
     if wiring_decisions and len(tools) > 1:
         parser.error("wiring decisions for several recorded tools need --hooks --tool to select one")
     folder = (args.specs_folder or spec_model.docs_default(root)).rstrip("/")
-    real = os.path.realpath(os.path.join(root, folder))
+    inside = "--specs-folder must be a folder inside the project, such as docs, specs or documentation/specs"
     if folder.startswith("/") or not re.fullmatch(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*", folder) \
-            or any(part in (".", "..") for part in folder.split("/")) or not real.startswith(os.path.realpath(root) + os.sep):
-        print("--specs-folder must be a folder inside the project, such as docs, specs or documentation/specs", file=sys.stderr)
+            or any(part in (".", "..") for part in folder.split("/")):
+        print(inside, file=sys.stderr)
+        return 2
+    # A link that cannot be resolved on the way to the specification folder is named first, as UNREADABLE (exit 1):
+    # resolved, its path would name a folder that is not there, and setup would write beside the link or call it outside.
+    parts = folder.split("/")
+    for depth in range(1, len(parts) + 1):
+        here = os.path.join(root, *parts[:depth])
+        if spec_model.unresolved_link(here):
+            return spec_model.stop_if_old(spec_model.Docs(here), strict=True)
+    real = os.path.realpath(os.path.join(root, folder))
+    if not real.startswith(os.path.realpath(root) + os.sep):
+        print(inside, file=sys.stderr)
         return 2
     # Setup cannot do its work without the file: an unreadable one stops it with 1.
     stop = spec_model.stop_if_old(spec_model.Docs(real), strict=True)

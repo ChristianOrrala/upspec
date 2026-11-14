@@ -10,7 +10,8 @@ With --tests, files under that folder that carry the use case id (UC-006 or
 UC006) are scanned for unit labels (main, A1, BR-001) in test names,
 annotations and comments. A hit means a test claims the unit; whether it
 really covers it is judged by reading the test and by the guard check. Give
---tests once for each folder when the tests live in several.
+--tests once for each folder when the tests live in several; a file two of them
+hold is listed once, under the first one's spelling.
 
 --all lists every use case that is not Obsolete, in identifier order, each as
 a call naming it would print it; the JSON holds them under use_cases.
@@ -25,7 +26,6 @@ Usage:
 Requires Python 3.9+, standard library only. Reads files as data; writes nothing.
 """
 import argparse
-import json
 import os
 import re
 import sys
@@ -98,7 +98,7 @@ def main(argv):
         return 2
     for folder in args.tests or []:
         if not os.path.isdir(folder):
-            print("no such folder: %s" % folder, file=sys.stderr)
+            print(model.no_such("folder", folder), file=sys.stderr)
             return 2
     path = None if args.all else model.find_use_case(model.Docs(args.docs), args.use_case)
     if not args.all and not path:
@@ -114,7 +114,7 @@ def main(argv):
         return 2
     results = [units_of(uc, path, args.tests) for path, uc in chosen]
     if args.format == "json":
-        print(json.dumps({"use_cases": results} if args.all else results[0], indent=2, ensure_ascii=False))
+        model.print_data({"use_cases": results} if args.all else results[0])
         return 0
     for number, result in enumerate(results):
         if number:

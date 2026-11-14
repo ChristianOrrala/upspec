@@ -29,10 +29,13 @@ Requires Python 3.9+, standard library only. Reads the file; writes nothing.
 """
 import argparse
 import itertools
-import json
+import os
 import re
 import sys
 import xml.etree.ElementTree as ET
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import spec_model as model  # noqa: E402  (local module, same folder: the one way to print data)
 
 ACTIVITIES = ("task", "userTask", "manualTask", "serviceTask", "sendTask", "receiveTask",
               "scriptTask", "businessRuleTask", "callActivity")
@@ -231,7 +234,7 @@ def main(argv):
     except ValueError as exc:
         print("not a usable process model: %s" % exc, file=sys.stderr)
         return 1
-    print(json.dumps(result, indent=2, ensure_ascii=False))
+    model.print_data(result)
     return 0
 
 

@@ -6,7 +6,12 @@ Plan writes nothing. Apply performs mechanical changes only. Judgment about
 journeys, examples, EARS and unclear types belongs to the agent and owner.
 Exit 0 done/nothing to do, or verify ran whatever it found, an unreadable file or
 a lint that could not run included (with --strict 1 on a finding); 1 when plan or
-apply cannot read a file, 2 usage, 3 git/resume conflict.
+apply cannot read a file, 2 usage, 3 git/resume conflict. An artifact the method
+owns that cannot be read (a link that cannot be resolved, a folder that cannot be
+listed or searched, a text it owns that is denied or not UTF-8: every one the
+migration or verify reads is read whole first) stops plan and apply with 1 and
+UNREADABLE lines on standard error before anything is planned or written, a
+resumed apply included, as verify reports it; the earlier formats never do.
 The journal lives in git rev-parse --absolute-git-dir, including linked worktrees.
 All planned texts and after-fingerprints are journaled before the first write.
 Uncertain documents keep their bytes and filenames and are listed for judgment;
@@ -56,7 +61,8 @@ class GitUnavailable(Exception):
 
 def git(root, *args):
     try:
-        result = subprocess.run(['git', '-C', str(root), *args], capture_output=True, text=True)
+        result = subprocess.run(['git', '-C', str(root), *args], capture_output=True, text=True, encoding='utf-8',
+                                errors='surrogateescape')
     except OSError as exc:
         raise GitUnavailable(str(exc))
     if result.returncode:
@@ -705,6 +711,81 @@ def validate_resume(root, state, docs):
         raise Conflict('resume conflict; changed since the journal: ' + ', '.join(sorted(set(problems))))
 
 
+def folder_unreadable(docs):
+    """What stops a reader at the specification folder itself, read before anything in it: [(path, error)], empty when
+    it can be entered and listed. A link that cannot be resolved in its place or on the way, a folder on the way that
+    cannot be searched, and the folder itself when it cannot be searched or listed."""
+    reason = model.why_unreadable(docs.root) or model.unsearchable(docs.root)
+    if reason is None:
+        try:
+            os.listdir(docs.root)
+        except (FileNotFoundError, NotADirectoryError):
+            pass
+        except OSError as exc:
+            reason = exc
+    return [(docs.root, reason)] if reason else []
+
+
+def owned_texts(docs):
+    """Every text the method owns that the migration or verify reads, as [(path, decoded)]: the vision, the catalog,
+    the entity model, the overview, each use case, journey, process model, recovery record (every .md file of the
+    recovery folder) and change record. decoded is False for a process model, XML that names its own encoding, whose
+    bytes alone are read. A folder that cannot be listed gives nothing here: old_formats names it."""
+    texts = [(path, True) for path in (docs.vision, docs.requirements, docs.entity_model, docs.overview) if path]
+    listings = [(docs.use_case_files, True), (docs.test_case_files, True), (docs.process_files, False),
+                (docs.change_record_files, True)]
+    if docs.recovery_dir:
+        listings.append((lambda: sorted(os.path.join(docs.recovery_dir, name) for name in os.listdir(docs.recovery_dir)
+                                        if name.endswith('.md')), True))
+    for listing, decoded in listings:
+        try:
+            texts += [(path, decoded) for path in listing()]
+        except OSError:
+            continue
+    return texts
+
+
+def texts_unreadable(docs):
+    """[(path, error)] for each text of owned_texts that cannot be read: not there to open (a link that cannot be
+    resolved, a folder that cannot be searched on the way), denied, or not UTF-8. Read whole, apart from the recognition
+    of the earlier formats, so that no file the migration or verify needs is passed over."""
+    unreadable = []
+    for path, decoded in owned_texts(docs):
+        try:
+            with open(path, 'rb') as handle:
+                data = handle.read()
+            if decoded:
+                data.decode('utf-8')
+        except (OSError, UnicodeDecodeError) as exc:
+            unreadable.append((path, model.explained(exc, path)))
+    return unreadable
+
+
+def merged(first, second):
+    """Two lists of (path, error), each path once, the first error it met kept."""
+    seen = {os.path.abspath(path) for path, _ in first if path}
+    return first + [(path, exc) for path, exc in second if os.path.abspath(path) not in seen]
+
+
+def artifacts_unreadable(docs):
+    """Every artifact the method owns that cannot be read, [(path, error)], as verify finds them: old_formats, past an
+    unreadable file (the earlier formats themselves are no such artifact, they are what the migration moves), and every
+    text it owns read whole (texts_unreadable). A note names each folder the search for change records could not look
+    into and that the method does not own."""
+    unreadable, not_searched = [], []
+    model.old_formats(docs, unreadable, not_searched)
+    model.not_searched_notes(not_searched)
+    return merged(unreadable, texts_unreadable(docs))
+
+
+def refuse(unreadable):
+    """Plan and apply cannot do their work without an artifact the method owns: name each one as verify does, on
+    standard error, and stop with 1 before anything is planned or written."""
+    for path, exc in unreadable:
+        print('%s:0: ERROR UNREADABLE: %s' % (path, exc), file=sys.stderr)
+    return 1
+
+
 def apply(root, docs, journal):
     if journal.exists():
         try:
@@ -712,7 +793,14 @@ def apply(root, docs, journal):
             validate_resume(root, state, docs)
         except (KeyError, TypeError, ValueError) as exc:
             raise Conflict('invalid migration journal: %s' % exc)
+        # A resumed apply refuses as a new one does, after the journal has been checked against the files.
+        unreadable = artifacts_unreadable(docs)
+        if unreadable:
+            return refuse(unreadable)
     else:
+        unreadable = artifacts_unreadable(docs)
+        if unreadable:
+            return refuse(unreadable)
         if dirty_paths(root):
             raise Conflict('dirty git work tree without a migration journal')
         _, items = plan(root, docs)
@@ -766,7 +854,21 @@ def apply(root, docs, journal):
 
 
 def verify(docs, strict=False):
-    found = [(p, n, 'OLD_FORMAT', w) for p, n, w in model.old_formats(docs)]
+    # Every file is looked at for the earlier formats, also past one that cannot be read (a link that cannot be
+    # resolved included), and every text the method owns is read (owned_texts); each unreadable file is then a
+    # finding, and nothing else is checked. Plan and apply refuse on the same files (artifacts_unreadable).
+    # A folder the search for change records could not look into and that the method does not own stops nothing: a
+    # note names it.
+    unreadable, not_searched = [], []
+    found = [(p, n, 'OLD_FORMAT', w) for p, n, w in model.old_formats(docs, unreadable, not_searched)]
+    model.not_searched_notes(not_searched)
+    unreadable = merged(unreadable, texts_unreadable(docs))
+    if unreadable:
+        for path, line, code, message in found:
+            print('%s:%d: ERROR %s: %s' % (path, line, code, message))
+        for path, exc in unreadable:
+            print('%s:0: ERROR UNREADABLE: %s' % (path, exc), file=sys.stderr)
+        return 1 if strict else 0
     found += model.format_findings(docs)
     # An overview that is not current because a use case's id or goal is refused already has its finding, the
     # refusal (format_findings above); regenerating it is refused until then, so only a stale block adds one.
@@ -803,6 +905,12 @@ def main(argv=None):
     args = parser.parse_args(argv)
     docs = model.Docs(os.path.abspath(args.docs))
     try:
+        # A specification folder that cannot be read itself (a link that cannot be resolved, in its place or on the way;
+        # a folder that cannot be listed or searched) is named before any git call, which could not enter it: verify
+        # reports it as its finding, and plan and apply, which cannot do their work without it, refuse with 1.
+        folder = folder_unreadable(docs) if model.folder_present(docs.root) else []
+        if folder:
+            return verify(docs, args.strict) if args.mode == 'verify' else refuse(folder)
         if not Path(docs.root).is_dir():
             parser.error('no such docs folder: ' + docs.root)
         if args.mode == 'plan':
@@ -813,9 +921,12 @@ def main(argv=None):
             if alias is not None:
                 docs = model.Docs(str(root / given.relative_to(alias)))
             authorized(root, Path(docs.root))
+            unreadable = artifacts_unreadable(docs)
+            if unreadable:
+                return refuse(unreadable)
             public, _ = plan(root, docs)
             if args.format == 'json':
-                print(json.dumps(public, indent=2, ensure_ascii=False))
+                model.print_data(public)
             else:
                 for group, entries in public.items():
                     for entry in entries:

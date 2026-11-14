@@ -20,7 +20,6 @@ Usage:
 Requires Python 3.9+, standard library only, and git. Reads only; changes nothing.
 """
 import argparse
-import json
 import os
 import re
 import sys
@@ -29,7 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.8.0"
+UPSPEC_VERSION = "1.8.1"
 
 IMPLEMENTED_RANK = model.STATUS_RANK["Implemented"]
 
@@ -99,7 +98,7 @@ def main(argv):
         return 3 if not args.base else 2
     changes = compare(model.parse_use_case_lines(old_text.split("\n"), rel), model.parse_use_case(path))
     if args.format == "json":
-        print(json.dumps({"use_case": args.use_case, "base": base, "file": rel, "changes": changes}, indent=2, ensure_ascii=False))
+        model.print_data({"use_case": args.use_case, "base": base, "file": rel, "changes": changes})
         return 0
     print("%s  %s  compared with %s" % (args.use_case, rel, base[:12]))
     if not changes:

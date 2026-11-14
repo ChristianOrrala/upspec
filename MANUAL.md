@@ -1,6 +1,6 @@
 # upspec: User Manual
 
-Version 1.8.0
+Version 1.8.1
 
 This manual explains how to install the `upspec` skills, how the work
 they support is organized, and how to carry a piece of work from an idea, a
@@ -757,7 +757,16 @@ records every planned text and fingerprint before writing, in
 directory (also in linked worktrees). After interruption, rerun apply with the
 same HEAD and docs folder. Resume recognizes completed writes and refuses
 files changed by a person or unrelated uncommitted work. Keep the journal
-until apply completes.
+until apply completes. An artifact the method owns that cannot be read (a
+link that cannot be resolved, a folder that cannot be listed or searched, or
+a file that is denied or not UTF-8) stops plan and apply, a resumed apply
+included, with exit 1 and its `UNREADABLE` line on standard error before
+anything is planned or written, as verify reports it: each of them, and
+verify, first reads whole every text the migration or verify reads (the
+vision, the catalog, the entity model, the overview, every use case, journey,
+process model, recovery record and change record; a process model's bytes
+only, since XML names its own encoding). The earlier formats themselves never
+stop them.
 
 An uncertain conversion leaves the entire file and its filename unchanged and
 lists the reason under judgment. Dependent overviews and stubs wait for that
@@ -841,7 +850,9 @@ Every check exits 0 when it ran, whatever it found: the findings are its
 output. With `--strict` it exits 1 when it found problems (for the lint and
 the validators, an error or a warning), so a strict pipeline is a choice you
 make on purpose, in a command you run. A file the check cannot read is the
-finding `UNREADABLE`, under the same rule. Exit 2 means a usage error, 3 that
+finding `UNREADABLE`, under the same rule, and so is a link that cannot be
+resolved in place of a specification file or folder: no command reads it as
+missing, and setup writes nothing through it. Exit 2 means a usage error, 3 that
 the script could not run (git unavailable, a conflict), 5 `OLD_FORMAT`.
 `unrecorded_changes.py` exits 4 when no change record names the use case: there
 is nothing to compare it with, which is not the same as being unable to run.
@@ -1115,6 +1126,65 @@ Use case checks stop with exit 5 and `OLD_FORMAT` on earlier specification
 formats. The router instead reports `MIGRATE` with `up-migrating-spec-formats`.
 Check the source before honoring a carried-over blocker and say so. A blocker names what it stops and a dated owner message, specification identifier or path, or failing check by name; the A-files check advises `BLOCKER_WITHOUT_SOURCE` when no source is named (exit 0 normally, 1 with `--strict`). Implemented and tested work has acceptance outstanding, not blocked; unrelated work continues. Fix a validator or lint finding, or report it as a tool defect; ask the owner only if it raises a behavior question.
 
+The checks and the router look at every file for the earlier formats, also
+past one that cannot be read, and the listing of each folder is part of that
+pass: the earlier formats win over an unreadable file or a folder that cannot
+be listed, which the checks name beside them as `UNREADABLE`. The vision, the
+overview and the recovery ledger and change log are read whole in the same
+pass, so one that is denied or not UTF-8 is named as `UNREADABLE` too, never
+left to end a command in a decoding error. The router
+names each one under its `MIGRATE` step, as an `unreadable:` line with the
+file and the error (in its JSON, `migration.unreadable`: `file` and `error`
+for each, an empty list when there is none), and exits 0. When the router
+cannot read a specification file and there is no earlier format, it names
+the file and exits 2 instead of naming a step, so it never asks for a file to
+be written that is there as a broken link.
+
+A link that cannot be resolved (its target is missing, or it leads back to
+itself) is never an absent file: in place of the specification folder, an
+artifact, a `change-records` folder anywhere under the specification folder,
+or a recovery record (`ledger.md`, `change-log.md`, `suspects.md`,
+`baseline-review.md`), every command reports it as `UNREADABLE`, and the
+error says it is a link and where it points. So does a specification folder
+behind such a link, or behind a folder that cannot be searched, at any depth
+(`docs/nested/specs` when `docs` is a broken link): every part of the path is
+looked at before a missing part is read as absence, with or without a mark of
+the project's root, the error names the link or the folder that stops the
+reader, and the router never suggests setup for it. A folder the method owns
+that cannot be listed, or that can be listed and not searched (read without
+execute permission, so nothing in it can be reached), is `UNREADABLE` too:
+the specification folder, one of its canonical folders (`use_cases`,
+`test_cases`, `processes`, `recovery`, `reviews`, in any of their spellings)
+or a `change-records` folder at any depth. A file a command
+is given that is such a link (a journey, a catalog, a change record with
+`--record`, a ledger with `--ledger`) is reported the same way, before any
+test of its existence, any git call or any resolution of the path; a code or
+test folder, or the file the guard check edits, is a usage error (exit 2)
+that names it as a link. Setup writes nothing through such a link.
+
+Any other folder under the specification folder that the search for change
+records cannot look into, such as a tool's cache, `node_modules` or a build
+that cannot be listed or reached, fails no command, with `--strict` too; so
+does a link there whose target the search is denied. The method writes no
+change record there, and the search goes on around it; a `change-records`
+folder directly inside a folder that can be searched but not listed is still
+found by its name and read, and one the search can see and not reach is
+`UNREADABLE`. Since a change record under such a folder, if any, is not read,
+the folder is named all the same: every command writes `note: PATH was not
+searched for change records: ERROR` on standard error, the router and the
+model in either format, and the router's and the model's JSON also list it
+under `not_searched` (`folder` and `error` for each, an empty list when there
+is none). A check that needs a change record it cannot see reports it
+missing, as it would without the folder.
+
+Every command writes its output whatever the encoding of the terminal or the
+pipe. A character the output cannot write, as on a legacy Windows code page
+or under a C (POSIX) locale, appears as its escape (`\u2192` for an arrow)
+instead of ending the command in an encoding error; under a C locale a file
+name that is not text in the locale's encoding is still written as its bytes.
+JSON then comes as plain ASCII (see The model as data). What git prints is
+read as UTF-8 whatever the locale.
+
 Session start and the stop show a migration notice with result 1 (warn).
 After-edit feedback stays local; turn start always exits 0, silently on failure.
 Setup creates `use_cases.md`; `--skip overview` skips it, and `--skip diagram`
@@ -1151,12 +1221,41 @@ empty); 2 on a usage error; 3 when it could not run because the `spec_model.py`
 beside it is of another release, as when an older copy was kept in
 `tools/specs/` (the message names both releases: run `scaffold_docs.py
 --update`); 5 with `OLD_FORMAT` on standard error and nothing printed when the
-project still uses the earlier formats.
+project still uses the earlier formats. The earlier formats win over a file
+that cannot be read: every other file is still checked for them, the exit is
+5, and standard error names the unreadable file as `UNREADABLE` beside the
+`OLD_FORMAT` lines.
 
 How to read it:
 
+- The JSON is valid whatever the encoding of standard output. A Unicode
+  output (UTF-8, as on most systems) gets every character as written; any
+  other, such as a legacy Windows code page, gets plain ASCII with JSON's
+  `\u` escapes, which a program that decodes the output as UTF-8 reads the
+  same. Every command's `--format json` below follows the same rule, except
+  `scope_audit.py`, which prints plain ASCII on every output, as it always
+  has.
 - Paths are relative to the project's root, with forward slashes; only
-  `root` is absolute. Lines count from 1.
+  `root` and the `target` of an `outside_link` are absolute, and a ledger's
+  evidence path says in its `place` when it is not in the project. An
+  absolute evidence path that leads into the project on the file system,
+  through a link or another spelling of a folder on the way (`/var` for
+  `/private/var` on macOS), is in the project. Lines count from 1.
+- A file or folder read through a link whose real target is outside the
+  project's root is read like any other, and says so, so that a program can
+  tell the project's own files from those it borrows through a link: its
+  `outside_link` is `{"link": ..., "target": ...}`, the link that leaves
+  the project (relative to the root) and the real path of the file or folder
+  itself (absolute, with forward slashes). A linked file and a file inside a
+  linked folder carry the same shape; only `link` tells them apart. Every
+  file or folder the model reads carries the key, `null` when nothing leads
+  it out of the project, a link that stays inside included. Whether a target
+  is inside the project is decided by the identity of the folders on the file
+  system, so a link written with another capitalisation of the project's
+  folder, on a file system blind to case, stays inside. A Windows junction
+  counts as a link, also on Python 3.9 to 3.11, which tell it from what the
+  system reports for it. It changes no exit code, and such a file is not
+  listed under `unreadable`.
 - Every element carries `file`, `line` and `fingerprint`: the first 16 hex
   digits of a SHA-256. A file's fingerprint is of its bytes. A rule's, a
   flow's, a step's, a precondition's and a postcondition's is of the text the
@@ -1166,8 +1265,31 @@ How to read it:
 - A kind of file the project lacks keeps its key: `present` is `false`, its
   `file` or `folder` is `null` and its lists are empty. A file that exists
   and holds nothing, or a folder that exists and is empty, has
-  `present: true` and empty lists. A folder that cannot be listed is present,
-  with empty lists, and named under `unreadable`.
+  `present: true` and empty lists. A folder that cannot be listed, or that
+  can be listed and not searched, is present, with empty lists, and named
+  under `unreadable`. So is a link that cannot be
+  resolved (its target is missing, or it leads back to itself) in place of a
+  file or a folder, the specification folder included: it is not an absent
+  one, and `unreadable` gives the reason, naming it as a link. A
+  specification folder behind such a link, or behind a folder that cannot be
+  searched, at any depth, is present too (`docs_present: true`) and named
+  under `unreadable`, its error naming what stops the reader. A
+  `change-records` link that cannot be resolved is one of the `folders`, and a
+  `change-records` folder at any depth that cannot be listed or reached is
+  named under `unreadable`. Each file or folder is listed under `unreadable`
+  once.
+- Any other folder under the specification folder that the search for change
+  records cannot look into (a tool's cache, `node_modules`, a build), or a
+  link there whose target it is denied, is not `unreadable` and changes no
+  exit code: it is named under `not_searched`, and in a note on standard
+  error, since a change record under it, if any, is not read. A
+  `change-records` folder directly inside one that can be searched but not
+  listed is still read.
+- Each folder is read once. A folder link inside the specification folder,
+  an alias of a `change-records` folder or a loop back to `docs/`, repeats no
+  change record; a folder reached only through a link is read under the
+  link's path. On a file system blind to case, a folder spelled
+  `Change-Records` is found under the spelling `change-records`, as before.
 - `schema` changes only when a key changes its meaning or goes away. A new key
   keeps the number.
 
@@ -1175,25 +1297,26 @@ How to read it:
 |---|---|
 | `schema` | The shape of the output: `1` |
 | `upspec_version` | The release of the scripts that printed it |
-| `root`, `docs`, `docs_present` | The project's root (absolute), the specification folder and whether it exists |
-| `files` | For `vision`, `requirements`, `entity_model`, `overview`, `use_cases`, `journeys`, `processes`, `recovery` and `reviews`: `present` and `path` |
-| `rules_block` | `present`, `file` (`AGENTS.md` or `CLAUDE.md`), `profile`, `skipped` (which of requirements, entity model, overview and diagram the Skipped line names), `skipped_text` (that line, lower case), `specs_folder`, `integration_branch` |
-| `use_cases` | `present`, `folder`, `items`: one per use case file |
-| `requirements` | `present`, `file`, `fingerprint`, `items`: one per catalog row |
-| `entities` | `present`, `file`, `fingerprint`, `diagram` (`present`, and `entities` with `name` and `line`), `items`, `relations` (`from`, `to`, `label`), `duplicates` (`name`, `line` of a second section for one entity) |
-| `journeys` | `present`, `folder`, `items`: one per journey test case |
-| `change_records` | `present`, `folders` (each `change-records` folder), `items` |
-| `recovery` | `present`, `folder`, `ledger` (`present`, `file`, `fingerprint`, `rows`), `change_log` (`present`, `file`, `fingerprint`, `entries`) |
-| `reviews` | `present`, `folder`, `items`: one per review report (`<scope>-review.md`, or `<scope>-review-<n>.md` of an earlier release) |
-| `tracking` | `present` (`ACTIVE.md` with its hot-zone marker), `files` (`AGENTS.md`, `CLAUDE.md` and the four A-files, each with `present`, `readable` and `fingerprint`), and what the A-files say (below) |
+| `root`, `docs`, `docs_present`, `docs_outside_link` | The project's root (absolute), the specification folder, whether it exists (`true` also when it cannot be reached, and it is then under `unreadable`), and its `outside_link` |
+| `files` | For `vision`, `requirements`, `entity_model`, `overview`, `use_cases`, `journeys`, `processes`, `recovery` and `reviews`: `present`, `path` and `outside_link` |
+| `rules_block` | `present`, `file` (`AGENTS.md` or `CLAUDE.md`), `outside_link`, `profile`, `skipped` (which of requirements, entity model, overview and diagram the Skipped line names), `skipped_text` (that line, lower case), `specs_folder`, `integration_branch` |
+| `use_cases` | `present`, `folder`, `outside_link`, `items`: one per use case file |
+| `requirements` | `present`, `file`, `outside_link`, `fingerprint`, `items`: one per catalog row |
+| `entities` | `present`, `file`, `outside_link`, `fingerprint`, `diagram` (`present`, and `entities` with `name` and `line`), `items`, `relations` (`from`, `to`, `label`), `duplicates` (`name`, `line` of a second section for one entity) |
+| `journeys` | `present`, `folder`, `outside_link`, `items`: one per journey test case |
+| `change_records` | `present`, `folders` (each `change-records` folder), `folder_outside_links` (each of those folders with its `outside_link`), `items` |
+| `recovery` | `present`, `folder`, `outside_link`, `ledger` (`present`, `file`, `outside_link`, `fingerprint`, `rows`), `change_log` (`present`, `file`, `outside_link`, `fingerprint`, `entries`) |
+| `reviews` | `present`, `folder`, `outside_link`, `items`: one per review report (`<scope>-review.md`, or `<scope>-review-<n>.md` of an earlier release) |
+| `tracking` | `present` (`ACTIVE.md` with its hot-zone marker), `files` (`AGENTS.md`, `CLAUDE.md` and the four A-files, each with `present`, `readable`, `outside_link` and `fingerprint`), and what the A-files say (below) |
 | `unreadable` | Each file that could not be read: `file`, `error` |
+| `not_searched` | Each folder under the specification folder that the search for change records could not look into and that the method does not own: `folder`, `error`; an empty list when there is none |
 
 A use case item:
 
 | Key | Holds |
 |---|---|
 | `id`, `name`, `status`, `stub` | Its identifier (`null` when it cannot be read), name, Status and whether it is a stub |
-| `file`, `fingerprint`, `line_count` | Its file, the fingerprint of the file and its number of lines |
+| `file`, `outside_link`, `fingerprint`, `line_count` | Its file, its `outside_link`, the fingerprint of the file and its number of lines |
 | `title` | The `# ` heading: `text`, `line`; `null` without one |
 | `front_matter` | `values` (each key with its `value` and `line`), `problems` (`line`, `message`), `refused` (each key refused as a value on several lines, with the line) |
 | `goal`, `trigger` | `text` with its place; `null` when the key is absent |
@@ -1214,11 +1337,11 @@ The other items:
 |---|---|
 | A requirement | `id`, `kind` (`FR`, `NFR`, `C`), `title` (its Title, or its need without the reason, as the reports name it), `text`, `role`, `need`, `statement`, `status`, `priority`, `columns` (every cell by its column) |
 | An entity | `name`, `description`, `avoid`, `attributes` (`name`, `meaning`, `type`, `rules`, `reference`: the entity a `Reference to` type names, `columns`), `lifecycle` (`text`, `line`), `constraints` (`text`, `line`) |
-| A journey | `id`, `file`, `fingerprint`, `title`, `front_matter`, `goal`, `priority`, `status`, `process`, `use_cases`, `roles`, `preconditions` and `postconditions` (`text`, `line`), `scenarios` (`name`, `line`, `steps`, `problems`), `problems`. A step has `keyword`, `text`, `use_cases` (the ids its comment names) and `flows` (`use_case`, `flow`): a flow the comment names right after an id it annotates, as in `# UC-001 A15`. The flow is kept as data; no check reads it |
-| A change record | `file`, `fingerprint`, `front_matter`, `outcome`, `element`, `use_cases`, `decided_by`, `sections` (each heading with its line), `differences` (the rows of the table with Element and Today columns: `line`, `element`, `use_cases`, `units`, `columns`) |
-| A ledger row | `element`, `use_case`, `part` (the flow or rule, or an entity's aspect such as `required`), `entity`, `state` (lower case, as written), `note`, `evidence` (each location: `text`, `path`, `line`, `last_line` for a range; a location without a line has `line` `null`) |
+| A journey | `id`, `file`, `outside_link`, `fingerprint`, `title`, `front_matter`, `goal`, `priority`, `status`, `process`, `use_cases`, `roles`, `preconditions` and `postconditions` (`text`, `line`), `scenarios` (`name`, `line`, `steps`, `problems`), `problems`. A step has `keyword`, `text`, `use_cases` (the ids its comment names) and `flows` (`use_case`, `flow`): a flow the comment names right after an id it annotates, as in `# UC-001 A15`. The flow is kept as data; no check reads it |
+| A change record | `file`, `outside_link`, `fingerprint`, `front_matter`, `outcome`, `element`, `use_cases`, `decided_by`, `sections` (each heading with its line), `differences` (the rows of the table with Element and Today columns: `line`, `element`, `use_cases`, `units`, `columns`) |
+| A ledger row | `element`, `use_case`, `part` (the flow or rule, or an entity's aspect such as `required`), `entity`, `state` (lower case, as written), `note`, `evidence` (each location: `text` as written; `path`, relative to the project's root with forward slashes, a backslash read as a separator; `place`: `project`, `outside` when the path leaves the project, or `other_drive` when it names a drive or a share the project is not on, `path` then keeping its own form with forward slashes; `line`; `last_line` for a range; a location without a line has `line` `null`) |
 | A change log entry | `number`, `kind`, `use_cases`, `evidence`, `decision`, `decided_by` (`null` without the column), `state` (`later`, `in_change`, `aligned`, `dropped`, `undecided`, `settled`), `detail` (the reason of a dropped entry), `paths` (the record or the audit reports), `ahead` |
-| A review report | `scope` (`UC-004`, `TC-001`, `all`), `scope_kind` (`use_case`, `journey`, `all`, `other`), `number` (n of `-review-<n>.md`, else `null`), `title`, `title_line`, `verdicts` (each `Ready for <Status>: yes` or `no`: `status`, `ready`, `line`, read in the Verdict section when there is one), `verdict_line`, `declined` (each bullet of the Declined section but "None": `line`, `text`, `element`), `declined_line` (`null` when the report has no Declined section) |
+| A review report | `scope` (`UC-004`, `TC-001`, `all`), `scope_kind` (`use_case`, `journey`, `all`, `other`), `number` (n of `-review-<n>.md`, else `null`), `title`, `title_line`, `verdicts` (each `Ready for <Status>: yes` or `no`: `status`, `ready`, `line`, read in the Verdict section when there is one), `verdict_line`, `declined` (each bullet of the Declined section but "None": `line`, `text`, `element`), `declined_line` (`null` when the report has no Declined section); and its `file`, `outside_link` and `fingerprint` |
 
 What the A-files say, under `tracking`: `current_work`, `blocked_by`,
 `waiting_on_owner` and `next_step` (the fields of `ACTIVE.md`, `""` when
@@ -1252,6 +1375,9 @@ key it had and adds:
 - `alignment.dropped_entries`: each dropped change log entry, listed as the
   open ones are in `entries` (`number`, `state`, `use_cases`, `record`,
   `ahead`), with its `reason`.
+- `migration.unreadable` (and the same in `next`) when the step is
+  `MIGRATE`: each file or folder that could not be read beside the earlier
+  formats, as `file` and `error`; an empty list when there is none.
 - `tracking.abilities`: each ability with its `name`, `status` and the
   `use_cases` its Specs line names, which deliver it.
 - `tracking.abilities_compared`: how many abilities had their status
@@ -1291,7 +1417,8 @@ report the command was given.
 **Tests in several folders.** `spec_dashboard.py`, `coverage_matrix.py` and
 `coverage_units.py` take `--tests` once for each folder that holds tests,
 such as `--tests py/tests --tests web/tests`. A file two of the folders hold
-counts once.
+counts once, under the first folder's spelling: also when one folder is given
+twice, under two spellings on a file system blind to case or through a link.
 
 **Every use case at once.** `coverage_matrix.py --all` and
 `coverage_units.py --all` give, in one call, what a call naming each use case
@@ -1322,11 +1449,17 @@ not compared, else `null`), and what a call naming the use case reports
 (`record`, `since`, `changed`, `recorded`, `unrecorded`; `null` or empty when
 it was not compared). The state is `compared`, `no_record` (no change record
 names it, the usual case for a use case nobody is changing), `cannot_tell` (a
-new use case, nothing committed) or `unreadable`. The text gives one line per
+new use case, nothing committed) or `unreadable`. A use case file that cannot
+be read is an `unreadable` entry under the identifier its file name carries,
+its reason naming the file, and every other use case is still answered; each
+file that cannot be read is also the finding `UNREADABLE` on standard error.
+The text gives one line per
 use case and a `Result:` line; the JSON holds the entries under `use_cases`.
 It exits 0 when it ran, 1 with `--strict` when a change is not in its record
 or a file cannot be read, 2 on a usage error (`--record` names one use case's
-record and does not go with `--all`), and 3 outside a git repository.
+record and does not go with `--all`), and 3 outside a git repository. A
+specification folder that is a link that cannot be resolved is the finding
+`UNREADABLE` before git is asked, with nothing on standard output.
 
 ### Agent hooks (optional)
 

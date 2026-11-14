@@ -14,11 +14,27 @@ precondition's and a postcondition's is of the text the guard check fingerprints
 compared with the guard-check log. A table row's is of the row as written, its white space normalized; any other
 element's is of its text, its white space normalized.
 
+Each folder is read once, whatever the folder links in the specification folder: an alias or a loop repeats no
+change record. A link that cannot be resolved, in place of a file or a folder, is present and unreadable, not absent:
+a change-records folder and the recovery records included, and its error says it is a link. So is the specification
+folder behind such a link, or behind a folder that cannot be searched, at any depth. A folder the method owns that
+cannot be listed, or that can be listed and not searched, is unreadable too: the specification folder, one of its
+canonical folders, or a change-records folder at any depth. Any other folder under it the search for change records
+cannot look into (a tool's cache, node_modules) stops nothing: it is named under not_searched as {folder, error}, and
+in a note on standard error, since a change record in it, if any, is not read.
+A file or folder read through a link whose real target is outside the project's root is read as any other and carries
+outside_link: {link, target}, the link that leaves the project and the real path of the file or folder itself; every
+other file or folder the model reads carries outside_link as null, a link that stays inside the project included.
+Each location of the ledger's evidence keeps its text as written and gives its path relative to the project with
+forward slashes; its place says when the path is outside the project or on another drive. The JSON is valid whatever
+the encoding of standard output (spec_model.print_data).
+
 Exit code 0 when the model was printed; 1 when a file or a folder could not be read (the model is printed without
 it, and it is listed under unreadable; every A-file and guideline file that exists is read for this); 2 on usage
 errors; 3 when it could not run: the parser beside it (spec_model.py) is of another release, as when an older copy
 was kept in tools/specs/ (run scaffold_docs.py --update); 5 when the project still uses upspec's earlier formats
-(OLD_FORMAT on standard error, nothing printed: migrate first).
+(OLD_FORMAT on standard error, nothing printed: migrate first). The earlier formats win over an unreadable file:
+every other file is still checked for them, and the unreadable one is named beside them on standard error.
 
 Setup installs a copy into the project's tools/specs/ with the other installed scripts (either set), and its
 update keeps it current, so that a program can run the project's own copy.
@@ -30,8 +46,6 @@ Requires Python 3.9+, standard library only. Reads files as data; writes nothing
 """
 import argparse
 import copy
-import glob
-import json
 import os
 import re
 import sys
@@ -41,7 +55,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 # the release this copy belongs to; the state reader's update notice and setup's update read it
-UPSPEC_VERSION = "1.8.0"
+UPSPEC_VERSION = "1.8.1"
 
 # The shape of the output. It changes only when a key changes its meaning or goes away; a new key keeps it.
 SCHEMA = 1
@@ -61,6 +75,7 @@ class Reader:
     def __init__(self, root):
         self.root = root
         self.unreadable = []
+        self.not_searched = []
 
     def rel(self, path):
         return os.path.relpath(path, self.root).replace(os.sep, "/") if path else None
@@ -70,22 +85,39 @@ class Reader:
         try:
             return function(*args)
         except (OSError, UnicodeDecodeError) as exc:
-            entry = {"file": self.rel(getattr(exc, "spec_path", None) or path), "error": str(exc)}
-            if entry not in self.unreadable:
-                self.unreadable.append(entry)
+            self.record(getattr(exc, "spec_path", None) or path, exc)
             return None
+
+    def record(self, path, exc):
+        """List path as unreadable, once, with the error the first attempt met; a link that cannot be resolved is named
+        as one (spec_model.link_error)."""
+        file = self.rel(path)
+        if all(entry["file"] != file for entry in self.unreadable):
+            self.unreadable.append({"file": file, "error": str(model.explained(exc, path))})
 
     def lines(self, path):
         return self.attempt(path, model.read_lines, path) or []
 
     def listing(self, folder, function=None):
-        """function() for a folder that exists, after making sure it can be listed; [] when it cannot be, the folder
-        then listed as unreadable, or when there is no folder."""
+        """function() for a folder that exists, after making sure it can be listed and searched; [] when it cannot be,
+        the folder then listed as unreadable, or when there is no folder. A folder whose names can be listed and
+        that cannot be searched is unreadable too (spec_model.unsearchable): nothing it holds can be read."""
         if not folder:
             return []
         if self.attempt(folder, os.listdir, folder) is None:
             return []
+        denied = model.unsearchable(folder)
+        if denied:
+            self.record(folder, denied)
+            return []
         return (self.attempt(folder, function) if function else []) or []
+
+    def mark(self, path):
+        """The outside_link of a file or folder the model reads: {link, target} when it is read
+        through a link whose real target is outside the project's root (link: the link, relative to the root;
+        target: the real path of the file or folder itself, absolute, with forward slashes); None otherwise."""
+        found = model.outside_link(path, self.root) if path else None
+        return {"link": self.rel(found[0]), "target": found[1].replace(os.sep, "/")} if found else None
 
     def fingerprint(self, path):
         """The fingerprint of a file's bytes, or None when it cannot be read."""
@@ -93,6 +125,14 @@ class Reader:
             with open(name, "rb") as handle:
                 return model.fingerprint(handle.read())
         return self.attempt(path, read, path)
+
+
+def spec_path(docs, attribute):
+    """The path the project has for an artifact: the file or folder, or a link in its place that cannot be resolved
+    (read as present, and listed as unreadable by collect); None when the project has neither."""
+    if not docs:
+        return None
+    return getattr(docs, attribute) or docs.unresolved.get(attribute)
 
 
 def text_print(text):
@@ -175,7 +215,8 @@ def use_case_data(reader, uc):
                        **at(file, line, "%s/%s%s" % (context, identifier, " " + rule if rule else "")))
                   for line, context, identifier, rule, where in uc.external]
     return {
-        "id": uc.id, "file": file, "fingerprint": reader.fingerprint(uc.path), "line_count": uc.line_count,
+        "id": uc.id, "file": file, "outside_link": reader.mark(uc.path), "fingerprint": reader.fingerprint(uc.path),
+        "line_count": uc.line_count,
         "name": uc.name, "status": uc.status, "stub": uc.is_stub,
         "title": {"text": uc.title, "line": uc.title_line} if uc.title is not None else None,
         "front_matter": front_matter_data(uc.front_matter),
@@ -199,9 +240,10 @@ def use_case_data(reader, uc):
 # --- the other artifacts --------------------------------------------------------
 
 def requirements_data(reader, docs):
-    section = {"present": bool(docs and docs.requirements), "file": reader.rel(docs and docs.requirements),
-               "fingerprint": None, "items": []}
-    if not section["present"]:
+    path = spec_path(docs, "requirements")
+    section = {"present": bool(path), "file": reader.rel(path), "outside_link": reader.mark(path), "fingerprint": None,
+               "items": []}
+    if not docs or not docs.requirements:
         return section
     section["fingerprint"] = reader.fingerprint(docs.requirements)
     lines = reader.lines(docs.requirements)
@@ -216,10 +258,11 @@ def requirements_data(reader, docs):
 
 
 def entities_data(reader, docs):
-    section = {"present": bool(docs and docs.entity_model), "file": reader.rel(docs and docs.entity_model),
+    path = spec_path(docs, "entity_model")
+    section = {"present": bool(path), "file": reader.rel(path), "outside_link": reader.mark(path),
                "fingerprint": None, "diagram": {"present": False, "entities": []}, "items": [], "relations": [],
                "duplicates": []}
-    if not section["present"]:
+    if not docs or not docs.entity_model:
         return section
     file = section["file"]
     section["fingerprint"] = reader.fingerprint(docs.entity_model)
@@ -251,8 +294,8 @@ def entities_data(reader, docs):
 
 
 def journeys_data(reader, docs):
-    folder = docs.test_case_dir if docs else None
-    section = {"present": bool(folder), "folder": reader.rel(folder), "items": []}
+    folder, where = (docs.test_case_dir if docs else None), spec_path(docs, "test_case_dir")
+    section = {"present": bool(where), "folder": reader.rel(where), "outside_link": reader.mark(where), "items": []}
     for path in reader.listing(folder, docs and docs.test_case_files):
         tc = reader.attempt(path, model.parse_test_case, path)
         if tc is None:
@@ -270,7 +313,8 @@ def journeys_data(reader, docs):
                           for line, keyword, text, ids in scenario.steps],
                 "problems": [{"line": line, "message": message} for line, message in scenario.problems]})
         section["items"].append({
-            "id": tc.id, "file": file, "fingerprint": reader.fingerprint(path), "title": tc.title,
+            "id": tc.id, "file": file, "outside_link": reader.mark(path), "fingerprint": reader.fingerprint(path),
+            "title": tc.title,
             "front_matter": front_matter_data(tc.front_matter),
             "goal": tc.field("goal"), "priority": tc.field("Priority"), "status": tc.field("status").strip(),
             "process": tc.field("Process"), "use_cases": tc.use_case_ids(),
@@ -296,15 +340,18 @@ def differences(lines):
     return []
 
 
-def change_record_folders(docs):
-    """Every change-records folder under the specification folder, an empty one included."""
-    found = glob.glob(os.path.join(glob.escape(docs.root), "**", "change-records"), recursive=True) if docs else []
-    return sorted(path for path in found if os.path.isdir(path))
-
-
 def change_records_data(reader, docs):
-    folders = change_record_folders(docs)
-    section = {"present": bool(folders), "folders": [reader.rel(folder) for folder in folders], "items": []}
+    # Every change-records folder under the specification folder, an empty one included, each real folder once. A
+    # change-records link that cannot be resolved is one of them, present and unreadable; so is every folder the
+    # method owns that the search could not list, whose records may be there. Any other folder it could not list is
+    # named under not_searched: it stops nothing, and the records it may hold are not read.
+    folders, unreadable, not_searched = model.record_search(docs.root) if docs else ([], [], [])
+    for path, exc in unreadable:
+        reader.record(path, exc)
+    reader.not_searched += [{"folder": reader.rel(path), "error": str(exc)} for path, exc in not_searched]
+    folders = sorted(folders + [path for path, _ in unreadable if model.unresolved_link(path)])
+    section = {"present": bool(folders), "folders": [reader.rel(folder) for folder in folders],
+               "folder_outside_links": {reader.rel(folder): reader.mark(folder) for folder in folders}, "items": []}
     for folder in folders:
         reader.listing(folder)           # a folder that cannot be listed is recorded; its records cannot be read
     for path in (docs.change_record_files() if docs else []):
@@ -312,7 +359,7 @@ def change_records_data(reader, docs):
         if record is None:
             continue
         section["items"].append({
-            "file": reader.rel(path), "fingerprint": reader.fingerprint(path),
+            "file": reader.rel(path), "outside_link": reader.mark(path), "fingerprint": reader.fingerprint(path),
             "front_matter": front_matter_data(record.front_matter), "outcome": record.outcome,
             "element": record.element, "use_cases": model.RE_UC_ID.findall(record.element),
             "decided_by": model._as_text(record.meta.get("decided_by", ("", 0))[0]) or None,
@@ -321,16 +368,19 @@ def change_records_data(reader, docs):
 
 
 def recovery_data(reader, docs):
-    folder = docs.recovery_dir if docs else None
-    section = {"present": bool(folder), "folder": reader.rel(folder)}
+    folder, where = (docs.recovery_dir if docs else None), spec_path(docs, "recovery_dir")
+    section = {"present": bool(where), "folder": reader.rel(where), "outside_link": reader.mark(where)}
     reader.listing(folder)
-    for key, name, parse, items in (("ledger", "ledger.md", model.parse_ledger, "rows"),
+    # The ledger's evidence paths are relative to the project's root, as its check reads them.
+    for key, name, parse, items in (("ledger", "ledger.md", lambda path: model.parse_ledger(path, reader.root), "rows"),
                                     ("change_log", "change-log.md", model.parse_change_log, "entries")):
         path = os.path.join(folder, name) if folder else None
-        present = bool(path and os.path.isfile(path))
+        broken = bool(path and model.unresolved_link(path))
+        present = bool(path and os.path.isfile(path)) or broken
         part = {"present": present, "file": reader.rel(path) if present else None,
+                "outside_link": reader.mark(path) if present else None,
                 "fingerprint": reader.fingerprint(path) if present else None, items: []}
-        if present:
+        if present and not broken:
             lines = reader.lines(path)
             file = part["file"]
             part[items] = [dict(row, **at(file, row["line"], fingerprint=row_print(lines, row["line"])))
@@ -341,11 +391,13 @@ def recovery_data(reader, docs):
 
 def reviews_data(reader, docs):
     folder = docs.reviews_dir if docs else None
-    section = {"present": bool(folder), "folder": reader.rel(folder), "items": []}
+    where = spec_path(docs, "reviews_dir")
+    section = {"present": bool(where), "folder": reader.rel(where), "outside_link": reader.mark(where), "items": []}
     for path in reader.listing(folder, docs and docs.review_files):
         report = reader.attempt(path, model.read_review_report, path)
         if report is not None:
-            section["items"].append(dict(report, file=reader.rel(path), fingerprint=reader.fingerprint(path)))
+            section["items"].append(dict(report, file=reader.rel(path), outside_link=reader.mark(path),
+                                         fingerprint=reader.fingerprint(path)))
     return section
 
 
@@ -355,18 +407,19 @@ def tracking_data(reader, root):
     files = {}
     for name in TRACKING_FILES:
         path = os.path.join(root, name)
-        present = os.path.isfile(path)
+        present = os.path.isfile(path) or model.unresolved_link(path)
         readable = present and reader.attempt(path, model.read_lines, path) is not None
-        files[name] = {"present": present, "readable": readable,
+        files[name] = {"present": present, "readable": readable, "outside_link": reader.mark(path) if present else None,
                        "fingerprint": reader.fingerprint(path) if present else None}
     present = model.a_files_present(root)
     tracking = reader.attempt(os.path.join(root, "ACTIVE.md"), model.read_tracking, root) if present else None
     return dict({"present": present, "files": files}, **(tracking or copy.deepcopy(EMPTY_TRACKING)))
 
 
-def rules_block_data(root):
+def rules_block_data(reader, root):
     name, profile, skipped = model.read_rules_block(root)
-    return {"present": name is not None, "file": name, "profile": profile,
+    return {"present": name is not None, "file": name,
+            "outside_link": reader.mark(os.path.join(root, name)) if name else None, "profile": profile,
             "skipped": [word for word in SKIPPABLE if word in skipped], "skipped_text": skipped,
             "specs_folder": model.recorded_docs(root), "integration_branch": model.integration_branch(root)}
 
@@ -376,7 +429,23 @@ def collect(docs_dir):
     root = model.project_root(docs_dir)
     reader = Reader(root)
     docs = model.Docs(docs_dir) if os.path.isdir(docs_dir) else None
+    # A link that cannot be resolved, in place of the specification folder or of a file or folder in it, is not an
+    # absent artifact: it is present and listed as unreadable, with the reason the system gives. So is a specification
+    # folder behind such a link or behind a folder that cannot be searched, on the way from the project's root.
+    blocked = None if docs else model.unreachable(docs_dir)
+    broken_docs = blocked is not None
+    if blocked:
+        reader.record(docs_dir, blocked[1])
     reader.listing(docs and docs_dir)
+    # A canonical folder whose names can be listed and that cannot be searched is unreadable, the processes included,
+    # which the model does not list: nothing in it can be read.
+    for attribute in model.DOC_FOLDERS if docs else ():
+        folder = getattr(docs, attribute)
+        denied = folder and model.unsearchable(folder)
+        if denied:
+            reader.record(folder, denied)
+    for path in sorted(docs.unresolved.values()) if docs else ():
+        reader.record(path, model.link_error(path))
     use_cases = []
     for path in reader.listing(docs and docs.use_case_dir, docs and docs.use_case_files):
         uc = reader.attempt(path, model.parse_use_case, path)
@@ -386,15 +455,17 @@ def collect(docs_dir):
     for kind, attribute in (("vision", "vision"), ("requirements", "requirements"), ("entity_model", "entity_model"),
                             ("overview", "overview"), ("use_cases", "use_case_dir"), ("journeys", "test_case_dir"),
                             ("processes", "process_dir"), ("recovery", "recovery_dir"), ("reviews", "reviews_dir")):
-        path = getattr(docs, attribute) if docs else None
-        files[kind] = {"present": bool(path), "path": reader.rel(path)}
+        path = spec_path(docs, attribute)
+        files[kind] = {"present": bool(path), "path": reader.rel(path), "outside_link": reader.mark(path)}
     data = {
         "schema": SCHEMA, "upspec_version": model.UPSPEC_VERSION,
-        "root": os.path.abspath(root), "docs": reader.rel(os.path.abspath(docs_dir)), "docs_present": docs is not None,
+        "root": os.path.abspath(root), "docs": reader.rel(os.path.abspath(docs_dir)),
+        "docs_present": docs is not None or broken_docs,
+        "docs_outside_link": reader.mark(docs_dir) if docs or broken_docs else None,
         "files": files,
-        "rules_block": rules_block_data(root),
-        "use_cases": {"present": bool(docs and docs.use_case_dir), "folder": reader.rel(docs and docs.use_case_dir),
-                      "items": use_cases},
+        "rules_block": rules_block_data(reader, root),
+        "use_cases": {"present": files["use_cases"]["present"], "folder": files["use_cases"]["path"],
+                      "outside_link": files["use_cases"]["outside_link"], "items": use_cases},
         "requirements": requirements_data(reader, docs),
         "entities": entities_data(reader, docs),
         "journeys": journeys_data(reader, docs),
@@ -404,6 +475,7 @@ def collect(docs_dir):
         "tracking": tracking_data(reader, root),
     }
     data["unreadable"] = reader.unreadable
+    data["not_searched"] = reader.not_searched
     return data
 
 
@@ -424,18 +496,25 @@ def main(argv):
         print("not a folder: %s" % args.docs, file=sys.stderr)
         return 2
     if os.path.isdir(args.docs):
-        try:
-            earlier = model.old_formats(model.Docs(args.docs))
-        except (OSError, UnicodeDecodeError):
-            earlier = []          # the unreadable file is listed under unreadable below
+        # A file that cannot be read does not hide an earlier format in another: every other file is still checked.
+        # The earlier format wins: exit 5 with nothing printed, the unreadable file named beside it.
+        unreadable, not_searched = [], []
+        earlier = model.old_formats(model.Docs(args.docs), unreadable, not_searched)
         if earlier:
+            model.not_searched_notes(not_searched)
             for path, line, what in earlier:
                 sys.stderr.write("%s:%d: ERROR OLD_FORMAT: %s\n" % (path, line, what))
+            for path, exc in unreadable:
+                sys.stderr.write("%s:0: ERROR UNREADABLE: cannot read: %s\n" % (path, exc))
             sys.stderr.write("This project uses upspec's earlier formats. Migrate it first: the skill "
                              "up-migrating-spec-formats (scripts/migrate_formats.py plan).\n")
             return model.OLD_FORMAT_EXIT
     data = collect(args.docs)
-    print(json.dumps(data, indent=2, ensure_ascii=False))
+    # A folder the search for change records could not look into stops nothing; a note on standard error names it
+    # beside the key, as every command names it.
+    for entry in data["not_searched"]:
+        sys.stderr.write("note: %s was not searched for change records: %s\n" % (entry["folder"], entry["error"]))
+    model.print_data(data)
     return 1 if data["unreadable"] else 0
 
 

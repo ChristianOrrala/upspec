@@ -29,9 +29,15 @@ record names the use case).
 --all answers for every use case with an identifier, in identifier order, in
 one call: each with its state (compared, no_record, cannot_tell or unreadable),
 its reason when it was not compared, and what one call reports when it was.
+A use case file that cannot be read is an unreadable entry under the identifier
+its file name carries, and the others are still answered; every file that
+cannot be read is also the finding UNREADABLE on standard error.
 A use case without a change record is a state there, not an exit code. --all
 exits 0 when it ran (with --strict 1 when some change is not named or a file
-is unreadable), 3 outside a git repository, and refuses --record.
+is unreadable), 3 outside a git repository, and refuses --record. A
+specification folder that is a link that cannot be resolved is the finding
+UNREADABLE, before git is asked, with nothing on standard output (exit 0, with
+--strict 1).
 
 Usage:
     unrecorded_changes.py UC-012 [--docs DIR] [--record FILE] [--since REF] [--format text|json] [--strict]
@@ -41,7 +47,6 @@ Requires Python 3.9+, standard library only, and git. Reads only; changes nothin
 an installed copy.
 """
 import argparse
-import json
 import os
 import re
 import sys
@@ -51,7 +56,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.8.0"
+UPSPEC_VERSION = "1.8.1"
 
 UNIT = re.compile(r"\b(A\d+|BR-\d{3})\b")
 
@@ -180,12 +185,25 @@ def check(docs_dir, uc_id, record=None, since=None):
             "unrecorded": [c for c in changed if c["unit"] not in recorded]}
 
 
-def check_all(docs_dir, since=None):
-    """[{use_case, state, reason, record, since, changed, recorded, unrecorded}] for every identified use case."""
+def cannot_read(exc, path=None):
+    """The reason of an unreadable entry: the file, when known, and the error."""
+    path = getattr(exc, "spec_path", None) or path
+    if not path:
+        return "cannot read: %s" % exc
+    return "cannot read %s: %s" % (os.path.relpath(path).replace(os.sep, "/"), exc)
+
+
+def check_all(docs_dir, since=None, unreadable=None):
+    """[{use_case, state, reason, record, since, changed, recorded, unrecorded}] for every identified use case.
+
+    A use case file that cannot be read is an entry in the state unreadable, under the identifier its file name
+    carries, beside the others; unreadable, a list, receives each such file as (path, error)."""
+    unreadable = [] if unreadable is None else unreadable
     results = []
-    for uc_id, _, _ in model.every_use_case(model.Docs(docs_dir)):
-        entry = {"use_case": uc_id, "state": "compared", "reason": None, "record": None, "since": None,
-                 "changed": [], "recorded": [], "unrecorded": []}
+    blank = {"state": "compared", "reason": None, "record": None, "since": None,
+             "changed": [], "recorded": [], "unrecorded": []}
+    for uc_id, _, _ in model.every_use_case(model.Docs(docs_dir), unreadable=unreadable):
+        entry = dict(blank, use_case=uc_id)
         try:
             entry.update(check(docs_dir, uc_id, None, since))
         except NoRecord as exc:
@@ -195,9 +213,14 @@ def check_all(docs_dir, since=None):
         except SystemExit as exc:
             entry.update(state="cannot_tell", reason=str(exc))
         except (OSError, UnicodeDecodeError) as exc:
-            entry.update(state="unreadable", reason="cannot read: %s" % exc)
+            entry.update(state="unreadable", reason=cannot_read(exc))
         results.append(entry)
-    return results
+    for path, exc in unreadable:
+        named = model.RE_UC_ID.search(os.path.basename(path))
+        results.append(dict(blank, use_case=named.group(0) if named else os.path.basename(path), state="unreadable",
+                            reason=cannot_read(exc, path)))
+    results.sort(key=lambda entry: entry["use_case"])
+    return [{key: entry[key] for key in ("use_case",) + tuple(blank)} for entry in results]
 
 
 def listed(items):
@@ -215,13 +238,21 @@ def main_all(args):
         if code != 0:
             print("unknown revision: %s" % args.since, file=sys.stderr)
             return 2
+    unreadable = []
     try:
-        results = check_all(args.docs, args.since)
+        results = check_all(args.docs, args.since, unreadable)
     except (OSError, UnicodeDecodeError) as exc:
         print("%s:0: ERROR UNREADABLE: cannot read: %s" % (args.docs, exc), file=sys.stderr)
         return 1 if args.strict else 0
+    # Every file that could not be read, a use case's or another's, is the finding UNREADABLE.
+    reported = set()
+    for path, exc in args.unreadable + unreadable:
+        rel = os.path.relpath(path).replace(os.sep, "/")
+        if rel not in reported:
+            reported.add(rel)
+            print("%s:0: ERROR UNREADABLE: cannot read: %s" % (rel, exc), file=sys.stderr)
     if args.format == "json":
-        print(json.dumps({"use_cases": results}, indent=2, ensure_ascii=False))
+        model.print_data({"use_cases": results})
     else:
         for entry in results:
             if entry["state"] == "compared":
@@ -232,7 +263,7 @@ def main_all(args):
         unnamed = [entry["use_case"] for entry in results if entry["unrecorded"]]
         print("Result: %s" % ("%d use case(s) with changes their record does not name: %s" % (len(unnamed), ", ".join(unnamed))
                               if unnamed else "every compared use case's changed flows and rules are in its record"))
-    failed = any(entry["unrecorded"] or entry["state"] == "unreadable" for entry in results)
+    failed = reported or any(entry["unrecorded"] or entry["state"] == "unreadable" for entry in results)
     return 1 if failed and args.strict else 0
 
 
@@ -256,19 +287,29 @@ def main(argv):
     if args.use_case and not re.fullmatch(r"UC-\d{3}", args.use_case):
         print("use case identifier must look like UC-012", file=sys.stderr)
         return 2
-    if not os.path.isdir(args.docs):
+    if not model.folder_present(args.docs):
         print("no such folder: %s" % args.docs, file=sys.stderr)
         return 2
-    if args.record and not os.path.isfile(args.record):
+    # A record there as a link that cannot be resolved is not missing: the old-format check names it as UNREADABLE.
+    if args.record and (os.path.isdir(args.record) or model.absent(args.record)):
         print("no such file: %s" % args.record, file=sys.stderr)
         return 2
     docs = model.Docs(args.docs)
     if args.record:
         records = docs.change_record_files()
         docs.change_record_files = lambda: sorted(set(records + [args.record]))
-    stop = model.stop_if_old(docs, strict=args.strict)
+    # --all answers for every use case: a file that cannot be read is an entry in the state unreadable, so it does not
+    # stop the run; an earlier format in any other file still does.
+    args.unreadable = [] if args.all else None
+    stop = model.stop_if_old(docs, strict=args.strict, unreadable=args.unreadable)
     if stop is not None:
         return stop
+    if args.all and not os.path.isdir(args.docs):
+        # The specification folder itself cannot be read (a link that cannot be resolved): there is no use case to
+        # answer for, and git is not asked about a folder that is not there.
+        for path, exc in args.unreadable:
+            print("%s:0: ERROR UNREADABLE: cannot read: %s" % (path, exc), file=sys.stderr)
+        return 1 if args.strict else 0
     if args.all:
         return main_all(args)
     try:
@@ -287,7 +328,7 @@ def main(argv):
         # An unreadable file is a finding like the others.
         return 1 if args.strict else 0
     if args.format == "json":
-        print(json.dumps(result, indent=2, ensure_ascii=False))
+        model.print_data(result)
     else:
         print("%s  specification changes since %s, against %s" % (result["use_case"], result["since"][:12], result["record"]))
         print("Changed flows and rules: %s" % listed(result["changed"]))

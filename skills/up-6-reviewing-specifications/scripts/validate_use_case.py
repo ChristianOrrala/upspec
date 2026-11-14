@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.8.0"
+UPSPEC_VERSION = "1.8.1"
 
 REQUIRED_SECTIONS = ("Main Success Scenario", "Alternative Flows", "Postconditions")
 EXPECTED_SECTIONS = ("Preconditions", "Business Rules")
@@ -267,7 +267,9 @@ def _edited_old_formats(paths, docs_dir, stream):
         docs.use_case_files = lambda path=path: [path]
         docs.test_case_files = lambda: []
         docs.change_record_files = lambda: []
-        docs.entity_model = docs.requirements = None
+        docs.record_search_unreadable = lambda not_searched=None: []
+        docs.entity_model = docs.requirements = docs.vision = docs.overview = docs.recovery_dir = None
+        docs.unresolved = {}
         try:
             found.extend(finding for finding in model.old_formats(docs)
                          if os.path.realpath(finding[0]) in edited)
@@ -290,10 +292,14 @@ def validate_files(paths, docs_dir=None, report=None, *, local=False, stream=Non
     if not paths:
         return report
     docs_dir = docs_dir or os.path.dirname(os.path.dirname(os.path.abspath(paths[0])))
-    if os.path.isdir(docs_dir):
+    # A specification folder there as a link that cannot be resolved, or behind one, is unreadable, not absent: the
+    # old-format check names it.
+    if model.folder_present(docs_dir):
         docs = model.Docs(docs_dir)
-        supplied = sorted(set(docs.use_case_files() + [os.path.abspath(p) for p in paths if os.path.isfile(p)]))
-        docs.use_case_files = lambda: supplied
+        # The folder is listed in the tolerant pass of the old-format check, with the files given: a folder that cannot
+        # be listed is then named beside an earlier format elsewhere, which wins.
+        listing, given = docs.use_case_files, [os.path.abspath(p) for p in paths if os.path.isfile(p)]
+        docs.use_case_files = lambda: sorted(set(listing() + given))
         try:
             # The report holds an unreadable file as a finding; main applies --strict to the report.
             old = (_edited_old_formats(paths, docs_dir, stream) if local else

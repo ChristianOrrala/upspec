@@ -31,7 +31,7 @@ except Exception as exc:
     raise
 
 # Installed siblings must belong to the same release as the hook gate.
-UPSPEC_VERSION = "1.8.0"
+UPSPEC_VERSION = "1.8.1"
 
 
 class Claim(NamedTuple):
@@ -232,8 +232,9 @@ def check(args) -> int:
     root = top.strip()
     docs = os.path.abspath(args.docs or os.path.join(root, model.docs_default(root)))
     for folder in (docs, args.code, args.tests):
-        if folder and not os.path.isdir(folder):
-            print("no such folder: %s" % folder, file=sys.stderr)
+        # A broken link in place of the specification folder goes on to the old-format check, which reports it.
+        if folder and not os.path.isdir(folder) and not (folder == docs and model.folder_present(folder)):
+            print(model.no_such("folder", folder), file=sys.stderr)
             return 2
     docs_rel = os.path.relpath(docs, root).replace(os.sep, "/")
     try:
@@ -281,7 +282,7 @@ def check(args) -> int:
             field = "problems" if strict and finding["severity"] == "ERROR" else "warnings"
             result[field].append(line)
     if args.format == "json":
-        print(json.dumps(result, indent=2, ensure_ascii=False))
+        model.print_data(result)
     else:
         for claim in claims:
             print("%s: %s -> %s" % (claim.uc, claim.before or "absent", claim.after))

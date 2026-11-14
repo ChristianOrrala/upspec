@@ -83,7 +83,6 @@ Requires Python 3.9+, standard library only.
 import argparse
 import datetime
 import hashlib
-import json
 import os
 import re
 import subprocess
@@ -356,6 +355,9 @@ def main(argv):
     if element_text is None:
         print("%s has no %s in %s" % (element.use_case, element.name, os.path.relpath(spec)), file=sys.stderr)
         return 2
+    if model.why_unreadable(args.file):
+        print(model.no_such("file", args.file), file=sys.stderr)
+        return 2
     here = os.path.realpath(os.getcwd())
     target = os.path.realpath(args.file)
     if not target.startswith(here + os.sep) or not os.path.isfile(target):
@@ -422,7 +424,7 @@ def main(argv):
               "output": shown, "output_lines": len(judgement.output) if shown else 0,
               "log": os.path.relpath(path, here), "restored": True}
     if args.format == "json":
-        print(json.dumps(result, indent=2, ensure_ascii=False))
+        model.print_data(result)
     else:
         print("%s: %s%s (break in %s; file restored; logged in %s)"
               % (element, verdict, " (%s)" % judgement.evidence if judgement.evidence else "", rel, result["log"]))

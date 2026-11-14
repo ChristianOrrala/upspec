@@ -80,18 +80,21 @@ def main(argv):
     parser.add_argument("--strict", action="store_true", help="exit 1 on any error or warning (default: exit 0, findings are reported)")
     args = parser.parse_args(argv)
     docs_dir = args.docs or os.path.dirname(os.path.dirname(os.path.abspath(args.files[0])))
-    if not os.path.isdir(docs_dir):
+    if not model.folder_present(docs_dir):
         print("no such folder: %s" % docs_dir, file=sys.stderr)
         return 2
     docs = model.Docs(docs_dir)
     report = model.Reporter(os.getcwd())
     for path in args.files:
-        if not os.path.isfile(path):
+        # A journey there as a link that cannot be resolved, or in a folder that cannot be searched, is not missing:
+        # the old-format check names it as UNREADABLE.
+        if os.path.isdir(path) or model.absent(path):
             print("no such file: %s" % path, file=sys.stderr)
             return 2
-    # Inspect the supplied journeys, including files outside the conventional folder.
-    journeys = sorted(set(docs.test_case_files() + args.files))
-    docs.test_case_files = lambda: journeys
+    # Inspect the supplied journeys, including files outside the conventional folder. The folder is listed in the
+    # tolerant pass of the old-format check, so a folder that cannot be listed is named beside an earlier format.
+    listing = docs.test_case_files
+    docs.test_case_files = lambda: sorted(set(listing() + args.files))
     stop = model.stop_if_old(docs, strict=args.strict)
     if stop is not None:
         return stop

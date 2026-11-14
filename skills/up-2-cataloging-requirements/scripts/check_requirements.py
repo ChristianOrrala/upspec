@@ -94,7 +94,8 @@ def main(argv):
     stop = model.stop_if_old(docs, strict=args.strict)
     if stop is not None:
         return stop
-    if not os.path.isfile(args.file):
+    # A catalog there as a link that cannot be resolved is not missing: the old-format check below names it UNREADABLE.
+    if os.path.isdir(args.file) or model.absent(args.file):
         print("no such file: %s" % args.file, file=sys.stderr)
         return 2
     if docs.requirements != args.file:

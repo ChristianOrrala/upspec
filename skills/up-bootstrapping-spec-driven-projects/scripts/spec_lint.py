@@ -54,7 +54,7 @@ import use_case_map
 import validate_use_case  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.8.0"
+UPSPEC_VERSION = "1.8.1"
 
 BASELINE_NAME = ".spec-lint-baseline.json"
 
@@ -335,8 +335,8 @@ def fingerprint(finding):
 def print_findings(report, form, suppressed=0):
     """The findings on standard output, as text or as JSON."""
     if form == "json":
-        print(json.dumps({"findings": report.sorted(), "suppressed": suppressed,
-                          "summary": {s: report.count(s) for s in ("ERROR", "WARN", "INFO")}}, indent=2, ensure_ascii=False))
+        model.print_data({"findings": report.sorted(), "suppressed": suppressed,
+                          "summary": {s: report.count(s) for s in ("ERROR", "WARN", "INFO")}})
     else:
         report.print_text()
         if suppressed:
@@ -356,7 +356,7 @@ def main(argv):
     parser.add_argument("--update-baseline", action="store_true", help="accept all current errors and warnings")
     args = parser.parse_args(argv)
     args.docs = args.docs or model.docs_default()
-    if not os.path.isdir(args.docs):
+    if not model.folder_present(args.docs):
         print("no such folder: %s" % args.docs, file=sys.stderr)
         return 2
     docs = model.Docs(args.docs)
@@ -376,7 +376,7 @@ def main(argv):
             rows = [r for r in rows if any(args.only in str(c) for c in r)]
             journeys = [j for j in journeys if any(args.only in str(c) for c in j)]
         if args.format == "json":
-            print(json.dumps({"requirements": rows, "journeys": journeys}, indent=2, ensure_ascii=False))
+            model.print_data({"requirements": rows, "journeys": journeys})
         else:
             print(markdown(["Requirement", "Title", "Status", "Use case", "Business rules", "Journey test cases"], rows))
             if journeys:

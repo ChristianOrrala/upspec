@@ -30,7 +30,6 @@ once for each folder when the tests live in several.
 Requires Python 3.9+, standard library only. Reads files as data; prints to standard output.
 """
 import argparse
-import json
 import os
 import re
 import sys
@@ -111,7 +110,7 @@ def main(argv):
         return stop
     for folder in [args.docs, args.code] + (args.tests or []):
         if folder and not os.path.isdir(folder):
-            print("no such folder: %s" % folder, file=sys.stderr)
+            print(model.no_such("folder", folder), file=sys.stderr)
             return 2
     regression = None
     if args.junit:
@@ -193,13 +192,13 @@ def main(argv):
         else:
             stability = {"tests": regression[0], "passed": regression[0] - regression[1], "failed": regression[1],
                          "result": "Stable" if regression[1] == 0 else "Regressed"}
-        print(json.dumps({
+        model.print_data({
             "searched": {"docs": args.docs, "code": args.code, "tests": args.tests or [], "junit": args.junit},
             "progress": {"functional_requirements": progress(len(frs), fr_complete, fr_open, fr_none, percent(fr_complete, len(frs))),
                          "use_cases": progress(uc_total, uc_complete, len(use_cases) - uc_complete - len(pending), len(pending),
                                                percent(uc_complete, uc_total)),
                          "full_test_coverage": tested, "regression": stability},
-            "use_cases": data_rows, "rules": list(RULES)}, indent=2, ensure_ascii=False))
+            "use_cases": data_rows, "rules": list(RULES)})
         return 0
 
     print("# Spec Dashboard")

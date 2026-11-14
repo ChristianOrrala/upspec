@@ -28,7 +28,6 @@ assigned, entities used across contexts, and citations and journeys that cross.
 Requires Python 3.9+, standard library only. Reads files as data; writes nothing.
 """
 import argparse
-import json
 import os
 import re
 import sys
@@ -247,7 +246,7 @@ def main(argv):
         print("cannot read: %s" % exc, file=sys.stderr)
         return 2
     if args.format == "json":
-        print(json.dumps(data, indent=2, ensure_ascii=False))
+        model.print_data(data)
     else:
         print_text(data)
     return 0

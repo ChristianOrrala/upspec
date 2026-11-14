@@ -31,7 +31,6 @@ read, 2 on usage errors, 5 on earlier specification formats.
 Requires Python 3.9+, standard library only. Reads files as data; writes nothing.
 """
 import argparse
-import json
 import math
 import os
 import random
@@ -147,6 +146,12 @@ def main(argv):
     stop = model.stop_if_old(docs_model, strict=True)
     if stop:
         return stop
+    reason = args.ledger and model.why_unreadable(args.ledger)
+    if reason:
+        # A ledger there as a link that cannot be resolved, or behind one or a folder that cannot be searched, is
+        # unreadable, not missing: no claim is sampled without it.
+        print("%s:0: ERROR UNREADABLE: cannot read: %s" % (args.ledger, reason), file=sys.stderr)
+        return 1
     if not os.path.isdir(args.docs):
         print("no such folder: %s" % args.docs, file=sys.stderr)
         return 2
@@ -162,7 +167,7 @@ def main(argv):
         return 2
     sample, pool = draw(by_use_case, entity_claims, ledger, args.count, args.seed)
     if args.format == "json":
-        print(json.dumps({"seed": args.seed, "unverified": pool, "sample": sample}, indent=2, ensure_ascii=False))
+        model.print_data({"seed": args.seed, "unverified": pool, "sample": sample})
         return 0
     print("## Verification sample (seed %d): %d of %d unverified claims" % (args.seed, len(sample), pool))
     print()

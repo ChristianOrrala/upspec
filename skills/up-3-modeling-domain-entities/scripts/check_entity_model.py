@@ -89,7 +89,7 @@ def main(argv):
     parser.add_argument("--strict", action="store_true", help="exit 1 on any error or warning (default: exit 0, findings are reported)")
     args = parser.parse_args(argv)
     args.docs = args.docs or model.docs_default()
-    if not os.path.isdir(args.docs):
+    if not model.folder_present(args.docs):
         print("no such folder: %s" % args.docs, file=sys.stderr)
         return 2
     docs = model.Docs(args.docs)

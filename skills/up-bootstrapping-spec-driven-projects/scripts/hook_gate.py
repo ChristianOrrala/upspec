@@ -58,6 +58,7 @@ scaffold_docs.py --hooks copies them together into tools/specs/.
 Requires Python 3.9+, standard library only, and git.
 """
 import argparse
+import codecs
 from contextlib import redirect_stdout, redirect_stderr
 from typing import NamedTuple, Optional
 import datetime
@@ -75,7 +76,7 @@ import tempfile
 import time
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.8.0"
+UPSPEC_VERSION = "1.8.1"
 
 sys.dont_write_bytecode = True   # a __pycache__ folder in tools/specs/ would be an unexplained file in every change
 
@@ -191,7 +192,7 @@ class GateError(Exception):
 def git(cwd, *args):
     """Run git; returns (exit code, stdout as written)."""
     done = subprocess.run(["git", "-c", "core.quotePath=false"] + list(args), cwd=cwd,
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, encoding="utf-8", errors="surrogateescape")
     return done.returncode, done.stdout
 
 
@@ -1240,5 +1241,53 @@ def main(argv):
     return output.code
 
 
+# The gate loads spec_model only where a moment needs it, so it makes its own streams writable where it starts.
+# The error handlers that never end a write in an encoding error. Every other one can: strict, surrogateescape (which
+# a C locale gives standard output), surrogatepass on an encoding other than UTF, and any a program registers.
+SAFE_ERRORS = ("backslashreplace", "namereplace", "xmlcharrefreplace", "replace", "ignore")
+ESCAPED = "+backslashreplace"
+
+
+def _escaping(errors):
+    """The name of an error handler that writes a character as the handler errors writes it, and as its Python escape
+    (\\u2192) where that handler would end the write in an error; registered on first use."""
+    name = errors + ESCAPED
+    try:
+        codecs.lookup_error(name)
+    except LookupError:
+        original = codecs.lookup_error(errors)
+
+        def handler(exc):
+            if not isinstance(exc, UnicodeEncodeError):
+                return original(exc)
+            one = UnicodeEncodeError(exc.encoding, exc.object, exc.start, exc.start + 1, exc.reason)
+            try:
+                return original(one)
+            except UnicodeEncodeError:
+                return codecs.backslashreplace_errors(one)
+
+        codecs.register_error(name, handler)
+    return name
+
+
+def writable_output(*streams):
+    """Let standard output and standard error (or the streams given) write any text: a character their encoding cannot
+    write, as on a legacy Windows code page or under a C locale, is written as its Python escape (\\u2192 for an
+    arrow) instead of ending the run in an encoding error. A stream keeps what its error handler does where that
+    handler writes a character: under surrogateescape, a name that is not text in the encoding is still written as its
+    bytes. A handler that never raises, and UTF with surrogatepass, are left as they are."""
+    for stream in streams or (sys.stdout, sys.stderr):
+        errors, encoding = getattr(stream, "errors", None), getattr(stream, "encoding", None) or ""
+        if not errors or errors in SAFE_ERRORS or errors.endswith(ESCAPED) or not hasattr(stream, "reconfigure"):
+            continue
+        try:
+            if errors == "surrogatepass" and codecs.lookup(encoding).name.startswith("utf"):
+                continue
+            stream.reconfigure(errors="backslashreplace" if errors == "strict" else _escaping(errors))
+        except (LookupError, ValueError, OSError):
+            pass
+
+
 if __name__ == "__main__":
+    writable_output()
     sys.exit(main(sys.argv[1:]))

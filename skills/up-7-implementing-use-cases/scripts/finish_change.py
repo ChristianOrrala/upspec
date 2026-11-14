@@ -75,7 +75,6 @@ from __future__ import annotations
 import argparse
 import copy
 import io
-import json
 import os
 import re
 import sys
@@ -88,7 +87,7 @@ import uc_change_list  # noqa: E402
 import unrecorded_changes  # noqa: E402
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.8.0"
+UPSPEC_VERSION = "1.8.1"
 
 def is_test_path(path):
     return model.is_test_path(path)
@@ -826,7 +825,9 @@ def main(argv):
     parser.add_argument("--format", choices=("text", "json"), default="text")
     parser.add_argument("--strict", action="store_true", help="exit 1 when it finds problems (default: exit 0, the findings are reported)")
     args = parser.parse_args(argv)
-    code, text, to_stderr = _finish_report(args)
+    code, text, to_stderr, notes = _finish_report(args)
+    # A note names a folder the search for change records could not look into; it changes nothing of the result.
+    sys.stderr.write(notes)
     (sys.stderr if to_stderr else sys.stdout).write(text)
     # A report that is not ready, or a file it could not read, is the output; only a strict run turns it into a failure.
     return 0 if code == 1 and not args.strict else code
@@ -838,17 +839,22 @@ def finish_report(args, view: change_view.ChangeView | None = None) -> tuple[int
 
 
 def _finish_report(args, view=None):
-    """Build a report and its destination for the command-line wrapper."""
+    """Build a report and its destination for the command-line wrapper, and the notes it gives beside it (the folders
+    the search for change records could not look into, which stop nothing)."""
+    notes = ""
+
     def error(code, text):
-        return code, text, True
+        return code, text, True, notes
 
     args.docs = args.docs or model.docs_default()
     if not re.fullmatch(r"UC-\d{3}", args.use_case):
         return error(2, "use case identifier must look like UC-012\n")
     for folder in (args.docs, args.code, args.tests):
-        if folder and not os.path.isdir(folder):
-            return error(2, "no such folder: %s\n" % folder)
-    if args.record and not os.path.isfile(args.record):
+        # A broken link in place of the specification folder goes on to the old-format check, which reports it.
+        if folder and not os.path.isdir(folder) and not (folder == args.docs and model.folder_present(folder)):
+            return error(2, model.no_such("folder", folder) + "\n")
+    # A record there as a link that cannot be resolved is not missing: the old-format check names it as UNREADABLE.
+    if args.record and (os.path.isdir(args.record) or model.absent(args.record)):
         return error(2, "no such file: %s\n" % args.record)
     docs = model.Docs(args.docs)
     if args.record:
@@ -859,6 +865,7 @@ def _finish_report(args, view=None):
     stop = model.stop_if_old(docs, stream=notice, strict=True)
     if stop is not None:
         return error(stop, notice.getvalue())
+    notes = notice.getvalue()
     try:
         result = check(args, view)
     except SystemExit as exc:
@@ -866,9 +873,9 @@ def _finish_report(args, view=None):
     except (OSError, UnicodeDecodeError) as exc:
         return error(1, "%s:0: ERROR UNREADABLE: cannot read: %s\n" % (args.record or args.docs, exc))
     base = (view.base.ref or view.base.commit or "none") if view is not None else args.base
-    text = (json.dumps(result, indent=2, ensure_ascii=False) + "\n" if args.format == "json"
+    text = (model.data_text(result, getattr(sys.stdout, "encoding", None)) + "\n" if args.format == "json"
             else print_text(result, base))
-    return (1 if result["problems"] else 0), text, False
+    return (1 if result["problems"] else 0), text, False, notes
 
 
 if __name__ == "__main__":
