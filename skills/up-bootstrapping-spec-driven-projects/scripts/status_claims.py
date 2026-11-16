@@ -31,7 +31,7 @@ except Exception as exc:
     raise
 
 # Installed siblings must belong to the same release as the hook gate.
-UPSPEC_VERSION = "1.8.1"
+UPSPEC_VERSION = "1.8.2"
 
 
 class Claim(NamedTuple):

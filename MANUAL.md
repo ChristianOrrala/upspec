@@ -1,6 +1,6 @@
 # upspec: User Manual
 
-Version 1.8.1
+Version 1.8.2
 
 This manual explains how to install the `upspec` skills, how the work
 they support is organized, and how to carry a piece of work from an idea, a
@@ -940,7 +940,9 @@ implementation is reported. It checks:
   Root A-files count as tracking. Deleted files belong when they carried an
   id at the base or the record names their exact path.
 - **Markers**: every rule in the change has its marker in the code; a marker on
-  a function nothing calls is warned about. Marker checks run only for changes
+  a function nothing calls is warned about. When the marker is only in files
+  read as tests by a `spec` or `specs` folder, the problem names them (JSON:
+  `markers.in_test_folders`). Marker checks run only for changes
   with rules; callers count even in files without an id, including untracked files.
 - **Tests named**: every flow and rule in the change is named by a test.
 - **Guard check**: every rule in the change has a logged break that a test
@@ -984,7 +986,10 @@ formats.
 `--code` and `--tests` limit their sections to those folders, including folders
 in another repository or a submodule. Test names and test folders are recognized
 relative to the folder searched: with `--tests selected/tests`, `test_capacity.py`
-counts as a test and `capacity.py` does not. Text files marked `-diff` or `binary`
+counts as a test and `capacity.py` does not. `spec` and `specs` count as test
+folders except under `src`, `app` or `lib`, where a feature about
+specifications keeps its code. The spec-first guard names the changed files
+read as tests only by a `spec` or `specs` folder, so a wrong reading shows. Text files marked `-diff` or `binary`
 in git attributes still count; files containing NUL bytes or invalid UTF-8 do not.
 
 **The guard check** (`guard_check.py`) turns "this test guards that rule" from
@@ -1048,7 +1053,9 @@ report is.
 
 The signs the check reads follow the documented output of common runners,
 named in the script as examples (unittest, pytest, Go, .NET, Jest, Vitest,
-TAP, Mocha, RSpec, PHPUnit, JUnit with Maven or Gradle). The package's tests
+TAP, Mocha, RSpec, PHPUnit, JUnit with Maven or Gradle), and one shape any
+runner may print: a failure word in parentheses or brackets at the start of
+a line (`(fail) name`, `[FAIL] name`, as Bun prints the first). The package's tests
 run only unittest, pytest and stand-in runners; Go's output with testify was
 captured from a real run by hand, and the others were not run.
 Known limits: the check sees only what the runner prints, so a mode that
@@ -1573,7 +1580,12 @@ change record selects the units; otherwise the whole use case is checked.
 Missing evidence is a drift, with the move, the problems and both ways to
 align: add the evidence, or restore the previous Status and tell the person
 what remains. A file naming an uncovered use case counts only when the session
-changed it; earlier unpushed spill warns. The other drifts are an open change
+changed it, uncommitted or in a commit that is the claimed use case's work (a
+path or the message names it; a range such as `UC-001..UC-003` names each);
+in such a commit, a file whose use case the message names, or a specification the commit creates, is that other use case's
+work. When files of other use cases are the only finding, the drift says so
+instead of "without its evidence", and its advice is to look at those files;
+the Status can stay. Earlier unpushed spill warns. The other drifts are an open change
 record, behavior code changed without a specification (read as the spec-first
 guard reads it, with the change's commit messages for the `No behavior
 change:` line and the `Fixes:` note; a light-path fix is noted once before

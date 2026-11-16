@@ -2,6 +2,18 @@
 
 All notable changes to upspec. Versions follow semantic versioning.
 
+## 1.8.2 (2026-11-16)
+
+A repair release. Three checks misread an ordinary project: one whose feature is about specifications, one session that builds several use cases, and a test runner whose failure line they did not know. On a project none of this touches, every command prints what 1.8.1 printed, apart from the new key below.
+
+- **A folder named `spec` or `specs` is not always tests** (0057). Under `src`, `app` or `lib` it holds code: the spec-first guard, the finish check and the end-of-turn check now read it as code, also when `--code` points at the code root itself. RSpec's `spec/` at the root of a project or a package stays tests, helpers included. The guard prints the changed files it read as tests only because of such a folder, and when a rule's marker is only in such files the finish check names them (JSON: `markers.in_test_folders`).
+- **A claim's scope is its own commits** (0058). At the end of a turn, a file of another use case counts against a Status raise only when it is uncommitted or in a commit that is the raised use case's work (a path or the message names it). In such a commit, a file whose use case the message names, a range such as `UC-001..UC-003` included, or a specification the commit creates, is that other use case's work. A session that writes several use cases and builds them one after another no longer trips it.
+- **The end-of-turn note says what it found.** When files of other use cases are the only finding, it says so instead of "without its evidence", and never advises lowering a Status whose evidence is complete.
+- **The guard check reads a failure word in brackets.** A line that starts with `(fail) name` or `[FAIL] name` reports that test's failure, so such a runner's caught break is logged as caught without `--expect`.
+- **The A-files reader keeps a blocker that begins with "nothing".** Blocked by, Waiting on owner and Next step are empty only when they say nothing else; "nothing blocks it, but the ledger is late" now reads as written.
+
+**What an upgrade asks of you:** update the plugin. In each project with installed copies, run `scaffold_docs.py --update`, review its plan and apply the agreed updates; it brings every copy in `tools/specs/` to 1.8.2. A project with code in a `src/.../specs/` folder may now see the guard ask for a specification behind it, as it should have before.
+
 ## 1.8.1 (2026-11-14)
 
 A repair release. Reviews by another vendor's model found cases where 1.8.0 printed nothing, wrong data or a wrong answer in unusual projects: a legacy Windows code page, links, folders that cannot be read. Nothing changes on an ordinary project: there every command prints what 1.8.0 printed, apart from the new keys below (0056).

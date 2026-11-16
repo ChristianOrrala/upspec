@@ -87,10 +87,27 @@ import uc_change_list  # noqa: E402
 import unrecorded_changes  # noqa: E402
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.8.1"
+UPSPEC_VERSION = "1.8.2"
 
-def is_test_path(path):
-    return model.is_test_path(path)
+# The words of a scope problem: a file of another use case changed in this session (the hook words its headline
+# after them).
+SPILL_PROBLEM = "changed in this session and names"
+
+
+def is_test_path(path, within=""):
+    return model.is_test_path(path, within)
+
+
+def within_repository(root, top=None):
+    """A searched folder's path from its repository's root ("" at the root or outside a repository), so that the
+    test-file rule still sees a code root the folder itself sits in (--code apps/web/src)."""
+    if top is None:
+        code, out = model.git(["rev-parse", "--show-toplevel"], cwd=root)
+        if code != 0:
+            return ""
+        top = out.strip()
+    relative = os.path.relpath(os.path.realpath(root), os.path.realpath(top))
+    return "" if relative == "." or relative.startswith("..") else relative.replace(os.sep, "/")
 
 
 def pinning_test(seen):
@@ -404,22 +421,24 @@ def units_in_change(uc, repo, rel, record):
 
 def source_files(root, docs_dir, tests):
     docs_abs = os.path.abspath(docs_dir)
+    within = within_repository(root)
     for path in model.iter_source_files(root):
         full = os.path.abspath(path)
         if full.startswith(docs_abs + os.sep):
             continue
-        if is_test_path(os.path.relpath(full, root)) == tests:
+        if is_test_path(os.path.relpath(full, root), within) == tests:
             yield path
 
 
 def view_sources(view, root, docs_dir, tests, paths=None):
     """Narrow shared candidates by folder and kind without opening another view."""
     root_abs, docs_abs = os.path.realpath(root), os.path.realpath(docs_dir)
+    within = within_repository(root, view.root)
     for path in sorted(view.files() if paths is None else paths):
         full = os.path.realpath(path)
         if not full.startswith(root_abs + os.sep) or full.startswith(docs_abs + os.sep):
             continue
-        if is_test_path(os.path.relpath(full, root_abs)) == tests:
+        if is_test_path(os.path.relpath(full, root_abs), within) == tests:
             yield path
 
 
@@ -643,8 +662,8 @@ def _check_one(args, view: change_view.ChangeView | None = None, covered=None) -
         for path in sorted(spill):
             outside = model.ids_named_by_path(path) - set(ids)
             if outside:
-                problems.append("%s changed in this session and names %s, which this change does not cover: "
-                                "undo it or name the use case in the change record" % (path, ", ".join(sorted(outside))))
+                problems.append(("%s " + SPILL_PROBLEM + " %s, which this change does not cover: "
+                                 "undo it or name the use case in the change record") % (path, ", ".join(sorted(outside))))
 
     # markers
     code_root = args.code or (view.root if view is not None else repo) or "."
@@ -683,8 +702,30 @@ def _check_one(args, view: change_view.ChangeView | None = None, covered=None) -
     uncalled = ["%s at %s:%d marks %s(), which no other code refers to" % (rule, path, line, name)
                 for rule, path, line, name in defined
                 if counts[name] <= 1]
-    result["markers"] = {"checked": rules, "missing": missing_markers, "uncalled": uncalled}
-    problems += ["no code carries the marker %s %s" % (uc.id, r) for r in missing_markers]
+    # A missing marker may sit in code that a spec or specs folder made a test: name those files.
+    in_test_folders = {}
+    if missing_markers:
+        root_real = os.path.realpath(code_root)
+        within = within_repository(code_root, code_view.root if code_view is not None else None)
+        candidates = (view_sources(code_view, code_root, args.docs, tests=True, paths=marked) if code_view is not None
+                      else source_files(code_root, args.docs, tests=True))
+        for source in candidates:
+            relative = os.path.relpath(os.path.realpath(source), root_real).replace(os.sep, "/")
+            if not model.test_folder_alone(relative, within):
+                continue
+            try:
+                text = code_view.text(source) if code_view is not None else "\n".join(model.read_lines(source))
+            except (OSError, UnicodeDecodeError):
+                continue
+            for rule in missing_markers:
+                if text and marker[rule].search(text):
+                    in_test_folders.setdefault(rule, []).append(relative)
+    result["markers"] = {"checked": rules, "missing": missing_markers, "uncalled": uncalled,
+                         "in_test_folders": in_test_folders}
+    problems += [("the marker %s %s is only in files read as tests by their folder: %s; if that is code, the "
+                  "test-folder rule misread it" % (uc.id, r, ", ".join(in_test_folders[r])))
+                 if r in in_test_folders else "no code carries the marker %s %s" % (uc.id, r)
+                 for r in missing_markers]
 
     # tests
     test_root = args.tests or (view.root if view is not None else repo) or "."

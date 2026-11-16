@@ -121,8 +121,10 @@ def run(command, timeout):
 # A line that reports one test's result: unittest "FAIL: name" and "ERROR: name" (and "name ... FAIL" when verbose),
 # pytest "FAILED path::name", Go "--- FAIL: name", .NET "Failed name", Jest and Vitest "✕ name" and "● name", other
 # runners' "×", "✗", "✘", TAP "not ok", a numbered entry of a failure list (Mocha, RSpec, PHPUnit "1) name"), JUnit
-# "name  Time elapsed ... <<< FAILURE!", Gradle "Class > name FAILED", a Maven summary entry "[ERROR]   Class.name:12".
+# "name  Time elapsed ... <<< FAILURE!", Gradle "Class > name FAILED", a Maven summary entry "[ERROR]   Class.name:12",
+# and a failure word in parentheses or brackets at the start of a line (Bun "(fail) name", others "[FAIL] name").
 REPORT_LINE = re.compile(r"^\s*(?:FAIL\b|FAILED\b|ERROR\b|Failed\b|---\s+FAIL\b|not ok\b|\d+\)\s"
+                         r"|[(\[](?i:fail|failed|failure)[)\]]\s"
                          r"|[\u2715\u00d7\u2717\u2718\u25cf])|<<<\s*(?:FAILURE|ERROR)!|\.\.\.\s+(?:FAIL|ERROR)\s*$"
                          r"|\sFAILED\s*$|^\[ERROR\]\s+\S+[.#]\w+:\d+")
 # A rule with a title, as pytest heads each failure's section ("____ name ____") and its summary ("=== ... ===").

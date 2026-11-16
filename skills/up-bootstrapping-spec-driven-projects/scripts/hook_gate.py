@@ -76,7 +76,7 @@ import tempfile
 import time
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.8.1"
+UPSPEC_VERSION = "1.8.2"
 
 sys.dont_write_bytecode = True   # a __pycache__ folder in tools/specs/ would be an unexplained file in every change
 
@@ -660,6 +660,45 @@ def forget(state):
         pass
 
 
+def finish_change_spill(problem):
+    """A problem of the finish check about a file of another use case, not about the claim's evidence."""
+    import finish_change
+    return finish_change.SPILL_PROBLEM in problem
+
+
+# A range of use cases in a commit message: "UC-001..UC-003", "UC-001 to UC-003", "UC-001-UC-003" (any dash).
+MESSAGE_RANGE = re.compile(r"(?<![A-Za-z0-9])UC-?(\d{3})\s*(?:\.\.|to|[-\u2013\u2014])\s*UC-?(\d{3})(?!\d)", re.IGNORECASE)
+
+
+def message_ids(message):
+    """The use cases a commit message names, each one of a range included."""
+    import spec_model as model
+    named = model.ids_named_by_path(message)
+    for first, last in MESSAGE_RANGE.findall(message):
+        low, high = sorted((int(first), int(last)))
+        if high - low <= 50:
+            named |= {"UC-%03d" % number for number in range(low, high + 1)}
+    return named
+
+
+def claim_spill(uc, session_commits, docs_rel):
+    """The paths of the session's commits that count as the claim's spill: only commits that are the use case's
+    work (a path or the message names it), and in them neither a file whose use cases the message names nor a
+    specification the commit creates."""
+    import spec_model as model
+    spill = set()
+    for paths, named, added in session_commits:
+        if uc not in named and not any(uc in model.ids_named_by_path(path) for path in paths):
+            continue
+        for path in paths:
+            if path in added and path.startswith(docs_rel + "/"):
+                continue
+            if model.ids_named_by_path(path) - {uc} <= named:
+                continue
+            spill.add(path)
+    return spill
+
+
 def claim_check(view, args, event):
     """Select only locally owned raises and check their evidence against the shared view.
 
@@ -670,8 +709,10 @@ def claim_check(view, args, event):
     docs_rel = os.path.relpath(os.path.join(view.root, args.docs), view.root).replace(os.sep, "/")
     slot = snapshot_read(view.root, event.session_id if event else None)
     code, head = git(view.root, "rev-parse", "--verify", "HEAD")
+    # Uncommitted paths are always this change's; a session commit's paths count only for the claims it is work of.
     own = set(change_view.ChangeView(view.root, change_view.Base(head.strip() if code == 0 else None,
                                                               "HEAD", "working tree"), docs_rel).changed)
+    session_commits = []
     head_statuses = status_claims.statuses(view.root, docs_rel, "HEAD")
     current = status_claims.statuses(view.root, docs_rel)
     baseline, label = head_statuses, "HEAD"
@@ -692,7 +733,12 @@ def claim_check(view, args, event):
             code, paths = git(view.root, "diff-tree", "--root", "--cc", "--no-commit-id", "--name-only", "-r", "-z", commit)
             if code:
                 raise GateError("cannot read session commit paths")
-            own.update(path for path in paths.split("\0") if path)
+            code, message = git(view.root, "log", "-1", "--format=%B", commit)
+            _, added = git(view.root, "diff-tree", "--root", "--no-commit-id", "--name-only", "-r", "-z",
+                           "--diff-filter=A", commit)
+            session_commits.append(({path for path in paths.split("\0") if path},
+                                    message_ids(message if code == 0 else ""),
+                                    {path for path in added.split("\0") if path}))
             code, parents = git(view.root, "rev-list", "--parents", "-n", "1", commit)
             if code:
                 raise GateError("cannot read session commit parents")
@@ -714,8 +760,19 @@ def claim_check(view, args, event):
     for claim in status_claims.find_claims(baseline, current):
         if model.STATUS_RANK[claim.after] > owned_ranks.get(claim.uc, -1):
             continue
-        problems, warnings = status_claims.claim_problems(view, claim, docs_rel, spill=own)
-        if problems:
+        problems, warnings = status_claims.claim_problems(view, claim, docs_rel,
+                                                          spill=own | claim_spill(claim.uc, session_commits, docs_rel))
+        if problems and all(finish_change_spill(problem) for problem in problems):
+            drifts.append(Drift(
+                ("claim %s %s" % (claim.uc, claim.after),),
+                "%s: %s -> %s; this session also changed files of other use cases"
+                % (claim.uc, claim.before or "absent", claim.after),
+                ["- " + problem for problem in problems],
+                "Look at the named files: undo the ones this work should not change; commit another use case's own "
+                "work under a message that names it, or name it in the change record. The Status can stay.",
+                "%s raised to %s; this session also changed files of other use cases" % (claim.uc, claim.after),
+                status=claim.after))
+        elif problems:
             drifts.append(Drift(
                 ("claim %s %s" % (claim.uc, claim.after),),
                 "%s: %s -> %s without its evidence" % (claim.uc, claim.before or "absent", claim.after),

@@ -24,7 +24,7 @@ import unicodedata
 from typing import NamedTuple, Optional
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.8.1"
+UPSPEC_VERSION = "1.8.2"
 
 # --- vocabulary -------------------------------------------------------------
 
@@ -756,12 +756,24 @@ def _is_empty(value):
     return not text or text in ("—", "–", "-") or re.match(r"(?i)(none|nothing|n/a)\b", text) is not None
 
 
-def _field(lines, name):
+def _says_nothing(value):
+    """Whether a field says nothing else: no text, a dash alone, or the single word none, nothing or n/a with
+    punctuation at most, as the A-files' own check reads Blocked by. Text that goes on is kept as written:
+    'nothing blocks it, but the review is late' names something."""
+    text = value.strip()
+    return not text or re.fullmatch(r"(?i)(?:none|nothing|n/a|—|–|-)[^\w\s]*", text) is not None
+
+
+def _field(lines, name, whole=False):
+    """The text of one field of ACTIVE's Now, '' when it is empty. Current work is empty as soon as it begins with
+    none or nothing ('none. AB-027 is done' names no work). With whole, a field is empty only when it says nothing
+    else, so a blocker or a wait that begins with such a word is never dropped."""
     pattern = re.compile(r"^\s*-\s*\*\*%s:\*\*\s*(.*?)\s*$" % re.escape(name))
+    empty = _says_nothing if whole else _is_empty
     for _, line in outside_fences(lines):
         match = pattern.match(line)
         if match:
-            return "" if _is_empty(match.group(1)) else match.group(1)
+            return "" if empty(match.group(1)) else match.group(1)
     return ""
 
 
@@ -862,7 +874,8 @@ def _heading_of_line(lines):
 def read_tracking(root):
     """What the A-files say about the work, or None when the project does not use them.
 
-    current_work, blocked_by, waiting_on_owner, next_step: the text of ACTIVE's fields, '' when empty;
+    current_work, blocked_by, waiting_on_owner, next_step: the text of ACTIVE's fields, '' when empty. Current work
+    is empty when it begins with none or nothing; the other three only when they say nothing else;
     next_new_work: the text under ACTIVE's `## Next new work`, '' when empty;
     abilities: {AB id: {name, status, specs (use case ids), links, known_limits, evidence}}, the status from the
     ability's row in any index table of ABILITIES.md, else from an old entry's Status line; known_limits and evidence
@@ -883,12 +896,12 @@ def read_tracking(root):
     active_home = _home(root, hot)
     if active_home:
         hot = []                           # the current work lives in the kept file; ACTIVE's own fields are not it
-    tracking = {"current_work": _field(hot, "Current work"), "blocked_by": _field(hot, "Blocked by"),
-                "waiting_on_owner": _field(hot, "Waiting on owner"), "debt": _debt(hot), "abilities": {}, "next_up": [], "items": {}, "item_titles": {},
+    tracking = {"current_work": _field(hot, "Current work"), "blocked_by": _field(hot, "Blocked by", whole=True),
+                "waiting_on_owner": _field(hot, "Waiting on owner", whole=True), "debt": _debt(hot), "abilities": {}, "next_up": [], "items": {}, "item_titles": {},
                 "abilities_present": abilities_file.present,
                 "active_home": active_home, "abilities_home": _home(root, _hot_zone(abilities_lines)),
                 "ahead_home": _home(root, _hot_zone(ahead)),
-                "next_step": _field(hot, "Next step"), "next_new_work": _next_new_work(hot), "ahead_items": {}}
+                "next_step": _field(hot, "Next step", whole=True), "next_new_work": _next_new_work(hot), "ahead_items": {}}
 
     def ability(identifier, name):
         """The ability's record, made the first time an entry heading or an index row names it."""
@@ -2581,12 +2594,35 @@ TEST_NAME = re.compile(r"(^test_|_test\.|\.test\.|-test\.|_spec\.|\.spec\.|-spec
                        r"|^[A-Z][A-Za-z0-9]*[a-z][A-Za-z0-9]*IT\.(?:java|kt|kts|groovy|scala)$)")
 # Folders that hold tests or their data, compared in lower case.
 TEST_FOLDERS = {"tests", "test", "__tests__", "spec", "specs", "e2e", "testing", "fixtures"}
+# spec and specs also name a feature about specifications: under a code root they hold code, not tests. RSpec keeps
+# its spec/ folder at the root of a project or a package, never under these.
+AMBIGUOUS_TEST_FOLDERS = {"spec", "specs"}
+CODE_ROOTS = {"src", "app", "lib"}
 
 
-def is_test_path(path):
-    """A test file by its folder or its name."""
+def _test_folder(parts, within=""):
+    """The first folder, in lower case, that makes a file a test, or None. within: the searched folder's path from
+    the repository's root, whose code roots count as earlier parts."""
+    under_code_root = any(part.lower() in CODE_ROOTS for part in within.replace("\\", "/").split("/"))
+    for part in (p.lower() for p in parts[:-1]):
+        if part in TEST_FOLDERS and not (part in AMBIGUOUS_TEST_FOLDERS and under_code_root):
+            return part
+        under_code_root = under_code_root or part in CODE_ROOTS
+    return None
+
+
+def is_test_path(path, within=""):
+    """A test file by its name, or by its folder (spec and specs not under src, app or lib). within: the folder the
+    path is relative to, from the repository's root, when that is not the root."""
     parts = path.replace("\\", "/").split("/")
-    return bool(TEST_NAME.search(parts[-1])) or any(part.lower() in TEST_FOLDERS for part in parts[:-1])
+    return bool(TEST_NAME.search(parts[-1])) or _test_folder(parts, within) is not None
+
+
+def test_folder_alone(path, within=""):
+    """A test only because a spec or specs folder says so: its name is not a test's. The reports name these files,
+    since such a folder may hold code the rule misread."""
+    parts = path.replace("\\", "/").split("/")
+    return not TEST_NAME.search(parts[-1]) and _test_folder(parts, within) in AMBIGUOUS_TEST_FOLDERS
 
 
 # --- the spec-first reading of a change ---------------------------------------

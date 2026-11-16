@@ -54,7 +54,7 @@ import use_case_map
 import validate_use_case  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.8.1"
+UPSPEC_VERSION = "1.8.2"
 
 BASELINE_NAME = ".spec-lint-baseline.json"
 

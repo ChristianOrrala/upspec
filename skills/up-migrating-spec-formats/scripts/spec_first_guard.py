@@ -46,7 +46,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.8.1"
+UPSPEC_VERSION = "1.8.2"
 
 NOT_YET = ("Draft", "Reviewed")
 
@@ -137,6 +137,13 @@ def main(argv):
     print("checked: %d changed file(s), %d behavior, %d specification, declaration %s, Fixes note %s"
           % (len(changed), len(behavior), len(specs), "found" if complete else "not found",
              "found" if reading.fixes else "not found"))
+    # Information, never a finding: a spec or specs folder may hold code the test-file rule misread.
+    by_folder = [path for path in changed if path.endswith(model.SOURCE_SUFFIXES)
+                 and not path.startswith((docs + "/", model.INSTALLED_SCRIPTS + "/")) and model.test_folder_alone(path)]
+    if by_folder:
+        more = len(by_folder) - model.SHOWN_FILES
+        print("%d file(s) read as tests only by a spec or specs folder: %s%s"
+              % (len(by_folder), ", ".join(by_folder[:model.SHOWN_FILES]), " and %d more" % more if more > 0 else ""))
     if args.mode == "block":
         print("--mode block now warns like --mode warn; pass --strict to make findings fail a strict pipeline")
     # The findings are the output; only a strict run turns them into a failure.
