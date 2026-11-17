@@ -9,7 +9,7 @@ the tests against what was approved. The skills cover the whole path: vision,
 requirements, entity model, use cases, review, implementation, tests, change
 and coverage. They also bring an existing codebase under specifications.
 
-**Version 2.0.0.** Fifteen skills. Their scripts are tested against fixture
+**Version 2.0.1.** Fifteen skills. Their scripts are tested against fixture
 projects, and each skill is evaluated against sessions without it.
 
 ## Install
@@ -28,6 +28,23 @@ codex plugin marketplace add ChristianOrrala/agents
 codex plugin add upspec@christianorrala
 ```
 
+Then approve each hook once in Codex's `/hooks`.
+
+Kiro CLI and OpenCode run the plugin from a full copy, kept in one place:
+
+```sh
+git clone --branch v2.0.1 https://github.com/ChristianOrrala/upspec.git ~/.local/share/agent-plugins/upspec
+```
+
+- **Kiro CLI:** link each folder under the copy's `skills/` into
+  `~/.kiro/skills/`, copy `hooks/kiro/upspec.json` to `~/.kiro/hooks/`, trust
+  the workspace, and set the V3 engine once:
+  `kiro-cli settings chat.agentEngine v3`. Kiro runs hooks on no other engine.
+- **OpenCode:** add the copy's `hooks/opencode` folder, as an absolute path,
+  to the `plugins` array of `opencode.json`. Not `opencode plugin add`: it
+  fetches only that folder, and the module then finds no gate and stays
+  silent.
+
 Other agents: copy the folders under `skills/` into the folder where your
 agent finds skills, for example `.agents/skills/` in the project. Each skill
 folder carries its own references, templates and scripts.
@@ -36,12 +53,53 @@ folder carries its own references, templates and scripts.
 agent's own tool: the state at session start, open work per prompt, the
 validator after an edit and the finish check at the end of a turn. They act only
 in a project whose guideline file carries the rules block, and stay silent
-elsewhere. Claude Code: install the plugin. Codex: approve each hook once in
-`/hooks`. Kiro CLI and OpenCode: place the files the manual names. A project
-wired by an earlier release is cleaned up by `scaffold_docs.py --update`.
+elsewhere. Each tool turns them on as above. A project wired by an earlier
+release is cleaned up by `scaffold_docs.py --update` (see Upgrading from 1.x).
 
 **Requirements:** Python 3.9 or later (the scripts use the standard library
 only) and git.
+
+## Upgrading from 1.x
+
+Releases before 2.0.0 came from the marketplace `christian-orrala`
+(ChristianOrrala/plugins) and wired the agent hooks into each project. On each
+computer, once:
+
+```sh
+# Claude Code: leave the old marketplace, install from the new one
+claude plugin uninstall upspec@christian-orrala
+claude plugin marketplace remove christian-orrala
+claude plugin marketplace add ChristianOrrala/agents
+claude plugin install upspec@christianorrala
+
+# Codex: the same, then approve each hook once in /hooks
+codex plugin remove upspec@christian-orrala
+codex plugin marketplace remove christian-orrala
+codex plugin marketplace add ChristianOrrala/agents
+codex plugin add upspec@christianorrala
+```
+
+A step for a tool or marketplace you never installed fails harmlessly. Kiro
+CLI and OpenCode: follow Install above, and replace a skill folder an earlier
+release copied into `~/.kiro/skills/`.
+
+Then in each project set up by an earlier release, on its own branch:
+
+```sh
+python3 "<setup-skill>/scripts/scaffold_docs.py" --root . --update          # the plan; writes nothing
+python3 "<setup-skill>/scripts/scaffold_docs.py" --root . --update --apply  # after you agree
+```
+
+`<setup-skill>` is the installed plugin's
+`skills/up-bootstrapping-spec-driven-projects` folder (Claude Code:
+`~/.claude/plugins/cache/christianorrala/upspec/<version>/`). The update
+brings `tools/specs/` to this release, removes the hook-only scripts and
+upspec's entries in the tool settings, and keeps everything else. Remove what
+still names the old wiring by hand: a task to prove the hooks, a
+`**Hooks:**` line, a restart line or map row that names `workflow_state.py`
+or the hooks in `.claude/settings.json`. Commit the result on its own with
+the line `No behavior change: none, tooling only.` in the message, so the
+commit guard reads it as tooling. A second dry run reports `0 to write`.
 
 ## Quick start
 

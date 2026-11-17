@@ -74,6 +74,9 @@ Each command calls the gate in
 `~/.kiro/skills/up-bootstrapping-spec-driven-projects/scripts/` and does
 nothing when it is absent.
 
+- Engine: hooks run only on the V3 engine. With `--no-interactive` and no
+  setting Kiro picks V2, which runs none; set `kiro-cli settings
+  chat.agentEngine v3` once, or pass `--agent-engine v3`.
 - After-edit feedback: person (the agent does not receive it).
 - Stop keeps the agent working: yes.
 - Warning channel: yes.

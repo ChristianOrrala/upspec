@@ -1,6 +1,6 @@
 # upspec: User Manual
 
-Version 2.0.0
+Version 2.0.1
 
 This manual explains how to install the `upspec` skills, how the work
 they support is organized, and how to carry a piece of work from an idea, a
@@ -99,6 +99,10 @@ Agent Plugins format can install the plugin folder instead: it carries a
 `plugin.json` for them. Codex installs it from the same marketplace:
 `codex plugin marketplace add ChristianOrrala/agents`, then
 `codex plugin add upspec@christianorrala`.
+
+Coming from a release before 2.0.0, installed from the earlier marketplace: the
+README's "Upgrading from 1.x" lists the commands per tool and the update of
+each project.
 
 ### The agent hooks
 
@@ -1508,8 +1512,8 @@ never bypassed or widened.
 |---|---|---|---|
 | Claude Code | Install the plugin. | Agent | Yes |
 | Codex CLI | Install from the marketplace, then approve each hook once in `/hooks`. An unapproved hook is skipped without a word; Codex copies the plugin at install, so reinstall after an update and approve again. | Agent, for `apply_patch` edits | Yes |
-| Kiro CLI | Copy the skill folders to `~/.kiro/skills/` and `hooks/kiro/upspec.json` to `~/.kiro/hooks/`; trust the workspace. | Person only | Yes, once per prompt |
-| OpenCode | List the plugin's `hooks/opencode` folder in the `plugins` array of `opencode.json`, in the project or globally. | Agent | Yes |
+| Kiro CLI | Copy the skill folders to `~/.kiro/skills/` and `hooks/kiro/upspec.json` to `~/.kiro/hooks/`; trust the workspace; hooks run only on the V3 engine (`kiro-cli settings chat.agentEngine v3`). | Person only | Yes, once per prompt |
+| OpenCode | List the `hooks/opencode` folder of a full copy of the plugin (a clone of its repository) in the `plugins` array of `opencode.json`, in the project or globally. `opencode plugin add` fetches that folder alone, and the module then finds no gate. | Agent | Yes |
 | Antigravity CLI | Not supported: it has no plugin hooks. | | |
 
 The hooks were seen firing with the real gate on 2026-11-16: Claude Code

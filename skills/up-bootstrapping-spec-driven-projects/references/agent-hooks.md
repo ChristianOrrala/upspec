@@ -80,8 +80,8 @@ own hooks on and never bypasses or widens permissions.
 |---|---|---|
 | Claude Code | Install the plugin; its hooks load with it. | Hooks fire in every repository you open; the gate stays silent where the rules block is absent. |
 | Codex | Install the plugin from the marketplace, then approve each hook once in `/hooks`. | An unapproved hook is skipped without a word. Codex copies the plugin at install: after a plugin update, reinstall it and approve again. |
-| Kiro CLI | Copy the skill folders of the plugin to `~/.kiro/skills/` and `hooks/kiro/upspec.json` to `~/.kiro/hooks/`; trust the workspace. | The hook file calls the gate in `~/.kiro/skills/up-bootstrapping-spec-driven-projects/`; without it, it does nothing. After-edit text reaches only the person, not the agent. |
-| OpenCode | List the plugin's `hooks/opencode` folder in the `plugins` array of `opencode.json`, in the project or globally. | The module finds the gate beside it and ignores events of other projects. |
+| Kiro CLI | Copy the skill folders of the plugin to `~/.kiro/skills/` and `hooks/kiro/upspec.json` to `~/.kiro/hooks/`; trust the workspace. | The hook file calls the gate in `~/.kiro/skills/up-bootstrapping-spec-driven-projects/`; without it, it does nothing. After-edit text reaches only the person, not the agent. Hooks run only on Kiro's V3 engine (`kiro-cli settings chat.agentEngine v3`). |
+| OpenCode | List the `hooks/opencode` folder of a full copy of the plugin (a clone of its repository) in the `plugins` array of `opencode.json`, in the project or globally. | The module finds the gate beside it, in the copy's `skills/`, and ignores events of other projects. `opencode plugin add` fetches the folder alone, without the gate, and the hooks stay silent. |
 | Antigravity CLI | Not supported: it has no plugin hooks. | The commit hook and the pipeline still apply. |
 
 ## A project wired by an earlier release

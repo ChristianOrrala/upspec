@@ -13,7 +13,7 @@ import tempfile
 
 # Identify the release whose installed copies this module helps update.
 # Keep the installation record beside the scripts it describes.
-UPSPEC_VERSION = "2.0.0"
+UPSPEC_VERSION = "2.0.1"
 BUNDLE_NAME = "upspec-installed.json"
 # What releases before 2.0.0 copied for the agent hooks. Nothing installs it now (the plugins carry the hooks);
 # it is kept so that --update and the migration recognize those copies and retire them.

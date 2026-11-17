@@ -2,6 +2,16 @@
 
 All notable changes to upspec. Versions follow semantic versioning.
 
+## 2.0.1 (2026-11-17)
+
+A text release: the install and upgrade steps are complete enough to follow without help. No script behaves differently; only the version lines change.
+
+- **Upgrading from 1.x.** The README has the commands per tool to leave the marketplace `christian-orrala` for `christianorrala`, and the update of each project wired by an earlier release: the plan, `--apply`, what to remove by hand, and the line `No behavior change: none, tooling only.` that the commit guard reads.
+- **Kiro CLI runs hooks only on its V3 engine.** With `--no-interactive` and no setting it picks V2, which runs none. The README, the manual and setup's hook references name the step: `kiro-cli settings chat.agentEngine v3`.
+- **OpenCode needs a full copy of the plugin.** `opencode plugin add` fetches only `hooks/opencode`, and the module then finds no gate and stays silent. The README shows a clone of the repository and the absolute path to list in `opencode.json`.
+
+**What an upgrade asks of you:** update the plugin; in Kiro, set the V3 engine if you have not.
+
 ## 2.0.0 (2026-11-17)
 
 The plugin carries its agent hooks. Setup no longer wires hooks into a project, and a project wired by an earlier release is retired by `--update`. This changes how a project gets its hooks, hence the major version.
