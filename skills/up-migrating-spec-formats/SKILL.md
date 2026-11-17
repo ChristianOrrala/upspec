@@ -42,16 +42,19 @@ Installed copies under `tools/specs/` use setup's classification. While any
 copy is changed and undecided, no script is replaced or added; specifications
 still convert. Show each changed file and run `scaffold_docs.py --update`
 with `--replace` or `--keep` for the owner's decisions. Once decided, replace
-untouched copies and add the whole missing set, including hooks, recording
-each written script's baseline. Current and kept copies stay as they are.
+untouched copies and add the whole missing set (the check set and the model
+command), recording each written script's baseline. The hook-only copies of an
+earlier release are not refreshed: the plugin carries the hooks, and
+`scaffold_docs.py --update` retires them. Current and kept copies stay as they are.
 The replacement set includes `scripts/spec_model.py`,
 `scripts/validate_use_case.py`, `scripts/spec_lint.py`, `scripts/use_case_map.py`,
-`scripts/spec_first_guard.py`, `scripts/hook_gate.py`, `scripts/hook_profiles.py`,
-`scripts/workflow_state.py`, `scripts/status_claims.py`,
+`scripts/spec_first_guard.py`, `scripts/status_claims.py`,
 `scripts/finish_change.py`, `scripts/scope_audit.py` (both import
 `scripts/change_view.py`), `scripts/uc_change_list.py`,
 `scripts/unrecorded_changes.py` and the model command `scripts/spec_data.py`.
-`scripts/known_scripts.json` holds released
+The skill also carries the plugin's hook gate, `scripts/hook_gate.py`, with
+`scripts/hook_profiles.py` and `scripts/workflow_state.py`; the migration
+installs none of them. `scripts/known_scripts.json` holds released
 fingerprints, consumed by the migration. Never silently overwrite custom
 checks. Benefits and titles stay in requirement context; Next instructions
 stay in Consequences and on the judgment list. Process labels and routes

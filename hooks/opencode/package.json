@@ -1,0 +1,8 @@
+{
+  "name": "upspec-opencode-hooks",
+  "version": "2.0.0",
+  "type": "module",
+  "main": "index.js",
+  "private": true,
+  "description": "upspec's agent hooks for OpenCode"
+}

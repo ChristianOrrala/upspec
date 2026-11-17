@@ -14,7 +14,8 @@
         when the project uses the A-files, else a line in up-deferred.txt in
         the git folder, listed with the open work at session start
 
-Every moment accepts --emit raw|claude|codex|antigravity|kiro (default: raw).
+Every moment accepts --emit raw|claude|codex|kiro|auto (default: raw)
+auto is codex when the environment has PLUGIN_ROOT, else claude.
 A profile renders the internal result for the calling tool.
 
 Edited paths come from the arguments and from the JSON the tool writes to
@@ -34,7 +35,12 @@ sent yet in this session is classified: only a person-set
 Status (Approved, Done) or reserved approval asks the owner to decide now,
 at the end of the session, or later. Other drifts are notes for the agent to
 align or list in its handoff, without a question. Both kinds share one stop
-message and the snapshot's asked memory, so neither is sent twice. Turn start reuses
+message and the snapshot's asked memory, so neither is sent twice. In an unattended
+session (CLAUDE_CODE_SESSION_ATTENDED=0, or UP_UNATTENDED=1 for any tool; no other tool is
+guessed) nobody can answer: each decision is recorded as 'later' (an AHEAD item or the
+deferred list, once per session) instead of asked, the stop sends the notes for the agent
+and one line naming the decisions recorded for the owner, or nothing when there are no
+notes. Turn start reuses
 validation and prints a changed open-work list within a short wall-clock cap.
 
 The result is the same for every tool; the tool's hook configuration maps it:
@@ -50,10 +56,15 @@ The result is the same for every tool; the tool's hook configuration maps it:
 Every firing appends one line to up-hooks.log in the repository's git
 folder: the evidence that a hook fires.
 
-The scripts it imports must sit in its own folder: change_view.py, hook_profiles.py,
-workflow_state.py, validate_use_case.py, and finish_change.py with scope_audit.py,
-uc_change_list.py, unrecorded_changes.py, use_case_map.py and spec_model.py.
-scaffold_docs.py --hooks copies them together into tools/specs/.
+The scripts it imports must sit in its own folder, the setup skill's scripts folder in the
+installed plugin: change_view.py, hook_profiles.py, workflow_state.py, validate_use_case.py,
+and finish_change.py with scope_audit.py, uc_change_list.py, unrecorded_changes.py,
+use_case_map.py and spec_model.py.
+
+It acts only in a project that carries upspec's rules block in AGENTS.md or CLAUDE.md;
+elsewhere (and outside git) it prints nothing, exits 0 and writes no file. Run from the
+plugin, a project that still has the hook files of an earlier release in tools/specs/ gets
+one session-start line pointing to scaffold_docs.py --update, and silence otherwise.
 
 Requires Python 3.9+, standard library only, and git.
 """
@@ -76,7 +87,7 @@ import tempfile
 import time
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.8.2"
+UPSPEC_VERSION = "2.0.0"
 
 sys.dont_write_bytecode = True   # a __pycache__ folder in tools/specs/ would be an unexplained file in every change
 
@@ -84,9 +95,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 UC_ID = re.compile(r"\bUC-\d{3}\b")
 STDIN_WAIT = 1.0                # seconds: hook runners write their JSON at once; a terminal never writes
 MAX_CONTEXT_LINES = 60          # a longer state report is cut; the full one is one command away
-# One light line for the agent at session start only; it never asks the owner and never blocks.
-SESSION_NOTE = ("Before your first edit, say where things stand in four short lines: Finished, Remaining, "
-                "Blocked by, Next step. When the request already says exactly what to do, one short line is enough.")
 LOG_LINES = 200                 # a proof session and some days of work; older lines are dropped
 LOG_NAME = "up-hooks.log"
 # Drifts the person chose to align later, when the project keeps no AHEAD.md the gate can add to.
@@ -100,18 +108,6 @@ ASKED_FALLBACK_PREFIX = "up-asked-"
 # Sixteen hexadecimal digits (64 bits) of the root and session keep the file name short; two sessions sharing one
 # temporary folder do not collide in practice. The session snapshots use the same length.
 FALLBACK_KEY_DIGITS = 16
-# Five lines of the A-files check show what is broken; the check itself has the rest.
-A_FILES_LINES = 5
-# The A-files check reads five small files and asks git for the last commit: a second in practice. Thirty
-# seconds leaves room on a slow disk and keeps the end of a turn from waiting on a check that hangs.
-A_FILES_TIMEOUT_SECONDS = 30
-# How the A-files check prints a problem, as its documentation states: path:line: ERROR CODE: message.
-A_FILES_FINDING = re.compile(r"^(?P<path>[^\s:][^:]*):(?P<line>\d+): ERROR (?P<code>[A-Z_]+): (?P<message>.*)$")
-# What a finding's message names, its subject: an identifier (AB-001), a quoted or bold name, or a path (with a slash
-# or a file extension, as the A-files check tells a path). Counts, positions and the wording around them are not
-# part of it, so a hot zone one line longer, or a byte that moved, is the same finding.
-A_FILES_SUBJECT = re.compile(r"\b[A-Z]+-\d+\b|\*\*[^*]+\*\*|'[^']*'|\"[^\"]*\"|[^\s'\":,;()]*/[^\s'\":,;()]*"
-                             r"|[^\s'\":,;()/]+\.[A-Za-z0-9]{1,5}\b")
 # Parallel sessions in a worktree are rare; eight leaves room without indefinite growth.
 SESSION_SLOTS = 8
 # A minute protects bursts of concurrent hook updates before inactive sessions are trimmed.
@@ -130,7 +126,7 @@ TURN_START_TIMEOUT = math.ceil(TURN_START_SECONDS + STDIN_WAIT + TURN_START_MARG
 OPEN_HEADING = ("Work in progress, for information: fix an item only when it belongs to the current task. "
                 "A use case is marked Implemented or Tested once its items are clean; the push check reports the rest.")
 # The question at the end of a turn: what the person is asked and what each answer means.
-QUESTION_HEADING = ("The work has drifted from the specifications or the A-files. Before you end your turn, ask the "
+QUESTION_HEADING = ("The work has drifted from the specifications. Before you end your turn, ask the "
                     "person one question for each item below: align it now, at the end of the session, or later? "
                     "Then do what the answer means:")
 QUESTION_CLOSING = ("Each item is asked once in this session and will not be raised again. "
@@ -152,8 +148,7 @@ class Verdict(NamedTuple):
 class Drift(NamedTuple):
     """One way the work drifted.
 
-    keys: its identity in the session, one per subject (a claim, a record, the change code moved in, an A-files
-    finding);
+    keys: its identity in the session, one per subject (a claim, a record, the change code moved in);
     the drift is sent when one of its keys was not sent yet. title and detail: what to show. align: how to align
     it now. later_text: the text 'later' records for a decision. status: the Status the drift sets or relies on;
     owner_reserved: this drift needs approval the owner reserved, never inferred from its wording."""
@@ -593,15 +588,15 @@ def session_start(root, args, event):
     except BaseException as exc:
         log(root, "session-start", PASS, "open list failed: %s" % exc)
         extra = []
-    # Budget includes the note, heading, cut notice, Next step tail and open-work list.
-    budget = MAX_CONTEXT_LINES - 2 - len(extra)
+    # Budget includes the heading, cut notice, Next step tail and open-work list.
+    budget = MAX_CONTEXT_LINES - 1 - len(extra)
     if len(lines) > budget:
         next_step = next((i for i, line in enumerate(lines) if line.startswith("Next step:")), len(lines))
         tail = lines[next_step:][:max(0, budget - 1)]
         head_count = max(0, budget - len(tail) - 1)
         lines = lines[:head_count] + ["... %d more lines: run workflow_state.py for the full state" %
                                      (len(lines) - head_count - len(tail))] + tail
-    return Verdict(PASS, SESSION_NOTE + "\nSpecification state of this repository:\n" + "\n".join(lines + extra), "")
+    return Verdict(PASS, "Specification state of this repository:\n" + "\n".join(lines + extra), "")
 
 
 def validation(paths, docs, error_result, heading):
@@ -832,68 +827,6 @@ def code_drift(view):
                   "Code changed without a specification: " + reading.shown())]
 
 
-def a_files_drift(root, asked=None):
-    """The project's own A-files check, run as its documentation says (python3 tools/check_tracking.py --strict,
-    or without --strict for an earlier check that does not know it): exit 0 is a clean shape, exit 1 with
-    'path:line: ERROR CODE: message' lines a broken one. Anything else means the check could not run; that is
-    logged and never fails the stop."""
-    import spec_model as model
-    path = os.path.join(root, "tools", "check_tracking.py")
-    if not _uses_a_files(root) or not os.path.isfile(path):
-        return []
-    try:
-        done = None
-        # An earlier A-files check has no --strict (usage error, 2) and exits 1 on problems without it.
-        for options in (["--strict"], []):
-            done = subprocess.run([sys.executable, path, "--root", root] + options, cwd=root, capture_output=True,
-                                  text=True, errors="replace", timeout=A_FILES_TIMEOUT_SECONDS)
-            if done.returncode != 2:
-                break
-    except (OSError, subprocess.SubprocessError) as exc:
-        log(root, "before-stop", PASS, "A-files check could not run: %s: %s" % (type(exc).__name__, exc))
-        return []
-    findings = [match for match in map(A_FILES_FINDING.match, done.stdout.splitlines()) if match]
-    if done.returncode == 0:
-        return []
-    if done.returncode != 1 or not findings:
-        last = (done.stderr.strip().splitlines() or ["no output"])[-1]
-        log(root, "before-stop", PASS, "A-files check could not run: exit %d: %s" % (done.returncode, last))
-        return []
-    # One A-files drift groups several finding keys. A newly found key must not
-    # resend old notes from that group alongside it.
-    findings = [found for found in findings if a_files_key(found) not in (asked or set())]
-    if not findings:
-        return []
-    findings.sort(key=lambda found: (found["path"], int(found["line"]), found["code"]))
-    lines = ["- " + found.group(0) for found in findings[:A_FILES_LINES]]
-    if len(findings) > A_FILES_LINES:
-        lines.append("- ... %d more: run python3 tools/check_tracking.py" % (len(findings) - A_FILES_LINES))
-    keys = tuple(sorted({a_files_key(found) for found in findings}))
-    return [Drift(keys, "The A-files' shape is broken", lines,
-                  "Fix what the A-files check reports (python3 tools/check_tracking.py).",
-                  "Fix the shape of the A-files (python3 tools/check_tracking.py)")]
-
-
-def _uses_a_files(root):
-    """The project uses the A-files: ACTIVE.md holds the hot-zone marker. An ACTIVE.md that cannot be decoded counts
-    when its bytes hold the marker, so that the check reports it as unreadable instead of the gate going silent."""
-    import spec_model as model
-    if model.a_files_present(root):
-        return True
-    try:
-        with open(os.path.join(root, "ACTIVE.md"), "rb") as handle:
-            return model.A_FILES_MARKER.encode("utf-8") in handle.read()
-    except OSError:
-        return False
-
-
-def a_files_key(found):
-    """A finding's identity: its path, its code and the subject its message names, never its line number or its
-    problem text, which carry counts and positions that change while the finding stays the same."""
-    subject = " ".join(A_FILES_SUBJECT.findall(found["message"]))
-    return ("A-files %s %s %s" % (found["path"], found["code"], subject)).rstrip()
-
-
 def _asked_fallback(root, session):
     """A file outside the git folder, for a session whose git folder cannot be written."""
     key = hashlib.sha256((os.path.realpath(root) + "\0" + (session or "")).encode("utf-8")).hexdigest()
@@ -968,6 +901,32 @@ def _gate_command(root):
     return "python3 " + shlex.quote(here if relative.startswith("..") else relative.replace(os.sep, "/"))
 
 
+def unattended(environ=None) -> bool:
+    """True when no person is present: Claude Code says so (CLAUDE_CODE_SESSION_ATTENDED=0); any tool may say it with
+    UP_UNATTENDED=1. Nothing else is read as unattended."""
+    environ = os.environ if environ is None else environ
+    return environ.get("CLAUDE_CODE_SESSION_ATTENDED") == "0" or environ.get("UP_UNATTENDED") == "1"
+
+
+def record_decisions(root, decisions, titles) -> str:
+    """Record each decision as 'later' for the owner; one line for the agent saying what was recorded."""
+    import spec_model as model
+    recorded, failed = [], []
+    for drift in decisions:
+        text = model.with_titles(drift.later_text, titles)
+        try:
+            record_later(root, text)
+            recorded.append(text)
+        except (GateError, OSError, UnicodeError):
+            failed.append(text)
+    line = "No person is present in this session, so the owner's decisions were not asked; recorded for the owner as later: " \
+           + "; ".join(recorded) + "."
+    if failed:
+        line = ((line if recorded else "No person is present in this session, so the owner's decisions were not asked.")
+                + " Could not record: " + "; ".join(failed) + "; name them in your handoff.")
+    return line
+
+
 def question(root, drifts, titles=None) -> str:
     """One question per decision, with what each answer means and the command that records 'later'. The drifts' keys keep
     the bare identifiers; only the text a person reads carries their titles."""
@@ -1009,7 +968,7 @@ def before_stop(view, args, event) -> Verdict:
     docs_rel = os.path.relpath(os.path.join(view.root, args.docs), view.root).replace(os.sep, "/")
     asked = asked_keys(view.root, session)
     drifts, label, count = claim_check(view, args, event)
-    drifts += record_drifts(view) + code_drift(view) + a_files_drift(view.root, asked)
+    drifts += record_drifts(view) + code_drift(view)
     new = []
     for drift in drifts:
         if not set(drift.keys) <= asked:
@@ -1021,6 +980,15 @@ def before_stop(view, args, event) -> Verdict:
     decisions = [drift for drift in new if classify_drift(drift) == "decide"]
     notes = [drift for drift in new if classify_drift(drift) == "note"]
     titles = _titles(view.root, docs_rel)
+    if decisions and unattended():
+        # Nobody can answer: the decisions go to the owner as 'later' (record_later does not repeat one), and only the
+        # notes, with one line naming what was recorded, reach the agent.
+        remembered = remember_asked(view.root, session, docs_rel, [key for drift in new for key in drift.keys])
+        line = record_decisions(view.root, decisions, titles)
+        if not notes:
+            return Verdict(PASS, "", detail + "; unattended: decisions recorded as later")
+        text = handoff_notes(notes, titles) + "\n\n" + line
+        return Verdict(ASK if remembered else WARN, text, detail + "; unattended")
     parts = ([question(view.root, decisions, titles)] if decisions else [])
     if notes:
         parts.append(handoff_notes(notes, titles))
@@ -1189,6 +1157,33 @@ def find_root(event=None):
     raise GateError("not inside a git repository: %s" % starts[0])
 
 
+def adopted(root) -> bool:
+    """The project's guideline file carries upspec's rules block. When the parser cannot be loaded the answer is
+    yes, so that the bundle check reports the broken folder."""
+    sys.path.insert(0, HERE)
+    try:
+        import spec_model
+        return spec_model._rules_block_text(root)[0] is not None
+    except ImportError:
+        return True
+    except BaseException:
+        return False
+
+
+def earlier_wiring(root) -> Optional[str]:
+    """The session-start line for a project that still has an earlier release's hooks, when this gate does not run
+    from the project itself; None otherwise."""
+    here = os.path.realpath(HERE)
+    top = os.path.realpath(root)
+    if here == top or here.startswith(top + os.sep):
+        return None
+    if not os.path.isfile(os.path.join(root, "tools", "specs", "hook_gate.py")):
+        return None
+    scaffold = os.path.join(HERE, "scaffold_docs.py")
+    return ("This project still has the agent hooks of an earlier release in tools/specs/ and in its tool settings; "
+            "the plugin's hooks replace them. Retire them with: python3 %s --update" % shlex.quote(scaffold))
+
+
 def main(argv):
     if argv and argv[0] == "later":
         # Not a hook moment: the agent runs it when the person answers 'later'.
@@ -1199,7 +1194,7 @@ def main(argv):
     parser.add_argument("paths", nargs="*", help="after-edit: the edited files, besides those in the tool's JSON")
     parser.add_argument("--docs", help="the specification folder (default: the one the rules block records, else docs)")
     parser.add_argument("--base", help="before-stop: the branch a change starts from")
-    parser.add_argument("--emit", default="raw", help="raw, claude, codex, antigravity or kiro (default: raw)")
+    parser.add_argument("--emit", default="raw", help="raw, claude, codex, kiro or auto (default: raw)")
     parse_problem = None
     try:
         args = parser.parse_args(argv)
@@ -1224,6 +1219,24 @@ def main(argv):
         except BaseException:
             pass
         return PASS
+    args.emit = hook_profiles.resolve_profile(args.emit)
+    # Adoption gate: nothing is said or written outside a git repository or a project without the rules block.
+    payload = read_stdin()
+    try:
+        early = hook_profiles.read_event(payload)
+        early = early._replace(cwd=early.cwd or os.getcwd())
+        early_root = find_root(early)
+    except BaseException:
+        return PASS
+    if not adopted(early_root):
+        return PASS
+    earlier = earlier_wiring(early_root)
+    if earlier:
+        if args.mode != "session-start":
+            return PASS
+        out = hook_profiles.render(args.emit if args.emit in hook_profiles.PROFILES else "raw", args.mode, PASS, earlier)
+        sys.stdout.write(out.stdout)
+        return out.code
     root, view, event = None, None, None
     profile = args.emit if args.emit in hook_profiles.PROFILES else "raw"
     try:
@@ -1232,7 +1245,6 @@ def main(argv):
             raise GateError(problem)
         if parse_problem:
             raise GateError(parse_problem)
-        payload = read_stdin()
         if args.mode == "turn-start" and not isinstance(payload, dict):
             raise GateError("turn-start payload is missing or invalid")
         event = hook_profiles.read_event(payload)

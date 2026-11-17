@@ -48,7 +48,7 @@ One person, one agent at a time. The order is kept by habit and by a warning.
 | Validator | After every specification edit |
 | Review | A cold read: a fresh context reads the specification before the developer signs it off |
 | Guard | Warning, from a commit hook or run by hand |
-| Agent hooks | Offered: session state, after-edit findings, open work at turn start, claim evidence at the stop (agent hooks reference) |
+| Agent hooks | Carried by the plugin: session state, after-edit findings, open work at turn start, claim evidence at the stop; the person turns them on (agent hooks reference) |
 
 **Leaving artifacts out.** A solo project may leave out the requirements
 catalog and the use case diagram while it has only a handful of use cases, and
@@ -97,7 +97,7 @@ and reported; a team that wants a build to fail on it adds `--strict`.
 | Pipeline | Claims, lint and the guard on every push and pull request; each step reports and passes. A team that wants a strict pipeline adds `--strict` to a step, which then fails on findings (the lint's Draft findings never fail) |
 | Dashboard | Generated each iteration |
 | Refinement | A short recurring session on upcoming use cases |
-| Agent hooks | Offered; the pipeline stays the check that holds for everyone |
+| Agent hooks | Carried by the plugin; the pipeline stays the check that holds for everyone |
 
 ## Optional local push check (solo and team)
 

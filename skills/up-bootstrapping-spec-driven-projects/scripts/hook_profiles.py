@@ -6,7 +6,6 @@ translate those results without running a check or writing the full report.
 Only the end of a turn asks: there each profile delivers the questions for the
 person by continuing the agent's turn once. At every other moment a result 2 is
 rendered as a warning, so no moment blocks or keeps the agent working.
-command() supplies the shell line used by generated hook configuration.
 Requires Python 3.9+, standard library only.
 """
 import json
@@ -14,10 +13,21 @@ import re
 from typing import NamedTuple, Optional
 
 # The release these copies belong to; the gate rejects siblings of another release.
-UPSPEC_VERSION = "1.8.2"
+UPSPEC_VERSION = "2.0.0"
 
 # Explicit names prevent guessing the calling tool from an unreliable environment.
-PROFILES = ("raw", "claude", "codex", "antigravity", "kiro")
+PROFILES = ("raw", "claude", "codex", "kiro")
+AUTO = "auto"
+
+
+def resolve_profile(name, environ=None):
+    """--emit auto: codex when the environment has PLUGIN_ROOT (Codex sets it), else claude."""
+    if name != AUTO:
+        return name
+    import os
+    return "codex" if (os.environ if environ is None else environ).get("PLUGIN_ROOT") else "claude"
+
+
 # The four moments share one gate and differ only in the tool's output contract.
 MOMENTS = ("session-start", "after-edit", "before-stop", "turn-start")
 # Caps apply to message text, before JSON encoding and its envelope.
@@ -28,21 +38,16 @@ CAPS = {
     "claude": 9000,
     # Paths tokenize densely; Codex shows about 2,500 tokens.
     "codex": 6000,
-    # The common 9,000-character budget stays under Claude Code's 10,000.
-    "antigravity": 9000,
     # Kiro cuts its Stop reason at 4,000 characters.
     "kiro": 3900,
 }
 # Research 12's delivery contracts, corrected by the proof runs of 2026-10-21 (trial 04); raw depends on an adapter.
-# On Antigravity CLI 1.4.4 nothing reached the agent; per the tool's 1.4.3 changelog the failure is only logged.
 CAPABILITIES = {
     "raw": {"turn_start": "nobody", "after_edit": "nobody", "stop_keeps_working": False, "warning_channel": False, "proven_on": ""},
     "claude": {"turn_start": "agent", "after_edit": "agent", "stop_keeps_working": True, "warning_channel": True,
                "proven_on": "Claude Code 2.1.307"},
     "codex": {"turn_start": "agent", "after_edit": "agent", "stop_keeps_working": True, "warning_channel": True,
               "proven_on": "Codex 0.159.2"},
-    "antigravity": {"turn_start": "nobody", "after_edit": "nobody", "stop_keeps_working": True, "warning_channel": False,
-                    "proven_on": "Antigravity CLI 1.4.4"},
     "kiro": {"turn_start": "agent", "after_edit": "person", "stop_keeps_working": True, "warning_channel": True,
              "proven_on": "Kiro CLI 2.33.1 (V3 engine)"},
 }
@@ -178,69 +183,9 @@ def render(profile: str, moment: str, result: int, text: str, *, report_saved=Tr
             return _json({"systemMessage": text,
                           "hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": text}})
         return _json({"systemMessage": text})
-    if profile == "antigravity":
-        if moment == "session-start":
-            return _json({"injectSteps": [{"ephemeralMessage": text}]} if result == 0 and text else {})
-        if moment == "after-edit":
-            return _json({})
-        return _json({"decision": "continue", "reason": text} if result == 2 else {"decision": "allow"})
     # Kiro ignores nonzero exits other than 1 at Stop; 1 would accidentally continue it.
     if result == 0:
         return Output(printed if moment == "session-start" else "", "", 0)
     if result == 2:
         return _json({"decision": "block", "reason": text})
     return Output("", printed, 3)
-
-
-def command(profile: str, moment: str) -> str:
-    """The configuration line, with Kiro's entire invocation protected from exit 1."""
-    _validate(profile, moment)
-    invocation = "python3 tools/specs/hook_gate.py %s --emit %s" % (moment, profile)
-    if moment == "turn-start":
-        # A missing runner or failed root lookup must never reject the person's prompt.
-        return '{ root="$(git rev-parse --show-toplevel 2>/dev/null)" && cd "$root" && [ -f tools/specs/hook_gate.py ] && ' + invocation + '; } 2>/dev/null || exit 0'
-    if profile == "kiro":
-        return '{ root="$(git rev-parse --show-toplevel)" && cd "$root" && [ -f tools/specs/hook_gate.py ] && ' + invocation + '; } || exit 3'
-    return 'cd "$(git rev-parse --show-toplevel)" && if [ -f tools/specs/hook_gate.py ]; then ' + invocation + '; fi'
-
-
-def turn_start_timeout():
-    """Use the gate's complete budget for generated tool timeouts, without duplicating constants."""
-    from hook_gate import TURN_START_TIMEOUT
-    return TURN_START_TIMEOUT
-
-
-def wiring(tool: str, use_case_dir: str) -> tuple[str, list[dict], bool]:
-    """Describe inner command objects, with their event, moment and group matcher.
-
-    Moment and event locate the object. The planner fingerprints it with its
-    group matcher, or with Kiro's complete hook wrapper around the action.
-    """
-    if tool == "raw" or tool not in PROFILES:
-        raise ValueError("no generated wiring for profile: %s" % tool)
-    # Research 12 and the proven examples identify each tool's project file.
-    files = {"claude": ".claude/settings.json", "codex": ".codex/hooks.json",
-             "antigravity": ".agents/hooks.json", "kiro": ".kiro/hooks/upspec.json"}
-    # The tools share these event names; moments remain the gate's public names.
-    events = dict(zip(MOMENTS, ("SessionStart", "PostToolUse", "Stop", "UserPromptSubmit")))
-    entries = []
-    for moment in MOMENTS:
-        if moment == "turn-start" and CAPABILITIES[tool]["turn_start"] != "agent":
-            continue
-        if moment == "after-edit" and CAPABILITIES[tool]["after_edit"] == "nobody":
-            continue
-        matchers = [None]
-        if moment == "session-start" and tool in ("claude", "codex"):
-            matchers = ["startup|resume" if tool == "claude" else "^(startup|resume)$"]
-        elif moment == "after-edit":
-            matchers = {"claude": ["Edit", "Write"], "codex": ["^(apply_patch|Edit|Write)$"],
-                        "kiro": ["write"]}[tool]
-        for matcher in matchers:
-            entry = {"moment": moment, "event": events[moment], "matcher": matcher,
-                     "type": "command", "command": command(tool, moment)}
-            if tool == "claude" and moment == "after-edit":
-                entry["if"] = "%s(%s/**)" % (matcher, use_case_dir.rstrip("/"))
-            if moment == "turn-start" and tool != "kiro":
-                entry["timeout"] = turn_start_timeout()
-            entries.append(entry)
-    return files[tool], entries, tool == "kiro"

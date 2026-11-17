@@ -1,0 +1,46 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "upspec-session-state",
+      "trigger": "SessionStart",
+      "enabled": true,
+      "timeout": 60,
+      "action": {
+        "type": "command",
+        "command": "[ -f \"$HOME/.kiro/skills/up-bootstrapping-spec-driven-projects/scripts/hook_gate.py\" ] || exit 0; python3 \"$HOME/.kiro/skills/up-bootstrapping-spec-driven-projects/scripts/hook_gate.py\" session-start --emit kiro || exit 3"
+      }
+    },
+    {
+      "name": "upspec-open-work",
+      "trigger": "UserPromptSubmit",
+      "enabled": true,
+      "timeout": 8,
+      "action": {
+        "type": "command",
+        "command": "{ [ -f \"$HOME/.kiro/skills/up-bootstrapping-spec-driven-projects/scripts/hook_gate.py\" ] && python3 \"$HOME/.kiro/skills/up-bootstrapping-spec-driven-projects/scripts/hook_gate.py\" turn-start --emit kiro; } 2>/dev/null || exit 0"
+      }
+    },
+    {
+      "name": "upspec-specification-check",
+      "trigger": "PostToolUse",
+      "enabled": true,
+      "timeout": 60,
+      "action": {
+        "type": "command",
+        "command": "[ -f \"$HOME/.kiro/skills/up-bootstrapping-spec-driven-projects/scripts/hook_gate.py\" ] || exit 0; python3 \"$HOME/.kiro/skills/up-bootstrapping-spec-driven-projects/scripts/hook_gate.py\" after-edit --emit kiro || exit 3"
+      },
+      "matcher": "fs_write|str_replace|fs_append|write"
+    },
+    {
+      "name": "upspec-finish-check",
+      "trigger": "Stop",
+      "enabled": true,
+      "timeout": 120,
+      "action": {
+        "type": "command",
+        "command": "[ -f \"$HOME/.kiro/skills/up-bootstrapping-spec-driven-projects/scripts/hook_gate.py\" ] || exit 0; python3 \"$HOME/.kiro/skills/up-bootstrapping-spec-driven-projects/scripts/hook_gate.py\" before-stop --emit kiro || exit 3"
+      }
+    }
+  ]
+}

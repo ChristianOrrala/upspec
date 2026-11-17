@@ -5,12 +5,13 @@ description: >-
   (throwaway, solo, team), creates the docs tree and a vision skeleton, adds the spec-first rules to
   the guideline file (CLAUDE.md or AGENTS.md), for teams adds spec ownership, a pull request template
   with the specification-first review order, and a CI job that runs the specification lint and a
-  spec-first guard, and offers agent hooks that run the checks in the agent's own tool. Use when the
-  user wants to adopt, introduce or set up spec-driven development or use-case-driven work in a new or
-  existing repository, asks which artifacts and gates a solo developer or a team needs, asks whether
-  spec discipline is worth it for a prototype or a short-lived project, wants agent guideline rules
-  for working from use cases, or wants hooks that make an agent run the specification checks without
-  being asked. Not for writing a general CLAUDE.md and not for task boards.
+  spec-first guard, and tells how to turn on the agent hooks the plugin carries, which run the checks
+  in the agent's own tool. Use when the user wants to adopt, introduce or set up spec-driven
+  development or use-case-driven work in a new or existing repository, asks which artifacts and gates
+  a solo developer or a team needs, asks whether spec discipline is worth it for a prototype or a
+  short-lived project, wants agent guideline rules for working from use cases, or wants hooks that
+  make an agent run the specification checks without being asked. Not for writing a general CLAUDE.md
+  and not for task boards.
 ---
 
 # Bootstrapping spec-driven projects
@@ -84,15 +85,14 @@ imports it, otherwise the existing `CLAUDE.md`. Name another with
 `--guideline`, and pass on any note it prints about a second guideline file.
 
 For the team profile it also copies `scripts/spec_lint.py`, `scripts/validate_use_case.py`,
-the guard, `scripts/status_claims.py` and its finish-check helpers into `tools/specs/`,
-so the pipeline runs without anything installed.
+the guard, `scripts/status_claims.py` and its finish-check helpers into `tools/specs/`.
 
 The identical copies of `scripts/finish_change.py`, `scripts/change_view.py`, `scripts/scope_audit.py`,
-`scripts/uc_change_list.py` and `scripts/unrecorded_changes.py` serve for CI and the agent hooks.
-The hooks also install `scripts/workflow_state.py`, their entry point `scripts/hook_gate.py`
-and its module `scripts/hook_profiles.py`. Either set also installs the model command
-`scripts/spec_data.py`, which no check or hook runs, so that a program can read the
-project's model through the project's own copy.
+`scripts/uc_change_list.py` and `scripts/unrecorded_changes.py` serve for CI and the plugin's agent hooks.
+The team set also installs the model command `scripts/spec_data.py`, which no
+check or hook runs, so that a program can read the project's model through the
+project's own copy. The plugin keeps `scripts/hook_gate.py`, `scripts/hook_profiles.py`
+and `scripts/workflow_state.py`.
 
 Setup and migration share the module `scripts/installed_copies.py` and released
 fingerprints in `scripts/known_scripts.json`; both stay in the plugin.
@@ -202,28 +202,33 @@ not install a hook without asking: hooks change how every commit behaves.
 
 ## Agent hooks
 
-With the solo and team profiles, offer four hooks: session state and the
-open-work list at session start, validation after specification edits, the
-open-work list at turn start, and a stop that classifies drift. Only a Status
-reserved for a person (`Approved`, `Done`) or work reserved for the owner's
-approval asks a question: align now, at the end of the session, or later.
-Routine drift (unsupported `Implemented` or `Tested`, an open change record,
-code without a specification, a broken A-files shape) goes to the agent as
-one list to align or include in its handoff, without a question. Each key is
-sent once per session; mixed decisions and notes share one message. No hook
-forces alignment; the stop continues the agent's turn once to deliver it. All four call
-`scripts/hook_gate.py`; `python3 "<skill-folder>/scripts/scaffold_docs.py" --hooks` copies it into
-`tools/specs/` with the scripts it calls.
-Offer `--pre-push` in either profile, using [templates/pre-push.sh](templates/pre-push.sh); [references/profiles.md](references/profiles.md) explains placement and CI's authority.
+The plugin carries four hooks, so setup writes no hook file, copies no script
+and records no `**Hooks:**` line: session state and the open-work list at
+session start, validation after specification edits, the open-work list at turn
+start, and a stop that classifies drift. They run `scripts/hook_gate.py` from the
+plugin's folder, and only where the guideline file carries the rules block.
+Only a Status reserved for a person (`Approved`, `Done`) or work reserved for
+the owner's approval asks a question: align now, at the end of the session, or
+later. With nobody present (`CLAUDE_CODE_SESSION_ATTENDED=0`, or
+`UP_UNATTENDED=1` for any tool) it is not asked: the decision is recorded as
+later. Routine drift goes to the agent as one list to align or include in its
+handoff, without a question, once per session. No hook forces alignment. The
+a-files plugin sends its own note and findings.
 
-Generate with `--hooks --tool <tool>`, review, then approve `--apply`, following
-[references/agent-hooks.md](references/agent-hooks.md); labeled examples for
-four tools are in [references/agent-hook-examples.md](references/agent-hook-examples.md).
-For installed copies, use `python3 "<skill-folder>/scripts/scaffold_docs.py" --update` as the reference explains.
-You prepare the configuration and show it; the person turns it on. Never
-bypass or widen permissions for it. A hook is done once it was seen firing,
-and a `**Hooks:**` line under the profile in the rules block records it.
-When the person has not turned them on yet, end with the three proof steps of the reference, so that they, or the next session, can see each hook fire.
+Tell the owner how their tool turns the hooks on
+([references/agent-hooks.md](references/agent-hooks.md)): Claude Code, with the
+plugin; Codex, approve each hook in `/hooks` and reinstall after an update; Kiro
+and OpenCode, place the files the manual names. Never bypass or widen
+permissions. What each tool delivers is in
+[references/agent-hook-examples.md](references/agent-hook-examples.md).
+
+A project wired by an earlier release (`tools/specs/hook_gate.py`, or a hook
+file that names it) hears one line at session start, and its hooks would fire
+twice. Run `python3 "<skill-folder>/scripts/scaffold_docs.py" --update`, show the
+plan (each wiring entry, hook-only copy and the `**Hooks:**` line it removes)
+and apply it after the owner's yes; an entry or copy changed by hand waits for
+`--replace` or `--keep`. Offer `--pre-push` in either profile
+([templates/pre-push.sh](templates/pre-push.sh), [references/profiles.md](references/profiles.md)).
 
 ## Workflow
 
@@ -242,10 +247,9 @@ When the person has not turned them on yet, end with the three proof steps of th
    ownership rule; confirm the pull request template and the pipeline job.
 7. Run `scripts/spec_first_guard.py` against the last commit and show what it
    reports.
-8. If the owner wants agent hooks: run the scaffold with `--hooks` (dry run,
-   then `--apply`), wire them as the agent hooks reference says, ask the owner
-   to turn them on, prove each one, add the `**Hooks:**` line, and commit the
-   hook files on their own.
+8. Say that the plugin carries the agent hooks and how the owner's tool turns
+   them on. If the project has an earlier release's hooks, show the `--update`
+   plan and apply it after a yes.
 9. Name the first use case to specify: one behavior that is contested or
    unclear today, small enough for one main success scenario and a handful of
    alternatives. Close the hand-over by saying that
@@ -261,8 +265,7 @@ Close with a report the owner can check, in this order:
    parallel.
 2. **What is on and what is off** under that profile.
 3. **What was written:** the scaffold's list of created, appended and skipped
-   paths, as it printed them, and the hooks wired, with the log line that
-   shows each one firing.
+   paths, as it printed them, and what `--update` retired.
 4. **What reports and what may fail** (team): the lint and the guard report
    on every pull request; they fail a merge only if the team added `--strict`;
    a review by an agent comments and never blocks.
@@ -272,21 +275,19 @@ Close with a report the owner can check, in this order:
    vision: name it as the next step.
 
 Installed checks include `scripts/use_case_map.py`: mapping runs it after
-creating stubs or changing their id, name, actors or goal. Status changes
-need no regeneration.
+creating stubs or changing their id, name, actors or goal.
 
 ## Validation
 
 - With the A-files: `python3 tools/check_tracking.py` prints nothing, and a
   second dry run reports the joining edits as already done.
-- A second dry run of the scaffold reports nothing left to write.
+- A second dry run of the scaffold (or `--update`) reports nothing to write.
 - The guideline file starts with its previous content, unchanged, and
   contains the rules block once.
 - The guard runs, reports what it finds and exits 0 (1 only with `--strict`).
 - Team: the pipeline file parses, and no owner name or handle was invented.
 - No vision content was written by you.
-- Hooks, when wired: each was seen firing in `up-hooks.log`, and the
-  `**Hooks:**` line names only those.
+- No hook file, hook script or `**Hooks:**` line was written.
 
 ## Worked example
 

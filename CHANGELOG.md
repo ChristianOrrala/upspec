@@ -2,6 +2,24 @@
 
 All notable changes to upspec. Versions follow semantic versioning.
 
+## 2.0.0 (2026-11-17)
+
+The plugin carries its agent hooks. Setup no longer wires hooks into a project, and a project wired by an earlier release is retired by `--update`. This changes how a project gets its hooks, hence the major version.
+
+- **The hooks come with the plugin.** `hooks/hooks.json` serves Claude Code and Codex; `hooks/kiro/upspec.json` is a hook file for Kiro CLI; `hooks/opencode/` is a module for OpenCode. Each runs `hook_gate.py` from the plugin's setup skill and reads the project from the hook's event. The moments are the same four: session start, turn start, after an edit, before the stop.
+- **Only where upspec is adopted.** The hooks act in a project whose `AGENTS.md` or `CLAUDE.md` carries the rules block. In any other repository, and outside git, they print nothing, exit 0 and write no file.
+- **Turning them on.** Claude Code: with the plugin. Codex: install from the marketplace, then approve each hook once in `/hooks` (an unapproved hook is skipped without a word; after a plugin update, reinstall and approve again). Kiro CLI: copy the skill folders to `~/.kiro/skills/` and `hooks/kiro/upspec.json` to `~/.kiro/hooks/`; after-edit text reaches only the person. OpenCode: list `hooks/opencode` in the `plugins` array of `opencode.json`; the module ignores events of other projects. Seen firing on Claude Code 2.1.326, Codex 0.167.0, Kiro CLI 3.3.0 and OpenCode 2.3.0.
+- **Setup writes no hooks.** `--hooks`, `--tool` and `--reason` are gone and exit 2 with a message that names the plugin's hooks. Setup copies no hook script and writes no `**Hooks:**` line.
+- **`--update` retires an earlier release's wiring,** in the same all-or-nothing plan: only upspec's entries leave `.claude/settings.json`, `.codex/hooks.json`, `.agents/hooks.json` and `.kiro/hooks/upspec.json` (every other entry stays; a file that held nothing else is removed); an entry you adapted is named with its recorded reason and removed unless you `--keep` it; the hook-only copies (`hook_gate.py`, `hook_profiles.py`, `workflow_state.py`) leave `tools/specs/`, which keeps the check set where the team profile, the pipeline or the pre-push hook uses it, and otherwise `spec_data.py` with its reader; the `**Hooks:**` line goes. `.claude/settings.local.json` is named, never edited. Until then the plugin's gate stays silent in that project, apart from one line at session start that names the update.
+- **An unattended session asks nothing.** With `CLAUDE_CODE_SESSION_ATTENDED=0`, or `UP_UNATTENDED=1` in any tool, the stop records an owner decision as later (an AHEAD item or a deferred line), sends the notes for the agent, and names what it recorded.
+- **The A-files' note and findings come from the A-files plugin.** upspec's session start no longer opens with the note to say where things stand, and its stop no longer reports the A-files check. With both plugins installed, each arrives once.
+- **`--emit auto`** renders for Codex when the environment has `PLUGIN_ROOT`, else for Claude Code. The `antigravity` profile is removed: the Antigravity CLI has no plugin hooks.
+- **The root `plugin.json` declares no `$schema`.** Codex loads no plugin hooks from a plugin whose root manifest declares it. The other fields are unchanged.
+- The commit hook, the pre-push hook and the pipeline are unchanged.
+- **Install lines name the catalog `ChristianOrrala/agents`,** marketplace `christianorrala` (`/plugin install upspec@christianorrala`). The marketplace `christian-orrala` in `ChristianOrrala/plugins` still lists the plugin; to move, remove it and add the new one, then install again.
+
+**What an upgrade asks of you:** update the plugin, then turn its hooks on in your tool as above. In each project wired by an earlier release, run `scaffold_docs.py --update`, review its plan and apply it; commit the result on its own. A teammate without the plugin no longer gets agent hooks from the repository; the commit hook and the pipeline still apply to everyone.
+
 ## 1.8.2 (2026-11-16)
 
 A repair release. Three checks misread an ordinary project: one whose feature is about specifications, one session that builds several use cases, and a test runner whose failure line they did not know. On a project none of this touches, every command prints what 1.8.1 printed, apart from the new key below.

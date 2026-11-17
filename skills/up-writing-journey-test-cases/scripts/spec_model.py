@@ -24,7 +24,7 @@ import unicodedata
 from typing import NamedTuple, Optional
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "1.8.2"
+UPSPEC_VERSION = "2.0.0"
 
 # --- vocabulary -------------------------------------------------------------
 

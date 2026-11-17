@@ -55,7 +55,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 # the release this copy belongs to; the state reader's update notice and setup's update read it
-UPSPEC_VERSION = "1.8.2"
+UPSPEC_VERSION = "2.0.0"
 
 # The shape of the output. It changes only when a key changes its meaning or goes away; a new key keeps it.
 SCHEMA = 1

@@ -42,11 +42,10 @@ import installed_copies
 
 HERE = Path(__file__).resolve().parent
 JOURNAL = 'upspec-migration.json'
-# Exact union of scaffold_docs.CHECK_SCRIPTS and HOOK_SCRIPTS; tested against setup.
+# The check set and the model command (spec_model.py, spec_data.py); tested against setup's CHECK_SCRIPTS.
 INSTALLED_SCRIPTS = ('status_claims.py', 'spec_model.py', 'validate_use_case.py', 'spec_lint.py', 'use_case_map.py',
-                     'spec_first_guard.py', 'hook_gate.py', 'workflow_state.py', 'finish_change.py',
-                     'scope_audit.py', 'uc_change_list.py', 'unrecorded_changes.py', 'change_view.py', 'hook_profiles.py',
-                     'spec_data.py')
+                     'spec_first_guard.py', 'finish_change.py', 'scope_audit.py', 'uc_change_list.py',
+                     'unrecorded_changes.py', 'change_view.py', 'spec_data.py')
 TYPE_MAP = {'String': 'Text', 'Integer': 'Number', 'Boolean': 'Yes/No',
             'Date': 'Date', 'DateTime': 'Date and time'}
 
@@ -633,6 +632,12 @@ def plan(root, docs):
                 item(path, current[name].decode('utf-8'), what)
                 baselines[name] = {'baseline': installed_copies.fingerprint(current[name])}
                 wrote = True
+        # The migration does not retire the agent hooks of an earlier release; setup's --update does, in one plan.
+        for name in sorted(set(installed_copies.HOOK_SET) - set(INSTALLED_SCRIPTS)):
+            if (folder / name).is_file():
+                note('installed', folder / name, "an earlier release's copy for the agent hooks (the plugin carries them now): "
+                     "run scaffold_docs.py --update to retire it")
+                public['installed'][-1]['state'] = 'retire'
         if wrote:
             bundle.update(version=installed_copies.UPSPEC_VERSION, scripts=baselines)
             item(bundle_path, json.dumps(bundle, indent=2, sort_keys=True) + '\n', 'refresh installed script baselines')

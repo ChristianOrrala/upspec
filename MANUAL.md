@@ -1,6 +1,6 @@
 # upspec: User Manual
 
-Version 1.8.2
+Version 2.0.0
 
 This manual explains how to install the `upspec` skills, how the work
 they support is organized, and how to carry a piece of work from an idea, a
@@ -81,8 +81,8 @@ resuming. No script sends anything over the network.
 Add the marketplace once, then install the plugin:
 
 ```text
-/plugin marketplace add ChristianOrrala/plugins
-/plugin install upspec@christian-orrala
+/plugin marketplace add ChristianOrrala/agents
+/plugin install upspec@christianorrala
 ```
 
 Skills load on demand: Claude reads a skill when your request matches its
@@ -97,13 +97,21 @@ where your agent discovers skills. For the Antigravity CLI (`agy`) that is
 references, templates and scripts travel with it. Tools that read the
 Agent Plugins format can install the plugin folder instead: it carries a
 `plugin.json` for them. Codex installs it from the same marketplace:
-`codex plugin marketplace add ChristianOrrala/plugins`, then
-`codex plugin add upspec@christian-orrala`.
+`codex plugin marketplace add ChristianOrrala/agents`, then
+`codex plugin add upspec@christianorrala`.
+
+### The agent hooks
+
+The plugin carries four agent hooks. Installing it in Claude Code turns them
+on; the other tools need one step each (Codex: approve each hook in `/hooks`;
+Kiro CLI and OpenCode: place a file). Section 9's "Agent hooks" lists them,
+tool by tool. They act only in a project whose guideline file carries the rules
+block.
 
 ### The A-files (optional)
 
 The same marketplace lists a second plugin, the A-files
-(`/plugin install a-files@christian-orrala`). It keeps five files at
+(`/plugin install a-files@christianorrala`). It keeps five files at
 the repository's root that every coding agent reads first (`AGENTS.md`,
 `ACTIVE.md`, `ABILITIES.md`, `AHEAD.md`, `ATLAS.md`) and checks their shape
 before every commit. Each plugin works alone; when a project has both, they
@@ -1211,13 +1219,13 @@ checks say what is wrong, the state report says what comes next.
 python3 "<skill-folder>/scripts/spec_data.py"
 ```
 
-Setup installs a copy into the project's `tools/specs/` with either set of
-installed scripts (the team profile's checks or the agent hooks), and
-`scaffold_docs.py --update` adds it where it is missing and keeps it current,
-as it does the others; the migration does the same. A program can then run
-the project's own copy, `python3 tools/specs/spec_data.py`, from the
-project's root. No check or hook runs it, and the hook gate runs whether it is
-there or not.
+Setup installs a copy into the project's `tools/specs/` with the team
+profile's checks, and `scaffold_docs.py --update` adds it where it is missing
+and keeps it current, as it does the others, together with `spec_model.py`
+which it reads, even in a project that uses no check; the migration does the
+same. A program can then run the project's own copy,
+`python3 tools/specs/spec_data.py`, from the project's root. No check or hook
+runs it.
 
 `--docs` defaults to the folder the rules block records, else `docs`;
 `--format json` is accepted and is the only format. Exit 0 when the model was
@@ -1468,9 +1476,11 @@ record and does not go with `--all`), and 3 outside a git repository. A
 specification folder that is a link that cannot be resolved is the finding
 `UNREADABLE` before git is asked, with nothing on standard output.
 
-### Agent hooks (optional)
+### Agent hooks
 
-Setup offers four moments through one gate, `tools/specs/hook_gate.py`:
+The plugin carries four hooks that run through one gate, `hook_gate.py`, from
+the plugin's own folder. Setup writes no hook file, copies no hook script and
+records no `**Hooks:**` line; you only turn the hooks on in your tool.
 
 | Moment | What runs |
 |---|---|
@@ -1482,56 +1492,56 @@ Setup offers four moments through one gate, `tools/specs/hook_gate.py`:
 No hook blocks, refuses or keeps the agent working, except to deliver one
 message of decisions and notes at the end of a turn.
 
-The session-start context opens with one light note to the agent, and to no
-one else: before its first edit, say where things stand in four short lines
-(Finished, Remaining, Blocked by, Next step), or in one short line when the
-request already says exactly what to do. It never blocks, never asks you and
-does not change the result; it is sent at session start only and counts inside
-the sixty lines.
+**When they act.** Only in a project whose guideline file (`AGENTS.md` or
+`CLAUDE.md`) carries the rules block. Anywhere else, and outside git, a hook
+prints nothing, exits 0 and writes no file, so the plugin can be installed for
+every repository you open. A teammate without the plugin gets no agent hooks;
+the commit hook and the pipeline still apply to everyone. The A-files plugin
+sends its own session-start note (say where things stand in four short lines
+before the first edit) and its own findings at the stop; this gate sends
+neither, so a project with both plugins gets each once.
 
-**Generate, review, approve.** Ask the setup skill for hooks. It runs
-`python3 "<skill-folder>/scripts/scaffold_docs.py" --hooks --tool claude|codex|antigravity|kiro` from the plugin
-with `--root DIR`, proposing scripts and wiring without writing. Without
-`--tool`, `--hooks` copies scripts only. The agent reads the plan against
-existing hooks, the tool version, the repository layout and conflicts,
-adapts what does not fit, and explains why. You approve `--apply`; the tool's
-own trust prompt still enables the hooks. The agent never enables its own
-hooks or widens permissions for them.
+**Turning them on.** You switch them on, never the agent, and permissions are
+never bypassed or widened.
 
-| Labeled tool example | Generated project file | After-edit feedback | Stop keeps working | Warning channel |
-|---|---|---|---|---|
-| Claude Code | `.claude/settings.json` | Agent | Yes | Person |
-| Codex CLI | `.codex/hooks.json` | Agent | Yes | Person |
-| Antigravity CLI | `.agents/hooks.json` | Nobody: not wired, since on 1.4.4 nothing reached the agent (per the tool's 1.4.3 changelog the failure is only logged); open work arrives at session start | Yes | None documented |
-| Kiro CLI V3 | `.kiro/hooks/upspec.json` | Person only, by Kiro's documentation; unproven in the TUI | Yes, once per prompt; prove the IDE runtime, since its docs differ | By Kiro's documentation, person at session start and after edits (unproven in the TUI); nobody at Stop |
+| Tool | Turn them on | After-edit feedback | Stop keeps working |
+|---|---|---|---|
+| Claude Code | Install the plugin. | Agent | Yes |
+| Codex CLI | Install from the marketplace, then approve each hook once in `/hooks`. An unapproved hook is skipped without a word; Codex copies the plugin at install, so reinstall after an update and approve again. | Agent, for `apply_patch` edits | Yes |
+| Kiro CLI | Copy the skill folders to `~/.kiro/skills/` and `hooks/kiro/upspec.json` to `~/.kiro/hooks/`; trust the workspace. | Person only | Yes, once per prompt |
+| OpenCode | List the plugin's `hooks/opencode` folder in the `plugins` array of `opencode.json`, in the project or globally. | Agent | Yes |
+| Antigravity CLI | Not supported: it has no plugin hooks. | | |
 
-All four generated examples were seen firing on 2026-10-21: Claude Code
-2.1.307, Codex 0.159.2, Kiro CLI 2.33.1 and Antigravity CLI 1.4.4. The
-reference records proof only after a firing on the named version. Kiro CLI
-runs the hooks only on its V3 engine: set `kiro-cli settings
-chat.agentEngine v3`, or start with `kiro-cli chat --v3`; setup changes no
-Kiro setting. Antigravity's after-edit is not wired. Codex runs hooks in a login
-shell (`$SHELL -lc`); startup output can corrupt the JSON, so check it in proof.
-Kiro's after-edit warnings never reach the agent; its documentation says they
-reach the person, which the proof did not see in `--no-interactive` mode and
-which is unproven in the TUI. Its stop cannot deliver an
-ordinary warning, so the decisions and notes use one block at the stop. Its generated
-command maps invocation failures to exit 3 and never returns exit 1, which
-would accidentally continue the agent. Those firings saw 1.1.0's blocking
-stop and after-edit; decisions, notes and the after-edit context of this release
-are **not yet proven** in any tool.
+The hooks were seen firing with the real gate on 2026-11-16: Claude Code
+2.1.326, Codex 0.167.0, Kiro CLI 3.3.0 and OpenCode 2.3.0. The setup skill's
+`references/agent-hook-examples.md` records what each tool delivers. Codex runs
+hooks in a login shell (`$SHELL -lc`); startup output can corrupt the JSON.
+Kiro's after-edit warnings never reach the agent. One OpenCode server serves
+every session, so its module drops events from other projects.
 
 Profiles translate the internal results (0 pass, 1 warn, 2 ask, 3 could not
-run) into each tool's contract. The stop delivers owner questions and/or
-agent notes: Claude Code, Codex and Kiro receive one `decision: block`; Antigravity receives one
-`decision: continue`, which continues the agent's turn once so it can ask
-you about decisions or act on notes. After an edit, Claude Code and Codex receive the findings as additional
-context with a `systemMessage` for you. Result 3 never blocks. Select
-`--emit raw|claude|codex|antigravity|kiro`; the default is `raw`. Gemini CLI,
-Copilot CLI and Cursor have hook systems but no upspec profiles yet. A tool
-without a profile stays unwired until it has one. Profiles for Gemini CLI,
-Copilot CLI and Cursor are planned ideas; the commit hook and pipeline still
-apply to their work.
+run) into each tool's contract. The stop delivers owner questions and/or agent
+notes as one `decision: block` (Claude Code, Codex, Kiro), which continues the
+agent's turn once. After an edit, Claude Code and Codex receive the findings as
+additional context with a `systemMessage` for you. Result 3 never blocks. The
+hook files select `--emit auto` (Codex when the environment has `PLUGIN_ROOT`,
+else Claude Code); a hand-run gate accepts `--emit raw|claude|codex|kiro|auto`,
+default `raw`. Gemini CLI, Copilot CLI and Cursor have hook systems but no
+upspec profiles yet; the commit hook and pipeline still apply to their work.
+
+**A project wired by an earlier release.** Releases before 2.0.0 copied the
+gate into `tools/specs/` and wrote hook files into the project. With the
+plugin's hooks on as well, each hook would fire twice, so while
+`tools/specs/hook_gate.py` exists the plugin's gate stays silent except for one
+session-start line telling you to run `scaffold_docs.py --update`. That update
+retires the old wiring (see "Updates" below).
+
+**Unattended sessions.** With nobody present, a question cannot be answered. If
+`CLAUDE_CODE_SESSION_ATTENDED` is `0`, or `UP_UNATTENDED` is `1` (the setting
+for any other tool), the stop asks nothing: it records each owner decision as
+later, as the `later` command does, once per session, and sends the agent only
+the notes with one line naming what it recorded. With no notes it sends
+nothing.
 
 **Integration branch.** The base order is `--base`, `UP_BASE`,
 `git config up.base`, the rules-block line `**Integration branch:** <name>`,
@@ -1590,19 +1600,20 @@ record, behavior code changed without a specification (read as the spec-first
 guard reads it, with the change's commit messages for the `No behavior
 change:` line and the `Fixes:` note; a light-path fix is noted once before
 its commit, with advice to commit its `Fixes:` note in the same session;
-code that reaches the session through a pull or merge is not noted) and a broken A-files shape, as the project's own
-`tools/check_tracking.py --strict` reports it on its command line. Broken specifications are never a drift
-at the stop.
+code that reaches the session through a pull or merge is not noted). Broken
+specifications are never a drift at the stop. The a-files plugin sends its own
+findings.
 
 **Decisions and notes.** Questions are reserved for choices only
 you can make: a person-set Status (`Approved`, `Done`) that the change sets
 or relies on, or work you reserved for approval. An unsupported `Implemented`
-or `Tested` claim, an open change record, code without a specification and
-an A-files finding are notes.
+or `Tested` claim, an open change record and code without a specification are
+notes.
 
 Each new decision asks once: align now, at the end of the session, or later.
 Now means align in this session; end of the session means remind you once at
-session end; later runs the item's `hook_gate.py later TEXT` command. With the
+session end; later runs the item's `hook_gate.py later TEXT` command (the
+message gives it with the plugin's path). With the
 A-files, it adds an `AHEAD.md` item (kind `idea`, state `open`, entry under
 Items); otherwise it appends to `up-deferred.txt` in the git folder, shown
 as open work at session start until removed. It never duplicates an item.
@@ -1635,12 +1646,11 @@ plus an omitted count; session context stays within sixty lines.
 
 Turn start delivers a changed list, suppresses an unchanged one and announces
 "Nothing is open now." once when it empties. Its three-second computation cap
-keeps prompt work bounded; generated timeouts are eight seconds, covering
+keeps prompt work bounded; the hook's timeout is eight seconds, covering
 stdin, computation and startup overhead. Every failure exits 0, prints nothing and logs its reason. Claude Code and Codex
 use `UserPromptSubmit` additional context; Kiro uses plain stdout below
-3,000 characters. These turn-start entries are **not yet proven** in live
-tools. Antigravity has no start-of-turn event: `PreInvocation` fires before
-every model call, so only session start delivers its open list.
+3,000 characters. Tools without a start-of-turn event get the list at
+session start only.
 
 After-edit feedback leaves out cross-file requirements and mechanism
 findings, and recognition errors belonging to other files. An edited use case
@@ -1650,35 +1660,12 @@ reach the agent as information, result 1; the agent goes on with its task.
 A drift is known by its kind and subject (the use case and its new Status,
 the record's path, the change that code without a specification belongs to,
 known by the name of its base and the current branch (a base with no name by
-its commit), each A-files finding by its path, its code and what its message
-names: an identifier, a quoted or bold name, a path), never by its problem
+its commit)), never by its problem
 text, so changed line numbers, a count that grows, more code in the same
 change, more commits or pushes on the same branch, or a shorter problem list
-do not ask again, and a new record or
-finding of the same kind is asked about once. Without a session id the questions are
+do not ask again, and a new record of the same kind is asked about once. Without a session id the questions are
 remembered under one shared slot. There is no loop guard: nothing keeps the
 agent working, and nothing is asked twice in a session.
-
-**Generated wiring and conflicts.** Setup preserves unrelated hooks and
-settings, indentation, key order, Unicode and the final newline; inline
-layout may be normalized. Every wiring file that changes has a full unified
-diff before `--apply`; unchanged files have no file diff. Claude Code's Edit
-and Write entries both narrow to the use case folder. Setup scans other
-Kiro hook files for legacy entries, and Claude's local settings for duplicates.
-It never writes `.claude/settings.local.json`: keep that moment or remove
-its local entry by hand before asking for a generated replacement.
-
-An unrecorded, customized or legacy adapter entry already covers its moment,
-even if only one of two expected edit entries exists. Setup refuses duplicate
-wiring. Choose `--replace wiring:<moment>` for generated replacements, or
-`--keep wiring:<moment>` to retain the existing entries and add nothing.
-Moments are `session-start`, `after-edit`, `before-stop` and `turn-start`. Pass the reason
-for each adaptation using repeated `--reason TEXT`, in the order of the kept
-wiring moments; the bundle records it (default: "kept by the person").
-A moment no longer generated for the tool (Antigravity's after-edit) whose
-entry is still installed must be decided the same way: `--replace` removes it
-and generates nothing, naming its old adapter as left behind; `--keep`
-retains it.
 
 **Updates.** Run `python3 "<skill-folder>/scripts/scaffold_docs.py" --update` from the new plugin to see the
 plan, review it, then approve `--apply`. The plugin's state reader adds one
@@ -1689,23 +1676,45 @@ No installed copies means no notice.
 
 Each script is current, untouched, kept, changed by hand or missing. Current
 and kept copies stay; untouched copies refresh; missing copies are added only
-for an installed set. An update alone never installs the hook set. `--hooks`
-installs it and uses the same update plan when copies already exist. Read each
+where the check set is in use. Read each
 changed script's diff and choose `--replace NAME` to take this release's copy,
 or `--keep NAME` after porting the customization onto this release, including
 its version. A kept file needs a new decision at the next release; the old
 baseline is shown for context. A kept customization can also be replaced.
+
+**Retiring an earlier release's hooks.** The same plan, all or nothing, removes
+what a release before 2.0.0 installed for the agent hooks; the dry run lists
+every step. It removes only the entries that run `tools/specs/hook_gate.py` from
+`.claude/settings.json`, `.codex/hooks.json`, `.agents/hooks.json` and
+`.kiro/hooks/upspec.json`, keeping every other entry, key, order, indentation
+and character. A file that held nothing else is removed; an emptied `hooks` key
+leaves `settings.json`, which stays. An entry you adapted and recorded is still
+upspec's and goes too, named in the plan with its recorded reason;
+`--keep wiring:<moment>` keeps it. An entry changed by hand waits for
+`--replace wiring:<moment>` or `--keep wiring:<moment>` (moments:
+`session-start`, `after-edit`, `before-stop`, `turn-start`). The personal
+`.claude/settings.local.json` is named and never edited. In `tools/specs/` it
+removes the hook-only copies (`hook_gate.py`, `hook_profiles.py`,
+`workflow_state.py` and the others the check set does not use); what stays is
+the check set when the project uses it (team profile, the pipeline job or the
+pre-push hook) and otherwise `spec_data.py` with `spec_model.py`. A copy changed
+by hand waits for `--replace NAME` or `--keep NAME`. It removes the
+`**Hooks:**` line of the rules block and stops recording the wiring in the
+bundle. The plan ends with one line saying that the plugin carries the hooks
+now: Claude Code turns them on with the plugin, Codex asks you to approve them
+in `/hooks`, and Kiro and OpenCode take the files this manual names.
+`--hooks`, `--tool` and `--reason` no longer exist and exit 2.
 
 **The rules block.** `--update` treats the rules block (the section from
 `## Working from specifications` to the next `## ` line or the end of the
 guideline file) like an installed script. A block exactly as a release wrote
 it is untouched: the plan lists `guideline:rules-block` as replaced, and
 `--apply` swaps in this release's template whole, keeping the block's own
-`**Profile:**`, `**Hooks:**`, `**Skipped:**`, `**Specs folder:**`,
-`**Integration branch:**` and `**Host:**` lines (the Hooks line goes directly
-under the profile line) and its specification folder. "Exactly" is judged
+`**Profile:**`, `**Skipped:**`, `**Specs folder:**`,
+`**Integration branch:**` and `**Host:**` lines and its specification folder;
+an earlier release's `**Hooks:**` line is dropped. "Exactly" is judged
 with those lines and the folder in the paths put back to the template's, so a
-profile, a proven-hooks line or a folder never makes a block look edited. A block you edited
+profile, an old hooks line or a folder never makes a block look edited. A block you edited
 shows its diff as changed and waits for `--replace guideline:rules-block` or
 `--keep guideline:rules-block`; nothing is rewritten until you choose, and
 a keep is recorded in `tools/specs/upspec-installed.json` (the folder is
@@ -1719,31 +1728,25 @@ the dry run prints the lines it adds beside the rules-block diff. The guideline
 file keeps its own line endings (LF or CRLF) through both steps.
 
 `tools/specs/upspec-installed.json` records package baselines, kept script
-fingerprints, and generated or adapted wiring per tool. An ordinary update
-also plans every recorded tool's wiring; `--hooks` without `--tool` requests
-scripts only. With several recorded tools, select `--hooks --tool` when
-deciding a moment. Matching entry baselines refresh; exact generated sets
-are current. Fingerprints include the whole Kiro hook, or the inner command
-object plus the group's matcher for other tools. Changes to those wrapper
-fields need another decision. Kept wiring adaptations stay recorded.
+fingerprints. An earlier release also recorded its wiring there; the update
+drops that record, except an entry you chose to keep.
 
-Updates are **all or nothing**: an undecided script or wiring moment, or
+Updates are **all or nothing**: an undecided script or wiring entry, or
 unreadable JSON (including comments), prevents every write. An undecided
 `--apply` exits 1; invalid decisions exit 2. Missing or mixed script versions
-make the gate return result 3 naming `scaffold_docs.py --update`. One exception:
+in the plugin make the gate return result 3 naming `scaffold_docs.py --update`. One exception:
 if `hook_profiles.py` itself cannot load, the gate logs that failure and exits
-0 with no output. Commit installed scripts and wiring on their own before a
+0 with no output. Commit what an update wrote on its own before a
 behavior change.
 
-**Proof and records.** After you enable hooks, the agent proves each moment
-in a new session, checking behavior and the git-folder `up-hooks.log`.
+**Seeing them fire.** After you turn the hooks on, start a new session in an
+adopted project and check behavior and the git-folder `up-hooks.log`.
 Temporarily invalid specifications test after-edit delivery. A Status raise
-without evidence tests the question and its three answers; a second stop
-asks nothing. Restore the Status. Submit prompts with a
-changed, unchanged and then emptied open list to prove turn-start delivery.
-Restore every proof edit. Add
-only hooks seen firing to a `**Hooks:**` line below the profile in the rules
-block, with the tool, configuration, date and delivery limitations.
+without evidence tests the note; a raise to Done tests the question and its
+three answers; a second stop asks nothing. Restore the Status. Submit prompts
+with a changed, unchanged and then emptied open list to see turn-start
+delivery. Restore every proof edit. A hook that logs nothing was usually not
+approved (Codex) or not enabled, or the project lacks the rules block.
 The log records internal results rather than the tool command's exit code.
 A shortened message names `up-hooks-report.txt` in the git folder for its
 full text; that file is replaced on the next shortened message.
@@ -1802,7 +1805,7 @@ over to someone else?
 | Validator and lint | — | Run on each specification | Every push and pull request, reporting; Draft findings warn; `--strict` to fail |
 | Review before Approved | — | Cold read, your own sign-off | Independent reviewer and a named person's sign-off |
 | Spec-first guard | — | Warning in a commit hook | Warning on every push and pull request; `--strict` to fail |
-| Agent hooks | — | Offered: session state, after-edit findings, open work at turn start, owner decisions asked once and agent notes sent once at the stop | Offered; the pipeline reports to everyone |
+| Agent hooks | — | Carried by the plugin: session state, after-edit findings, open work at turn start, owner decisions asked once and agent notes sent once at the stop; you turn them on | Carried by the plugin; the pipeline reports to everyone |
 | Push claims check | — | Optional pre-push hook | Every push and pull request in CI; optional pre-push hook |
 | Ownership of `docs/`, pull request template | — | — | Yes |
 | Spec dashboard | — | On demand | Each iteration |
@@ -1846,10 +1849,10 @@ with one importing the other) carrying the rules block that setup writes; it
 names the skills, so a fresh session finds the right one even for a task that
 looks simple.
 
-Agent hooks are wired per tool from one tool-neutral template; the setup skill
-carries examples for Claude Code, Codex, the Antigravity CLI and Kiro, each
-checked against one version and seen firing on it. For the Antigravity
-desktop app it is unclear whether workspace hooks run.
+The plugin carries its agent hooks as one hooks file for Claude Code and Codex,
+a Kiro hook file and an OpenCode module; the setup skill's examples name the
+version each was seen firing on. The Antigravity CLI has no plugin hooks and is
+not supported.
 
 ## 12. Safety
 
@@ -1880,8 +1883,9 @@ desktop app it is unclear whether workspace hooks run.
 | The agent searches the disk for a script | The script is in the skill's own folder; every skill says so. Point it there |
 | The finish check lists hundreds of files | Set `**Integration branch:** <name>` in the rules block to the feature's integration branch, or override it with `--base`, `UP_BASE` or `git config up.base`; check the base and source in the hook log |
 | A deleted file is flagged | Name its exact repository-relative path in the change record, in backticks or as a Markdown link target, so the check can attribute the deletion |
-| A hook never writes to `up-hooks.log` | The tool did not run it: check that the person approved the hook (and trusted the folder), and that the tool runs hooks in this mode or engine |
-| The agent was not told what is open | Check the `turn-start` entry, the tool's start-of-turn support and `up-hooks.log`; Antigravity receives the list at session start only |
+| A hook never writes to `up-hooks.log` | The tool did not run it: check that the plugin is installed and, in Codex, that you approved each hook in `/hooks` (reinstall after an update); that Kiro has the skill folders and hook file in `~/.kiro`; that the project's guideline file carries the rules block (the hooks are silent elsewhere); and that the tool runs hooks in this mode or engine |
+| Every hook seems to fire twice, or session start says to run `--update` | The project still has an earlier release's hooks in `tools/specs/` and its tool settings; run `scaffold_docs.py --update`, review the plan and apply it |
+| The agent was not told what is open | Check that the hook is on, the tool's start-of-turn support and `up-hooks.log`; a tool without a start-of-turn event gets the list at session start only |
 | The stop sent a decision or note once and then said nothing | That is the design: each decision is asked once and each note is sent once per session. A decision's "later" answer is in `AHEAD.md` or in `up-deferred.txt` in the git folder; the open-work list shows the deferred lines at session start |
 | The pipeline passed with findings | Every check reports and exits 0 by default; add `--strict` to a step for a strict pipeline |
 | "unknown revision" from the finish check | Pass the branch or commit the change started from with `--base`, or `HEAD` while nothing is committed |
@@ -1917,10 +1921,14 @@ desktop app it is unclear whether workspace hooks run.
   time. Rely on the script checks and on your approval, not on any single
   instruction.
 - Agent hooks depend on each tool's hook system, which changes between
-  versions. The examples name the version they were checked against; the
-  proof step, not the example, decides whether a hook works.
+  versions. The examples name the version each was seen firing on; seeing them
+  fire, not the example, decides whether a hook works. A plugin update changes
+  the hooks in every project at once; there is no pin per project. Codex skips
+  an unapproved hook without a word, and Kiro's after-edit output reaches only
+  you. An unattended session records owner decisions as later instead of
+  asking.
 - **Installing in other tools.** Agent Plugins support differs by tool. Codex
-  installed from the marketplace file and Antigravity from the plugin folder;
+  installed from the marketplace file and Antigravity from the plugin folder (without plugin hooks);
   Kiro installed the folder as a power, but only its V3 engine offered the
   skills. Copying the skill folders worked in every tool tried. Kiro's custom
   agents see a skill only when it is listed in their `resources`.

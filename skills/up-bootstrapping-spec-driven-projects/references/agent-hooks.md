@@ -1,18 +1,37 @@
 # Agent hooks
 
-The agent prepares the hooks; the person approves and enables them. Generated
-files and each tool's delivery limits are in `agent-hook-examples.md`.
+The plugin carries the hooks; setup writes none. The person turns them on in
+their tool. What each tool delivers is in `agent-hook-examples.md`.
 
 ## Contents
 
+- Where the hooks come from, and when they act
 - The four hooks and results
-- Generate, review, approve
+- Turning them on, tool by tool
+- A project wired by an earlier release
 - Integration branch
 - Status claims, decisions and notes
+- Unattended sessions
 - Updating installed copies
-- Proving each hook
-- Recording what was wired
+- Seeing each hook fire
 - Other tools and limits
+
+## Where the hooks come from, and when they act
+
+The plugin ships a hooks file for Claude Code and Codex, a hook file for Kiro
+and a module for OpenCode. Each runs `scripts/hook_gate.py` from the plugin's
+own skill folder; nothing is copied into the project, so a plugin update
+changes the hooks in every project at once. The gate reads the project from the
+hook's event.
+
+The hooks act only where the project's guideline file (`AGENTS.md` or
+`CLAUDE.md`) carries the rules block "Working from specifications". In any
+other repository, and outside git, a hook prints nothing, exits 0 and writes
+no file. A teammate without the plugin gets no agent hooks; the commit hook and
+the pipeline still apply to everyone.
+
+The A-files plugin sends its own session-start note and its own findings at the
+stop. This gate sends neither, so a project with both plugins gets each once.
 
 ## The four hooks and results
 
@@ -28,8 +47,9 @@ the agent working, except to deliver decisions and notes once at the end of a tu
 One gate owns the policy. Each firing uses one view of the change and runs
 the checks in one process; a failed record does not prevent checking others.
 The open-work list reads git paths and specification artifacts only, never source files or the finish check.
-The tool configuration selects the moment and an explicit output profile,
-never reimplements a check or guesses the tool from environment variables.
+The hook file selects the moment and an output profile (`--emit auto` is
+`codex` when the environment has `PLUGIN_ROOT`, else `claude`), never
+reimplements a check.
 
 | Internal result | Meaning | Delivery |
 |---|---|---|
@@ -51,47 +71,49 @@ A shortened message points to the full text in `up-hooks-report.txt` there;
 that report is replaced the next time output is shortened. If it cannot be
 saved, the shortened message says so.
 
-## Generate, review, approve
+## Turning them on, tool by tool
 
-1. **Generate:** run `scripts/scaffold_docs.py --hooks --tool <tool>` from
-   the installed skill, targeting the project with `--root DIR`. Tools with
-   profiles are listed in the examples. Without `--tool`, `--hooks` copies
-   scripts only. The dry run writes nothing: it proposes the scripts in
-   `tools/specs/` and the project's hook file, with a full unified diff of
-   each wiring file that would change.
-2. **Review:** read that plan against the repository's existing hooks, the
-   installed tool version, the layout and conflicts. Check that a real event
-   exists for each moment and that the profile can deliver its result. Adapt
-   anything that does not fit, and tell the person why. When keeping an
-   existing adapted moment, pass its reason with
-   `--keep wiring:<moment> --reason TEXT`.
-3. **Approve:** show the final plan and obtain the person's approval before
-   running it with `--apply`. The tool's own trust prompt still switches the
-   hooks on. The agent never switches its own hooks on or widens permissions
-   to write or trust the settings. Preparing files does not replace trust.
-4. Prove each hook below, then record only what was seen firing. If the
-   person enables hooks later, leave these proof steps for the next session.
-5. Commit the copied scripts, configuration and record on their own before
-   a behavior change; otherwise setup files appear in that change's scope.
+The person switches the hooks on, in the tool. The agent never switches its
+own hooks on and never bypasses or widens permissions.
 
-Generated commands change to the git root and check that the gate exists
-before invoking it. A missing gate must not block. Profiles handle output
-inside the gate, so setup needs no separate adapter. The example blocks are
-what setup generates for an empty project.
+| Tool | Turn them on | What to know |
+|---|---|---|
+| Claude Code | Install the plugin; its hooks load with it. | Hooks fire in every repository you open; the gate stays silent where the rules block is absent. |
+| Codex | Install the plugin from the marketplace, then approve each hook once in `/hooks`. | An unapproved hook is skipped without a word. Codex copies the plugin at install: after a plugin update, reinstall it and approve again. |
+| Kiro CLI | Copy the skill folders of the plugin to `~/.kiro/skills/` and `hooks/kiro/upspec.json` to `~/.kiro/hooks/`; trust the workspace. | The hook file calls the gate in `~/.kiro/skills/up-bootstrapping-spec-driven-projects/`; without it, it does nothing. After-edit text reaches only the person, not the agent. |
+| OpenCode | List the plugin's `hooks/opencode` folder in the `plugins` array of `opencode.json`, in the project or globally. | The module finds the gate beside it and ignores events of other projects. |
+| Antigravity CLI | Not supported: it has no plugin hooks. | The commit hook and the pipeline still apply. |
 
-Setup merges only its own entries, preserving other settings and hooks.
-It preserves indentation, key order, Unicode and the final newline; inline
-layout may be normalized, so inspect the full file diff. A file that cannot
-be read as plain JSON (including JSON with comments) is refused.
+## A project wired by an earlier release
 
-Existing unrecorded or customized entries, including legacy adapters, cover
-their moment: setup will not add a duplicate. A command naming a repository
-script that calls the gate also covers its moment. A partial generated set also
-needs a decision. Plain `--update` points out unrecorded wiring and the command
-to bring it under setup. After replacement, the plan names files left behind
-that the person may delete; setup never deletes them. Local settings are scanned where the tool loads them,
-but setup never writes that read-only configuration: keep its moment or
-remove its entry by hand before requesting replacement.
+Releases before 2.0.0 copied the gate and its scripts into `tools/specs/` and
+wrote the tool's hook file in the project. With the plugin's hooks also on,
+every hook would fire twice, so while `tools/specs/hook_gate.py` exists the
+plugin's gate stays silent except for one session-start line: run
+`scripts/scaffold_docs.py --update` to retire the old wiring.
+
+1. Run `scripts/scaffold_docs.py --update --root DIR` without `--apply`. The
+   plan lists every step: each entry removed from `.claude/settings.json`,
+   `.codex/hooks.json`, `.agents/hooks.json` or `.kiro/hooks/upspec.json`
+   (only entries that run `tools/specs/hook_gate.py`; every other entry, key,
+   order, indentation and character stays; a file that held nothing else is
+   removed, an emptied `hooks` key too), each hook-only copy in `tools/specs/`
+   that goes, and the `**Hooks:**` line of the rules block. The bundle stops
+   recording the wiring. The plan ends with one line saying that the plugin
+   now carries the hooks.
+2. After `tools/specs/` is updated, it holds the check set when the project uses
+   it (team profile, the pipeline job or the pre-push hook) and otherwise only
+   `spec_data.py` and its reader `spec_model.py`.
+3. An entry the owner adapted is still upspec's: it calls the gate this update
+   removes. The plan names it with its recorded reason and removes it;
+   `--keep wiring:<moment>` keeps it. An entry changed by hand, and a changed
+   copy, wait for `--replace NAME` or `--keep NAME` (`wiring:<moment>` for an
+   entry; moments are `session-start`, `after-edit`, `before-stop` and
+   `turn-start`). Unreadable JSON or an undecided item prevents every write.
+4. `.claude/settings.local.json` is personal: the plan names an upspec entry in
+   it and never edits it.
+5. Show the plan, apply it after the person's yes, and commit the result on its
+   own.
 
 ## Integration branch
 
@@ -143,7 +165,7 @@ A write failure is logged and never changes the session hook's result.
 
 At the end of a turn the stop looks for drift: a Status raised without its
 evidence, an open change record, behavior code changed without a
-specification, a broken A-files shape. It checks a Status raised to
+specification. It checks a Status raised to
 Implemented or above against that snapshot, or against HEAD without one. It considers working-tree changes
 (including untracked files) and local commits made after the snapshot that
 are on no remote. Pulled work is excluded. A checkout outside the snapshot's
@@ -168,25 +190,22 @@ note in the same session; no scheduling question is needed. A fix written
 and committed in one turn is noted only while the change still holds that
 commit (a fix branch); on the integration branch, where the base moves with
 the commit, it is not noted. Code that reaches the session through a pull or
-a merge is on the base and is not noted. A broken A-files
-shape is what the project's own `tools/check_tracking.py` reports, run as a
-command with `--strict` (without it for an earlier check that does not know
-the option): exit 1 and its `path:line: ERROR CODE: message` lines are the
-drift. A check that cannot run is logged and skipped. Specification
+a merge is on the base and is not noted. Specification
 errors are never a drift at the stop. The early migration notice still warns
 at session start and at the stop.
 
 Each drift is a decision or a note. A decision is a
 Status only a person sets (`Approved`, `Done`) that the change sets or relies
 on, or work the owner reserved for approval. Unsupported `Implemented` or
-`Tested` claims, open change records, code without a specification and
-A-files findings are notes. The gate uses the claim's Status and explicit
+`Tested` claims, open change records and code without a specification are
+notes. The gate uses the claim's Status and explicit
 reserved-approval metadata; it never infers approval from prose or a label.
 
 Each new decision asks the person once: align now, at the end of the session,
 or later. Now means align it in this session; end of the session means leave
 it and remind the person once at session end; later runs the item's
-`hook_gate.py later TEXT` command. That command adds an `AHEAD.md` item
+`hook_gate.py later TEXT` command, which the message gives with the plugin's
+path. That command adds an `AHEAD.md` item
 (kind `idea`, state `open`, with its entry under Items) when the A-files
 index and Items section are present; otherwise it appends to
 `up-deferred.txt` in the git folder, shown as open work at session start.
@@ -223,7 +242,7 @@ content digest, including its specification dependencies. Completed cache
 updates are saved even when the shown list is unchanged; a capped run saves
 its completed entries without advancing the shown digest. Computation runs
 in a daemon thread with a three-second cap to limit per-prompt cost. A
-failure or timeout produces no output and always exits 0. The generated eight-second
+failure or timeout produces no output and always exits 0. The hook's eight-second
 timeout includes stdin, computation and startup overhead.
 Unsupported tools
 receive the list at session start only. After-edit feedback contains only
@@ -233,110 +252,79 @@ An edited use case in an earlier format still warns with the migration notice.
 
 A drift is known by its kind and subject (the use case and its new Status,
 the record's path, the change that code without a specification belongs to,
-known by the name of its base and the current branch, each A-files finding by
-its path, its code and what its message names), never by its problem text, so
+known by the name of its base and the current branch), never by its problem text, so
 changed line numbers, a count that grows, more code in the same change, more
 commits or pushes on the same branch, or a shorter problem list do not send
-again, and a new record or finding of the same kind is sent once. A
+again, and a new record of the same kind is sent once. A
 base with no name is known by its commit. Without a session id both kinds are
 remembered under one shared slot. Report what remains rather than inventing
 specification content.
 
+## Unattended sessions
+
+A session with nobody present cannot answer a question. With
+`CLAUDE_CODE_SESSION_ATTENDED=0`, or `UP_UNATTENDED=1` set for any tool, the
+stop does not ask. It records each owner decision as later, the way the `later`
+command does (an `AHEAD.md` item, or a line of the deferred list), once per
+session through the same memory, and sends only the notes for the agent with one
+line naming what it recorded. With no notes it sends nothing. Other tools are not
+guessed: set `UP_UNATTENDED=1` where a tool runs without a person.
+
 ## Updating installed copies
 
 Run `scripts/scaffold_docs.py --update --root DIR` from the new plugin to
-review the plan; add `--apply` only after approval. Running `--hooks` over an
-existing setup also uses the update plan, avoiding mixed script releases.
-The plugin's state reader and router show an advisory update notice with
-both versions and this command. The installed session hook cannot know
-about a newer plugin release and does not issue that notice.
+review the plan; add `--apply` only after approval. The plugin's state reader and
+router show an advisory update notice with both versions and this command.
 
 `tools/specs/upspec-installed.json` records package baselines and kept
-fingerprints, plus generated entries and adapted moments with reasons per
-tool. The plan classifies scripts as current, untouched, kept, changed by
-hand or missing. Current and kept copies stay; untouched copies refresh;
-missing copies are added only to an installed set. An update alone never
-installs hooks into a project that had none.
+fingerprints. The plan classifies scripts as current, untouched, kept, changed
+by hand or missing. Current and kept copies stay; untouched copies refresh;
+missing copies are added only where the check set is in use. For every
+changed-by-hand script, read the diff and choose `--replace NAME` to take the
+package copy, or `--keep NAME` after porting the customization onto this
+release. A kept customization needs a fresh decision at the next release; the
+old baseline is shown for context. Undecided items prevent every write,
+including otherwise safe script updates. Resolve the whole plan, approve,
+apply, then commit on its own. Retiring an earlier release's hooks uses the
+same plan, as described above.
 
-For every changed-by-hand script, read the diff and choose `--replace NAME`
-to take the package copy, or `--keep NAME` after porting the customization
-onto this release. A kept customization needs a fresh decision at the next
-release; the old baseline is shown for context. It must carry this release's
-version. Missing or mixed siblings make the gate return result 3 naming
-`scaffold_docs.py --update`; they never block a stop. One exception: if
-`hook_profiles.py` itself cannot load, the gate logs that failure and exits 0
-with no output.
+Missing or mixed siblings of the gate in the plugin make it return result 3
+naming `scaffold_docs.py --update`; they never block a stop. If `hook_profiles.py`
+itself cannot load, the gate logs that failure and exits 0 with no output.
 
-An ordinary update also plans wiring for every tool recorded in the bundle.
-`--hooks` without `--tool` still requests scripts only. With several recorded
-tools, select `--hooks --tool <tool>` when deciding a wiring moment. Use
-`--replace wiring:<moment>` to generate its replacement, or
-`--keep wiring:<moment>` to retain it and add nothing for that moment.
-Moments are `session-start`, `after-edit`, `before-stop` and `turn-start`. Repeat
-`--reason TEXT` in the order of the `--keep wiring:<moment>` arguments;
-reasons are recorded in the bundle (default: "kept by the person").
-A moment the profile no longer generates, but whose entry is still installed,
-is undecided too: `--replace` removes the entry and puts nothing in its
-place, and `--keep` retains it.
+## Seeing each hook fire
 
-Fingerprints cover the command object and its group's matcher, or the
-whole hook object where the file format requires it. Editing those wrapper
-fields also makes an entry changed. Matching baselines refresh; exact
-complete generated sets are current. A kept adaptation stays until another
-decision is made. Undecided scripts or moments, or unreadable JSON, prevent
-**every write**, including otherwise safe script updates. Resolve the whole
-plan, approve, apply, then commit scripts and wiring on their own.
-
-## Proving each hook
-
-Configured is not proven. Start a new session with the approved hooks
-trusted, and check both the tool's behavior and the git-folder log:
+Turned on is not seen. Start a new session in an adopted project with the
+hooks on, and check the tool's behavior and the git-folder log:
 
 1. **Session state:** ask for the next step. The log shows
    `session-start exit=0` and the answer matches the state report.
 2. **Specification check:** temporarily give a use case an invalid Status,
    then restore it. The log shows `after-edit exit=1`. Confirm the findings
-   reach the agent as context, or the person, as the profile's capabilities
-   state, and that the agent goes on with its task.
+   reach the agent as context, or the person, as the tool's row in the
+   examples states, and that the agent goes on with its task.
 3. **Open work:** submit a prompt after changing an open item; confirm the
    list reaches the agent. An unchanged list prints nothing; an emptied one
-   is announced once. Check `turn-start exit=0` and verify timeout or failure
-   also lets the prompt through.
+   is announced once. Check `turn-start exit=0`.
 4. **Decisions and notes:** raise an Approved use case to Implemented without
    its evidence. The log shows `before-stop exit=2`, and the agent receives
    a note to align or include in its handoff, with no owner question. End
    another turn: `before-stop exit=0`, with no repeated note. Restore the
    Status. Raise it to Done without its evidence: the agent asks the person
-   once, with the three scheduling choices. Restore the Status again;
-   a broken Draft specification is never asked about.
+   once, with the three scheduling choices. Restore the Status again.
 
 The log records internal results, which can differ from the command's exit
-code. Verify the tool version, warning delivery and trust behavior too.
-Undo all proof edits. Mark an example proven only after observing its hooks
-on that version; documentation alone does not establish delivery. Some tools
-run project hooks only after the person approves them, or only in a
-particular mode, so a hook that never logs a line usually means it was not
-approved or not enabled.
-
-## Recording what was wired
-
-Under the profile line in the guideline's rules block, add:
-
-```text
-**Hooks:** session state, specification check, open work, claim check: <tool>, <configuration file>, seen firing <YYYY-MM-DD>
-```
-
-Name only moments seen firing, with any delivery limitation. Another agent
-can read the line and prepare wiring for its own tool.
+code. Undo all proof edits. A hook that never logs a line was usually not
+approved or not enabled (Codex in particular), or the project does not carry
+the rules block.
 
 ## Other tools and limits
 
-A tool without a profile stays unwired until it has one. Additional profiles
-are planned ideas, listed in the examples. Never substitute session-end for
-before-stop; session-end cannot ask the person anything. Leave unsupported
-moments out and explain why. The commit hook and the pipeline report and pass
-unless the team added `--strict`.
+A tool without hooks, or without a profile, has none. Additional profiles are
+planned ideas, listed in the examples. Never substitute session-end for
+before-stop; session-end cannot ask the person anything. The commit hook and the
+pipeline report and pass unless the team added `--strict`.
 
-Hooks provide feedback within the tool's sessions. Keep the commit hook
-and team pipeline for everyone. Hooks never approve a specification, and
-a passing finish check still needs a person to read the report.
+Hooks provide feedback within the tool's sessions. Keep the commit hook and
+the team pipeline for everyone. Hooks never approve a specification, and a
+passing finish check still needs a person to read the report.

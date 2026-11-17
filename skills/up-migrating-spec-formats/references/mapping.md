@@ -48,6 +48,8 @@ changed, undecided script holds back every script replacement and addition;
 specification conversion continues. Resolve each through
 `scaffold_docs.py --update` with `--replace` or `--keep`.
 After all decisions, migration replaces untouched copies and adds the whole
-missing set, including hooks, whenever `tools/specs/` exists. Setup's update
-adds missing scripts only for an installed or requested set. Kept copies stay;
+missing set (the check set and the model command) whenever `tools/specs/`
+exists. The hook-only copies of an earlier release are left to setup's
+`--update`, which retires them with the old wiring. Setup's update adds
+missing scripts only where the check set is in use. Kept copies stay;
 each script migration writes gets a fresh baseline in `upspec-installed.json`.

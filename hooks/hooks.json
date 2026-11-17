@@ -1,0 +1,48 @@
+{
+  "description": "upspec: the specification state at session start, open work per prompt, the validator after a use case edit, and the finish check at the end of a turn. Silent in a project that has not adopted upspec.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/skills/up-bootstrapping-spec-driven-projects/scripts/hook_gate.py\" session-start --emit auto"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/skills/up-bootstrapping-spec-driven-projects/scripts/hook_gate.py\" turn-start --emit auto 2>/dev/null || exit 0",
+            "timeout": 8
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|apply_patch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/skills/up-bootstrapping-spec-driven-projects/scripts/hook_gate.py\" after-edit --emit auto"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/skills/up-bootstrapping-spec-driven-projects/scripts/hook_gate.py\" before-stop --emit auto"
+          }
+        ]
+      }
+    ]
+  }
+}

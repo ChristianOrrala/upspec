@@ -10,9 +10,9 @@ Team profile, in addition:
   tools/specs/                         copies of the check scripts, so the pipeline needs nothing installed
   the pull request template and the pipeline job of the chosen host
 
-With --hooks, either profile:
-  tools/specs/                         the gate of the agent hooks (hook_gate.py) and the scripts it
-                                       calls; --tool also plans that tool's project wiring
+Setup writes no agent hooks: the plugins carry them. --update retires what an earlier
+release installed for them: its entries in the tool's hook files, its hook-only copies in tools/specs/ and the
+**Hooks:** line of the rules block.
 
 When the project tracks its work in the A-files (ACTIVE.md with a hot zone), the
 plan also joins them: the rules section is named in the hot zone of AGENTS.md,
@@ -24,8 +24,8 @@ OpenSpec's openspec/) are named in a note; nothing is moved.
 
 Without --apply nothing is written: the plan is printed. Setup keeps existing
 documents and appends the rules block once. It proposes a missing integration
-branch line and joins the A-files once. --update refreshes installed scripts, the recorded CI workflow and the package pre-push hook;
---hooks on an existing setup uses the same classification and update plan.
+branch line and joins the A-files once. --update refreshes installed scripts, the recorded CI workflow and the package pre-push hook, and retires the
+agent wiring of an earlier release in the same all-or-nothing plan.
 Untouched copies are replaced. Customized copies show a diff and need an
 explicit --replace NAME or --keep NAME decision before any file is written.
 The bundle records package baselines and fingerprints of kept customizations.
@@ -52,17 +52,19 @@ Exit code 0, 1 when --apply meets undecided copies, 2 on usage errors.
 
 Usage:
     scaffold_docs.py [--root DIR] [--profile solo|team] [--host github|gitlab|none]
-                     [--guideline FILE] [--specs-folder DIR] [--skip requirements|overview|entity-model ...] [--hooks] [--pre-push]
+                     [--guideline FILE] [--specs-folder DIR] [--skip requirements|overview|entity-model ...] [--pre-push]
                      [--update] [--replace NAME ...] [--keep NAME ...] [--no-integration-line] [--apply]
 
 --update --replace guideline:rules-block replaces an edited rules block with the current
 template and its own field lines; --keep guideline:rules-block records that it stays as edited.
 
---hooks --tool claude|codex|antigravity|kiro generates wiring from the tool's
-profile. Unrecorded direct hooks and legacy adapters need a decision per
-moment: --replace wiring:<moment> or --keep wiring:<moment>. Repeat --reason
-TEXT in the order of the kept wiring moments to record why they were kept.
-Unreadable JSON or an undecided moment prevents every write in the plan.
+--update retires an earlier release's hook wiring: it removes only the entries that run
+tools/specs/hook_gate.py from .claude/settings.json, .codex/hooks.json, .agents/hooks.json and
+.kiro/hooks/upspec.json (a file that held nothing else goes too), keeping every other entry and byte.
+An entry changed by hand needs --replace wiring:<moment> or --keep wiring:<moment>. After the update
+tools/specs/ holds the check scripts when the project uses them (team profile, the recorded pipeline job or
+pre-push hook) and otherwise only spec_data.py. Unreadable JSON or an undecided entry prevents every write.
+--hooks, --tool and --reason no longer exist (exit 2).
 
 The rules block goes into AGENTS.md when it stands alone or is imported by
 CLAUDE.md, otherwise into an existing CLAUDE.md; --guideline names another file.
@@ -81,13 +83,11 @@ another guideline file (exit 2, nothing written).
 Requires Python 3.9+, standard library only.
 """
 import argparse
-from collections import Counter
 import difflib
 import json
 import os
 import re
 import shutil
-import shlex
 from pathlib import Path
 import sys
 
@@ -95,7 +95,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spec_model  # noqa: E402  (local module, same folder)
 import change_view  # noqa: E402
 import installed_copies  # noqa: E402
-import hook_profiles  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES = os.path.join(os.path.dirname(HERE), "templates")
@@ -112,12 +111,14 @@ BLOCK_PATHS = ("", "use_cases/", "requirements.md", "entity_model.md")
 CHECK_SCRIPTS = ("spec_model.py", "validate_use_case.py", "spec_lint.py", "use_case_map.py", "spec_first_guard.py",
                  "status_claims.py", "finish_change.py", "scope_audit.py", "uc_change_list.py",
                  "unrecorded_changes.py", "change_view.py", "spec_data.py")
-# The gate of the agent hooks and every script it calls; copied together so that the gate runs from the project.
-# Both sets end with the model command (spec_data.py), which no check or hook runs: it is there so that a program can
-# read the project's model through the project's own copy, whichever set is installed.
-HOOK_SCRIPTS = ("status_claims.py", "hook_gate.py", "workflow_state.py", "validate_use_case.py", "finish_change.py", "scope_audit.py",
-                "uc_change_list.py", "unrecorded_changes.py", "spec_model.py", "use_case_map.py", "change_view.py", "hook_profiles.py",
-                "spec_data.py")
+# The check set ends with the model command (spec_data.py), which no check runs: it is there so that a program can
+# read the project's model through the project's own copy, whichever profile is installed. A project without the
+# check set keeps only that one copy of the scripts.
+PLUGIN_HOOKS_NOTE = ("The plugin now carries the agent hooks: Claude Code turns them on with the plugin, Codex asks you to "
+                     "approve them in /hooks, and Kiro and OpenCode take the files the manual names.")
+MODEL_SCRIPTS = ("spec_model.py", "spec_data.py")      # spec_data.py imports spec_model.py from its own folder
+# What an earlier release also copied for the agent hooks (installed_copies.HOOK_SET); --update retires it.
+RE_HOOKS_LINE = re.compile(r"^\*\*Hooks:\*\*.*(?:\r?\n|$)", re.MULTILINE | re.IGNORECASE)
 VISION_SECTIONS = ("Mission", "Target Users", "Goals", "Core Terms", "In Scope", "Out of Scope", "Neighboring Systems",
                    "Constraints", "Success Measures")
 # What a solo project may leave out, and the words recorded for it in the rules block.
@@ -141,17 +142,11 @@ OTHER_SPECS = (("specs", "Spec Kit or another method"), (".kiro/specs", "Kiro"),
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "dist", "build", "target", "__pycache__"}
 # The A-files' cap for a hot zone: a join that would pass it stops with a note (their check would refuse it).
 HOT_CAP = 100
-# Event names are the tool contracts in research 12, including Kiro's file variant.
+# Event names an earlier release's wiring used, per research 12 (Kiro's file variant included).
 WIRING_MOMENTS = {"SessionStart": "session-start", "PostToolUse": "after-edit",
                   "PostFileSave": "after-edit", "PostFileCreate": "after-edit", "Stop": "before-stop", "UserPromptSubmit": "turn-start"}
-# These names preserve the established named groups and Kiro hook names.
-WIRING_NAMES = {"session-start": "up-session-state", "after-edit": "up-specification-check",
-                "before-stop": "up-finish-check", "turn-start": "up-open-work"}
-# Why a moment is not generated: trial 04 saw only what reached the agent, and its runs were headless.
-NOT_GENERATED_WHY = {"antigravity": "nothing reached the agent on Antigravity CLI 1.4.4; per the tool's 1.4.3 "
-                                    "changelog the failure is only logged"}
-# A direct gate or one of the released adapters covers a moment already.
-WIRING_CALL = re.compile(r"(?:^|[\s\"'/])(?:tools/specs/hook_gate\.py|up_hook\.py|\.(?:codex|agents|kiro)/up_hook\.py)(?=$|[\s\"';])")
+# An entry whose command runs the gate an earlier release copied into the project.
+WIRING_CALL = re.compile(r"(?:^|[\s\"'/])tools/specs/hook_gate\.py(?=$|[\s\"';])")
 
 
 def read(path):
@@ -221,10 +216,10 @@ def block_fingerprint(block):
 def renewed_block(block):
     """The current template with the block's own field lines, in their order, and its specification folder."""
     text = block.replace("\r\n", "\n")
-    labels = {"profile": "Profile", "hooks": "Hooks", "skipped": "Skipped", "specs folder": "Specs folder",
+    labels = {"profile": "Profile", "skipped": "Skipped", "specs folder": "Specs folder",
               "integration branch": "Integration branch", "host": "Host"}
-    # The Hooks line goes directly under the profile line, where the setup skill says it belongs.
-    found = sorted(RE_FIELD.finditer(text), key=lambda match: {"profile": 0, "hooks": 1}.get(match.group(1).lower(), 2))
+    # The Hooks line of an earlier release is not carried over: the plugins carry the hooks now.
+    found = [match for match in RE_FIELD.finditer(text) if match.group(1).lower() != "hooks"]
     fields = "  \n".join("**%s:** %s" % (labels[match.group(1).lower()], match.group(2)) for match in found)
     return _template_text(_block_folder(text)).replace(PROFILE_LINE, fields).rstrip("\n") + "\n"
 
@@ -580,12 +575,53 @@ def rules_block_plan(root, guideline, bundle, known, replace=(), keep=()):
     return steps
 
 
-def update_plan(root: str, replace=(), keep=(), requested=(), no_integration_line=False, pre_push=False) -> tuple[list, list[str]]:
+def check_set_in_use(root, folder, bundle, requested=(), pre_push=False):
+    """Whether the project runs the check scripts from tools/specs/: the team profile (its copy of spec_first_guard.py or spec_lint.py, the two scripts only the check set has),
+    the recorded or present pipeline job, or the recorded pre-push hook."""
+    files = bundle.get("files", {})
+    return (bool({"check"} & (installed_copies.sets_installed(folder) | set(requested))) or pre_push
+            or any((folder / name).is_file() for name in ("spec_lint.py", "spec_first_guard.py"))
+            or (Path(root) / HOST_FILES["github"]["ci-github.yml"]).is_file()
+            or isinstance(files, dict) and "pre-push" in files)
+
+
+def hooks_line_step(root, guideline):
+    """The step that removes the **Hooks:** line an earlier release's rules block recorded, or None."""
+    if not guideline or not os.path.isfile(os.path.join(root, guideline)):
+        return None
+    text, span = read_guideline(root, guideline)
+    if span is None or not RE_HOOKS_LINE.search(text[span[0]:span[1]]):
+        return None
+    return ("unline", guideline, None, "removes the **Hooks:** line; the plugins carry the hooks now")
+
+
+def remove_hooks_line(root, guideline):
+    """Remove the **Hooks:** line from the rules block, byte for byte otherwise. The line before it loses its
+    two-space line break when no other field line follows."""
+    path = os.path.join(root, guideline)
+    text, span = read_guideline(root, guideline)
+    if span is None:
+        return
+    block = text[span[0]:span[1]]
+    match = RE_HOOKS_LINE.search(block)
+    if not match:
+        return
+    before, after = block[:match.start()], block[match.end():]
+    if not RE_FIELD.match(after) and re.search(r"(?<=\S)  \r?\n$", before):
+        before = re.sub(r"  (\r?\n)$", r"\1", before)
+    with open(path, "w", encoding="utf-8", newline="") as handle:
+        handle.write(text[:span[0]] + before + after + text[span[1]:])
+
+
+def update_plan(root: str, replace=(), keep=(), requested=(), no_integration_line=False, pre_push=False,
+                retire=True) -> tuple[list, list[str]]:
     """Classify every known script; return steps and undecided names without writing.
 
-    Requested sets ("hook" or "check") add their missing copies alongside any
-    installed sets. Script decisions use bare filenames. Wiring names retain their prefix for
-    the wiring planner, which joins this plan in the next setup stage.
+    The check set (CHECK_SCRIPTS) is in use for the team profile, the recorded pipeline job or pre-push hook, or
+    when requested; otherwise only the model command and its reader stay. With retire, the rest of what an earlier
+    release installed (the hook-only copies, the agent wiring, the Hooks line) is removed in the same plan;
+    without it (a setup run) those are left as they are. Script decisions use bare filenames; wiring decisions are
+    named wiring:<moment>.
     """
     folder = Path(root) / "tools/specs"
     bundle = installed_copies.read_bundle(folder)
@@ -596,9 +632,10 @@ def update_plan(root: str, replace=(), keep=(), requested=(), no_integration_lin
             for hashes in templates.values()):
         raise ValueError("known_scripts.json: \"templates\" must map each template name to a list of hashes; "
                          "the file is damaged, reinstall the plugin")
-    installed = installed_copies.sets_installed(folder) | set(requested)
-    if (Path(root) / HOST_FILES["github"]["ci-github.yml"]).is_file() or pre_push:
-        installed.add("check")
+    checks = check_set_in_use(root, folder, bundle, requested, pre_push)
+    wanted = set(CHECK_SCRIPTS if checks else MODEL_SCRIPTS)
+    # An installation exists when the folder holds any copy or record; a solo project gets nothing new from setup.
+    held = folder.is_dir() and (bool(bundle) or any((folder / name).is_file() for name in installed_copies.HOOK_SET + installed_copies.CHECK_SET))
     names = sorted(set(installed_copies.HOOK_SET + installed_copies.CHECK_SET))
     states = {name: installed_copies.classify(folder / name, (Path(HERE) / name).read_bytes(), known, bundle)
               for name in names}
@@ -622,9 +659,26 @@ def update_plan(root: str, replace=(), keep=(), requested=(), no_integration_lin
     for name in names:
         state = states[name]
         rel, source = "tools/specs/" + name, os.path.join(HERE, name)
+        if name not in wanted:
+            if not retire:
+                steps.append(("skip", rel, None, state if state == "missing" else "not part of the installed set; --update retires it"))
+            elif state == "missing":
+                steps.append(("skip", rel, None, "missing; set not installed"))
+            elif state == "kept" and name not in replace:
+                steps.append(("skip", rel, None, "kept as you changed it"))
+            elif name in replace:
+                steps.append(("remove", rel, None, "changed by hand; removed by decision, outside the installed set"))
+            elif state in ("current", "untouched"):
+                steps.append(("remove", rel, None, "an earlier release's copy; the plugins carry the agent hooks now"))
+            elif name in keep:
+                steps.append(("keep", rel, (source, None), "changed by hand; kept by decision, outside the installed set"))
+            else:
+                steps.append(("changed", rel, (source, None), "changed by hand and no longer in the installed set; "
+                              "--replace %s removes it, --keep %s keeps it" % (name, name)))
+                undecided.append(name)
+            continue
         if state == "missing":
-            needed = ("hook" in installed and name in installed_copies.HOOK_SET or
-                      "check" in installed and name in installed_copies.CHECK_SET)
+            needed = checks or held
             steps.append(("create" if needed else "skip", rel, (source, None) if needed else None,
                           "missing; added for an installed or requested set" if needed else "missing; set not installed"))
         elif state == "changed":
@@ -652,97 +706,73 @@ def update_plan(root: str, replace=(), keep=(), requested=(), no_integration_lin
         undecided.append("ci:specifications")
     if any(action == "changed" and rel == RULES_NAME for action, rel, _, _ in steps):
         undecided.append(RULES_NAME)
+    if retire:
+        line = hooks_line_step(root, guideline)
+        if line:
+            steps.append(line)
+        steps.extend(wiring_retirement_plan(root, bundle, replace, keep))
+        if any(action in ("remove", "wire", "unline") for action, _, _, _ in steps):
+            steps.append(("closing", "", None, PLUGIN_HOOKS_NOTE))
+    elif replace & {name for name in replace if name.startswith("wiring:")} or keep & {name for name in keep if name.startswith("wiring:")}:
+        raise ValueError("wiring decisions belong to --update")
     return steps, undecided
 
 
+# The project files an earlier release wired the agent hooks into, with the tool each one served; --update retires them.
+WIRING_FILES = {".claude/settings.json": "claude", ".codex/hooks.json": "codex",
+                ".agents/hooks.json": "antigravity", ".kiro/hooks/upspec.json": "kiro"}
+# Claude Code's personal settings were scanned, never written; they still are not.
+LOCAL_SETTINGS = ".claude/settings.local.json"
+MOMENTS = ("session-start", "after-edit", "before-stop", "turn-start")
+
+
 def wiring_fingerprint(entry):
-    """Hash the command and its generated wrapper in canonical JSON form."""
+    """Hash the command and its wrapper in canonical JSON form, as earlier releases recorded it."""
     return installed_copies.fingerprint(json.dumps(entry, sort_keys=True, separators=(",", ":")).encode("utf-8"))
 
 
-def _inner(entry):
-    return {key: value for key, value in entry.items() if key not in ("moment", "event", "matcher")}
+def _old_commands(tool):
+    """The command lines earlier releases generated for a tool: with no record in the bundle, only these count as untouched."""
+    found = set()
+    for moment in MOMENTS:
+        invocation = "python3 tools/specs/hook_gate.py %s --emit %s" % (moment, tool)
+        if moment == "turn-start":
+            found.add('{ root="$(git rev-parse --show-toplevel 2>/dev/null)" && cd "$root" && [ -f tools/specs/hook_gate.py ] && '
+                      + invocation + '; } 2>/dev/null || exit 0')
+        elif tool == "kiro":
+            found.add('{ root="$(git rev-parse --show-toplevel)" && cd "$root" && [ -f tools/specs/hook_gate.py ] && '
+                      + invocation + '; } || exit 3')
+        else:
+            found.add('cd "$(git rev-parse --show-toplevel)" && if [ -f tools/specs/hook_gate.py ]; then ' + invocation + '; fi')
+    return found
 
 
-def _wiring_by_tool(bundle):
-    """Read the bundle's per-tool wiring records."""
+def _wiring_records(bundle):
+    """The bundle's per-tool wiring records of earlier releases."""
     wiring = bundle.get("wiring", {})
     if not isinstance(wiring, dict):
         return {}
-    return {tool: record for tool, record in wiring.items()
-            if tool in hook_profiles.PROFILES[1:] and isinstance(record, dict)}
+    return {tool: record for tool, record in wiring.items() if tool in WIRING_FILES.values() and isinstance(record, dict)}
 
 
-def _wrapped_entry(tool, entry):
-    """Include every field setup generates that can change a hook's behavior."""
-    inner, matcher = _inner(entry), entry["matcher"]
-    if tool == "kiro":
-        # Claim evidence can take two minutes; turn-start uses the gate's complete
-        # stdin, computation and startup budget, shared with the other tools.
-        wrapped = {"name": WIRING_NAMES[entry["moment"]], "trigger": entry["event"], "enabled": True,
-                   "timeout": (hook_profiles.turn_start_timeout() if entry["moment"] == "turn-start" else
-                               120 if entry["moment"] == "before-stop" else 60), "action": inner}
-    else:
-        wrapped = {"hook": inner}
-    if matcher is not None:
-        wrapped["matcher"] = matcher
-    return wrapped
-
-
-def _old_adapters(root, command):
-    """Find repository scripts named by a command that invoke the gate."""
-    if root is None:
-        return []
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()")
-    lexer.whitespace_split = True
-    try:
-        tokens = list(lexer)
-    except ValueError:
-        return []
-    found = []
-    root = Path(root).resolve()
-    for token in tokens:
-        path = Path(token)
-        if path.is_absolute():
-            continue
-        path = root / path
-        try:
-            relative = path.resolve().relative_to(root).as_posix()
-            if not path.is_file() or relative == "tools/specs/hook_gate.py":
-                continue
-            if path.name == "up_hook.py" or WIRING_CALL.search(path.read_text(encoding="utf-8")):
-                found.append(relative)
-        except (OSError, UnicodeError, ValueError):
-            continue
-    return sorted(set(found))
-
-
-def _use_case_dir(root, folder):
-    """Use an existing recognized use-case folder, falling back to the canonical name."""
-    docs = spec_model.Docs(os.path.join(root, folder))
-    path = docs.use_case_dir
-    return os.path.relpath(path, root).replace(os.sep, "/") if path else folder + "/use_cases"
-
-
-def _wiring_nodes(node, tool, moment=None, group=None, wrapper=None, root=None):
-    """Find calls with the enclosing matcher or Kiro hook used for fingerprinting."""
+def _wiring_nodes(node, tool, moment=None, group=None, wrapper=None):
+    """Find the entries that run the gate, with the enclosing matcher or Kiro hook used for fingerprinting."""
     if isinstance(node, dict):
         trigger = node.get("trigger")
         moment = WIRING_MOMENTS.get(trigger, moment) if isinstance(trigger, str) else moment
         if tool == "kiro" and isinstance(trigger, str) and trigger in WIRING_MOMENTS:
             wrapper = node
-        if moment and isinstance(node.get("command"), str) and (WIRING_CALL.search(node["command"]) or
-                _old_adapters(root, node["command"])):
+        if moment and isinstance(node.get("command"), str) and WIRING_CALL.search(node["command"]):
             wrapped = wrapper if tool == "kiro" and wrapper is not None else dict(group or {}, hook=node)
             yield moment, node, wrapped
         for key, value in node.items():
             matcher = group
             if key == "hooks" and isinstance(value, list):
                 matcher = {"matcher": node["matcher"]} if "matcher" in node else {}
-            yield from _wiring_nodes(value, tool, WIRING_MOMENTS.get(key, moment), matcher, wrapper, root)
+            yield from _wiring_nodes(value, tool, WIRING_MOMENTS.get(key, moment), matcher, wrapper)
     elif isinstance(node, list):
         for value in node:
-            yield from _wiring_nodes(value, tool, moment, group, wrapper, root)
+            yield from _wiring_nodes(value, tool, moment, group, wrapper)
 
 
 def _remove_wiring(node, removed):
@@ -765,12 +795,12 @@ def _remove_wiring(node, removed):
 
 
 def _holders(document, ids):
-    """The (dict, key, list) event lists that hold a selected node, directly or through its group."""
+    """The (dict, key, list) event lists that hold a selected node, directly or through its group or Kiro hook."""
     found = []
 
     def holds(value):
-        return id(value) in ids or (isinstance(value.get("hooks"), list) and
-                                    any(isinstance(hook, dict) and id(hook) in ids for hook in value["hooks"]))
+        return (id(value) in ids or isinstance(value.get("action"), dict) and id(value["action"]) in ids or
+                isinstance(value.get("hooks"), list) and any(isinstance(hook, dict) and id(hook) in ids for hook in value["hooks"]))
 
     def walk(node):
         if isinstance(node, dict):
@@ -785,64 +815,25 @@ def _holders(document, ids):
     return found
 
 
-def _prune_emptied(document, tool, holders):
-    """Drop only the event lists this run's removal emptied, and an Antigravity group left empty by that."""
+def _prune_emptied(document, holders):
+    """Drop only the event lists this run's removal emptied, and the top-level group they leave empty."""
     parents = []
     for parent, key, values in holders:
         if values == [] and parent.get(key) is values:
             del parent[key]
             parents.append(parent)
-    if tool == "antigravity":
-        for name in [name for name, group in document.items() if not group and any(group is p for p in parents)]:
-            del document[name]
+    for name in [name for name, group in document.items() if group == {} and any(group is p for p in parents)]:
+        del document[name]
 
 
-def _add_wiring(document, tool, entries):
-    for entry in entries:
-        moment, event, matcher = entry["moment"], entry["event"], entry["matcher"]
-        inner = _inner(entry)
-        if tool == "kiro":
-            document.setdefault("version", "v1")
-            document.setdefault("hooks", []).append(_wrapped_entry(tool, entry))
-        else:
-            hooks = document.setdefault(WIRING_NAMES[moment], {}) if tool == "antigravity" else document.setdefault("hooks", {})
-            values = hooks.setdefault(event, [])
-            if tool == "antigravity" and matcher is None:
-                values.append(inner)
-            else:
-                group = {"matcher": matcher} if matcher is not None else {}
-                group["hooks"] = [inner]
-                values.append(group)
-
-
-def _read_wiring(path, tool):
+def _read_wiring(path):
     """Read plain JSON and remember its indentation and final newline."""
-    text = path.read_text(encoding="utf-8") if path.exists() else ""
-    document = json.loads(text) if path.exists() else {}
+    text = path.read_text(encoding="utf-8")
+    document = json.loads(text)
     if not isinstance(document, dict):
         raise ValueError("JSON root must be an object")
-    if tool == "kiro":
-        if not isinstance(document.get("hooks", []), list):
-            raise ValueError("JSON hooks must be an array")
-        if "version" in document and document["version"] != "v1":
-            raise ValueError("unsupported Kiro JSON version (expected v1)")
-    else:
-        if tool == "antigravity":
-            for name in WIRING_NAMES.values():
-                if name in document and not isinstance(document[name], dict):
-                    raise ValueError("JSON hook group %s must be an object" % name)
-            groups = [value for value in document.values() if isinstance(value, dict)]
-        else:
-            groups = [document.get("hooks", {})]
-        for group in groups:
-            if not isinstance(group, dict):
-                raise ValueError("JSON hook groups must be objects")
-            for event, values in group.items():
-                if event in WIRING_MOMENTS and not isinstance(values, list):
-                    raise ValueError("JSON event %s must be an array" % event)
     indent = re.search(r"(?m)^([ \t]+)\S", text)
-    indent = indent.group(1) if indent else "  "
-    return document, indent, not text or text.endswith("\n"), text
+    return document, indent.group(1) if indent else "  ", not text or text.endswith("\n"), text
 
 
 def _wiring_diff(before, after, source, target):
@@ -851,195 +842,100 @@ def _wiring_diff(before, after, source, target):
     return "".join(line if line.endswith("\n") else line + "\n\\ No newline at end of file\n" for line in lines)
 
 
-def wiring_plan(root, tool, replace=(), keep=(), reasons=(), use_case_dir=None) -> list:
-    """Plan wiring; exact generated sets establish baselines without a rewrite."""
-    rel, generated, _ = hook_profiles.wiring(tool, use_case_dir or _use_case_dir(root, spec_model.docs_default(root)))
-    choices = {"wiring:" + moment for moment in hook_profiles.MOMENTS}
-    replace, keep = set(replace), list(keep)
-    wiring_keep = [name for name in keep if name.startswith("wiring:")]
-    selected = {name for name in replace | set(keep) if name.startswith("wiring:")}
-    if selected - choices or replace & set(keep) & choices:
+def wiring_retirement_plan(root, bundle, replace=(), keep=()) -> list:
+    """Plan the removal of the agent wiring an earlier release installed, without writing.
+
+    Only entries whose command runs tools/specs/hook_gate.py go; every other entry, key, order, indentation and
+    character stays. An entry as a release wrote it (recorded in the bundle, or exactly a generated command line) is
+    untouched and goes; one changed by hand waits for --replace wiring:<moment> or --keep wiring:<moment>."""
+    replace, keep = set(replace), set(keep)
+    choices = {"wiring:" + moment for moment in MOMENTS}
+    selected = {name for name in replace | keep if name.startswith("wiring:")}
+    if selected - choices or replace & keep & choices:
         raise ValueError("invalid or conflicting wiring decisions: %s" % ", ".join(sorted(selected)))
-    if len(reasons) > len(wiring_keep):
-        raise ValueError("each --reason needs a --keep wiring:<moment> (in the same order)")
-    reason_by_name = dict(zip(wiring_keep, reasons))
-    bundle = installed_copies.read_bundle(Path(root) / "tools/specs")
-    previous = _wiring_by_tool(bundle).get(tool, {})
-    if previous.get("file") != rel:
-        previous = {}
-    baselines = previous.get("entries", [])
-    adapted = previous.get("adapted", [])
-    baselines = baselines if isinstance(baselines, list) else []
-    adapted = adapted if isinstance(adapted, list) else []
-    paths = {rel}
-    # Claude loads local settings too; scanning them must never authorize writing them.
-    readonly = {".claude/settings.local.json"} if tool == "claude" else set()
-    paths.update(name for name in readonly if (Path(root) / name).exists())
-    if tool == "kiro":
-        paths.update(str(path.relative_to(root)) for path in (Path(root) / ".kiro/hooks").glob("*.json"))
-    documents, records, steps = {}, [], []
-    for name in sorted(paths):
+    records, steps, eligible = {}, [], set()
+    listed = set()
+    previous = _wiring_records(bundle)
+    for rel, tool in WIRING_FILES.items():
+        path = Path(root) / rel
+        if not path.is_file():
+            continue
         try:
-            document, indent, newline, text = _read_wiring(Path(root) / name, tool)
+            document, indent, newline, text = _read_wiring(path)
         except (OSError, UnicodeError, ValueError) as exc:
-            steps.append(("refused", name, None, "cannot read plain JSON: %s" % exc))
+            steps.append(("refused", rel, None, "cannot read plain JSON: %s" % exc))
             continue
-        documents[name] = (document, indent, newline, text)
-        records.extend((moment, node, wrapped, name) for moment, node, wrapped in _wiring_nodes(document, tool, root=root))
-    if rel not in documents or any(step[0] == "refused" for step in steps):
-        return steps
-    record = {"tool": tool, "file": rel, "entries": [], "adapted": []}
-    removed = set()
-    # Entries removed with nothing generated in their place; only containers they leave empty go too.
-    emptied = set()
-    additions = []
-    leftovers = set()
-    for moment in hook_profiles.MOMENTS:
-        name = "wiring:" + moment
-        expected = [entry for entry in generated if entry["moment"] == moment]
-        found = [(node, wrapped, path) for found_moment, node, wrapped, path in records if found_moment == moment]
-        fingerprints = [wiring_fingerprint(wrapped) for _, wrapped, _ in found]
-        wanted = [wiring_fingerprint(_wrapped_entry(tool, entry)) for entry in expected]
-        baseline = [entry["fingerprint"] for entry in baselines
-                    if isinstance(entry, dict) and entry.get("moment") == moment and isinstance(entry.get("fingerprint"), str)]
-        adaptations = [entry for entry in adapted if isinstance(entry, dict) and entry.get("moment") == moment
-                       and isinstance(entry.get("fingerprint"), str)]
-        if not expected:
-            reason = ("no start-of-turn event; PreInvocation runs before every model call"
-                      if moment == "turn-start" else NOT_GENERATED_WHY.get(tool, "its feedback reaches nobody on this tool"))
-            why = "%s: %s is not generated (%s); open work is available at session start" % (tool, moment, reason)
-            if not found:
-                steps.append(("info", rel, None, why))
-                if name in selected:
-                    raise ValueError("%s has no generated entry" % name)
-                continue
-            # An entry an earlier release or the person installed stays undecided until it is named.
-            targets = sorted({path for node, _, _ in found for path in _old_adapters(root, node["command"])}
-                             or {"tools/specs/hook_gate.py"})
-            calls = ("an existing entry calls " if len(found) == 1 else "existing entries call ") + ", ".join(targets)
-            kept = sorted(fingerprints) == sorted(entry["fingerprint"] for entry in adaptations)
-            if name in replace and any(path in readonly for _, _, path in found):
-                steps.append(("refused", name, None, ".claude/settings.local.json is read only; remove its hook manually or use --keep " + name))
-            elif name in replace:
-                for node, _, _ in found:
-                    removed.add(id(node))
-                    leftovers.update(_old_adapters(root, node["command"]))
-                emptied.update(id(node) for node, _, _ in found)
-                steps.append(("info", name, None, "%s; %s: removed, nothing generated in its place" % (why, calls)))
-            elif name in keep or kept:
-                if name in keep:
-                    record["adapted"].extend({"moment": moment, "fingerprint": fingerprint,
-                                              "reason": reason_by_name.get(name, "kept by the person")}
-                                             for fingerprint in fingerprints)
-                else:
-                    record["adapted"].extend(adaptations)
-                steps.append(("keep" if name in keep else "skip", name, None, "%s; %s: kept" % (why, calls)))
-            else:
-                steps.append(("info", rel, None, "%s; %s: --replace %s removes it, --keep %s keeps it"
-                              % (why, calls, name, name)))
-                steps.append(("changed", name, None, "moment no longer generated; choose --replace or --keep"))
+        found = list(_wiring_nodes(document, tool))
+        if not found:
             continue
-        current = bool(found) and sorted(fingerprints) == sorted(wanted)
-        kept = not current and bool(found) and sorted(fingerprints) == sorted(entry.get("fingerprint", "") for entry in adaptations)
-        untouched = bool(found) and not (Counter(fingerprints) - Counter(baseline))
-        local = any(path in readonly for _, _, path in found)
-        state = ("current" if current else "kept" if kept else "missing" if not found else
-                 "untouched" if untouched and not local else "changed")
-        if name in selected and not found:
-            raise ValueError("%s is not an installed wiring moment" % name)
-        if name in selected and state != "changed" and not (kept and name in replace):
-            raise ValueError("%s is not undecided" % name)
-        if found and (state == "changed" or name in selected):
-            before = json.dumps([wrapped for _, wrapped, _ in found], indent=2, ensure_ascii=False) + "\n"
-            after = json.dumps([_wrapped_entry(tool, entry) for entry in expected], indent=2, ensure_ascii=False) + "\n"
-            diff = "".join(difflib.unified_diff(before.splitlines(True), after.splitlines(True),
-                                             fromfile="installed/" + name, tofile="generated/" + name))
-            steps.append(("diff", name, diff, "in " + ", ".join(sorted({path for _, _, path in found}))))
-        if local and name in replace:
-            steps.append(("refused", name, None, ".claude/settings.local.json is read only; remove its hook manually or use --keep " + name))
+        record = previous.get(tool, {})
+        if record.get("file") != rel:
+            record = {}
+        baseline = {item.get("fingerprint") for item in record.get("entries", []) if isinstance(item, dict)}
+        adapted = {item.get("fingerprint"): item for item in record.get("adapted", []) if isinstance(item, dict)}
+        generated = _old_commands(tool)
+        removed, kept = set(), []
+        for moment, node, wrapped in found:
+            name, fingerprint = "wiring:" + moment, wiring_fingerprint(wrapped)
+            held = adapted.get(fingerprint)
+            # An entry an earlier release recorded as adapted is still upspec's: it calls the gate this update removes.
+            # Only one kept by a decision of this release (marked "decision") stays kept.
+            state = ("untouched" if fingerprint in baseline else
+                     "kept" if held and held.get("decision") == "keep" else
+                     "adapted" if held else
+                     "untouched" if node["command"] in generated else "changed")
+            if state in ("changed", "adapted") or state == "kept" and name in replace:
+                eligible.add(name)
+            if state == "adapted" and name not in keep:
+                removed.add(id(node))
+                steps.append(("info", rel, None, "adapted entry for %s (%s): removed; the plugin's hooks replace it"
+                              % (moment, held.get("reason", "no reason recorded"))))
+            elif state == "untouched" or name in replace:
+                removed.add(id(node))
+            elif state == "kept" or name in keep:
+                kept.append({"moment": moment, "fingerprint": fingerprint, "decision": "keep",
+                             "reason": adapted.get(fingerprint, {}).get("reason", "kept by the person")})
+            elif name not in listed:
+                listed.add(name)
+                before = json.dumps(wrapped, indent=2, ensure_ascii=False) + "\n"
+                steps.append(("diff", name, _wiring_diff(before, "", "installed/" + name, "this release/" + name), "in " + rel))
+                steps.append(("changed", name, None, "changed by hand; --replace %s removes it, --keep %s keeps it" % (name, name)))
+        if kept:
+            records[tool] = {"tool": tool, "file": rel, "entries": [], "adapted": kept}
+        if not removed:
             continue
-        if name in keep or kept and name not in replace:
-            if name in keep:
-                record["adapted"].extend({"moment": moment, "fingerprint": fingerprint,
-                                           "reason": reason_by_name.get(name, "kept by the person")}
-                                          for fingerprint in fingerprints)
-            else:
-                record["adapted"].extend(adaptations)
-            steps.append(("keep" if name in keep else "skip", name, None, "kept; generated entry omitted"))
-        elif state == "changed" and name not in replace:
-            steps.append(("changed", name, None, "moment already covered; choose --replace or --keep"))
-        elif current and name not in replace:
-            # An exact generated set already contains the package's bytes.
-            record["entries"].extend({"moment": moment, "fingerprint": fingerprint} for fingerprint in wanted)
-            steps.append(("skip", name, None, "current"))
-        else:
-            retained = Counter()
-            for node, wrapped, _ in found:
-                fingerprint = wiring_fingerprint(wrapped)
-                if name not in replace and fingerprint in wanted:
-                    retained[fingerprint] += 1
-                    if fingerprint in baseline:
-                        record["entries"].append({"moment": moment, "fingerprint": fingerprint})
-                else:
-                    removed.add(id(node))
-                    leftovers.update(_old_adapters(root, node["command"]))
-            for entry, fingerprint in zip(expected, wanted):
-                if retained[fingerprint]:
-                    retained[fingerprint] -= 1
-                else:
-                    additions.append(entry)
-                    record["entries"].append({"moment": moment, "fingerprint": fingerprint})
-            steps.append(("info", name, None, "%s: %s; generate in %s" % (name, state, rel)))
-    for name, (document, indent, newline, before) in documents.items():
-        if name in readonly:
-            continue
-        holders = _holders(document, emptied)
+        holders = _holders(document, removed)
         _remove_wiring(document, removed)
-        _prune_emptied(document, tool, holders)
-        if name == rel:
-            _add_wiring(document, tool, additions)
+        _prune_emptied(document, holders)
+        if document.get("hooks") in ({}, []):
+            del document["hooks"]       # the container this removal emptied; the file stays unless nothing else was in it
         after = json.dumps(document, indent=indent, ensure_ascii=False) + ("\n" if newline else "")
-        if document != (json.loads(before) if before else {}):
-            diff = _wiring_diff(before, after, name, "generated/" + name)
-            steps.append(("diff", name, diff, "planned wiring"))
-            steps.append(("wire", name, after, "merge only setup's entries"))
-        if (name != rel and not document.get("hooks") and set(document) <= {"version", "hooks"}
-                and any(path == name and id(node) in removed for _, node, _, path in records)):
-            leftovers.add(name)
-    retained_adapters = {path for _, node, _, _ in records if id(node) not in removed
-                         for path in _old_adapters(root, node["command"])}
-    for name in sorted(leftovers - retained_adapters):
-        steps.append(("info", name, None, "left behind: %s; the person may delete it" % name))
-    if tool == "kiro":
-        # Proven on Kiro CLI 2.33.1 (trial 04): its default engine ignores .kiro/hooks/; setup changes no Kiro setting.
-        steps.append(("info", rel, None, "kiro: Kiro CLI runs these hooks only on its V3 engine, so set "
-                                         "`kiro-cli settings chat.agentEngine v3`, or start with `kiro-cli chat --v3`"))
-    steps.append(("wiring-record", rel, record, "record generated baselines and kept adaptations"))
+        empty = tool != "claude" and set(document) <= {"version"}
+        steps.append(("diff", rel, _wiring_diff(text, "" if empty else after, rel, "/dev/null" if empty else "this release/" + rel), "retired wiring"))
+        if empty:
+            steps.append(("remove", rel, None, "only upspec's hook entries were in it"))
+        else:
+            steps.append(("wire", rel, after, "removes only upspec's hook entries"))
+    for name in sorted(selected - eligible):
+        raise ValueError("%s is not an undecided wiring entry" % name)
+    local = Path(root) / LOCAL_SETTINGS
+    if local.is_file():
+        try:
+            if list(_wiring_nodes(_read_wiring(local)[0], "claude")):
+                steps.append(("info", LOCAL_SETTINGS, None, "%s runs the gate of an earlier release; it is a personal file and is "
+                                                              "never edited: remove its upspec hook entries by hand" % LOCAL_SETTINGS))
+        except (OSError, UnicodeError, ValueError):
+            pass
+    if "wiring" in bundle or records:
+        steps.append(("wiring-record", "tools/specs", records, "wiring is no longer recorded, except entries kept by decision"))
     return steps
 
 
-def unrecorded_wiring_notes(root):
-    """Point the owner at existing wiring that setup has not recorded yet."""
-    for tool in hook_profiles.PROFILES[1:]:
-        rel = hook_profiles.wiring(tool, "docs/use_cases")[0]
-        paths = {rel}
-        if tool == "claude":
-            paths.add(".claude/settings.local.json")
-        if tool == "kiro":
-            paths.update(path.relative_to(root).as_posix() for path in (Path(root) / ".kiro/hooks").glob("*.json"))
-        commands = []
-        for name in sorted(paths):
-            if not (Path(root) / name).is_file():
-                continue
-            try:
-                document, _, _, _ = _read_wiring(Path(root) / name, tool)
-            except (OSError, UnicodeError, ValueError):
-                continue
-            commands.extend(node["command"] for _, node, _ in _wiring_nodes(document, tool, root=root))
-        if commands:
-            adapters = sorted({path for command in commands for path in _old_adapters(root, command)})
-            kind = "old adapter: " + ", ".join(adapters) if adapters else "direct entries"
-            yield "wiring for %s found (%s): run --hooks --tool %s to bring it under setup" % (tool, kind, tool)
+def _use_case_dir(root, folder):
+    """Use an existing recognized use-case folder, falling back to the canonical name."""
+    docs = spec_model.Docs(os.path.join(root, folder))
+    path = docs.use_case_dir
+    return os.path.relpath(path, root).replace(os.sep, "/") if path else folder + "/use_cases"
 
 
 def ignored_notes(root, folder):
@@ -1051,7 +947,7 @@ def ignored_notes(root, folder):
             yield "warning: git ignores %s/. %s" % (rel, sentence)
 
 
-def plan(root, profile, host, guideline, skipped=(), hooks=False, folder="docs", replace=(), keep=(), no_integration_line=False, pre_push=False):
+def plan(root, profile, host, guideline, skipped=(), folder="docs", replace=(), keep=(), no_integration_line=False, pre_push=False):
     """Return a list of (action, relative path, source or text, note)."""
     steps = []
     product_doc = first_existing(root, PRODUCT_DOCS)
@@ -1087,15 +983,14 @@ def plan(root, profile, host, guideline, skipped=(), hooks=False, folder="docs",
     steps.extend(branch_steps)
 
     copies = list(CHECK_SCRIPTS) if profile == "team" or pre_push else []
-    if hooks:
-        copies += [name for name in HOOK_SCRIPTS if name not in copies]
     if os.path.isdir(os.path.join(root, "tools/specs")):
-        requested = ({"check"} if profile == "team" or pre_push else set()) | ({"hook"} if hooks else set())
-        updates, _ = update_plan(root, replace, keep, requested=requested, no_integration_line=no_integration_line)
+        requested = {"check"} if profile == "team" or pre_push else set()
+        updates, _ = update_plan(root, replace, keep, requested=requested, no_integration_line=no_integration_line,
+                                 retire=False)
         steps.extend(step for step in updates if step[1].startswith("tools/specs/"))
     else:
         if replace or keep:
-            update_plan(root, replace, keep)  # Validate decisions even before any copies exist.
+            update_plan(root, replace, keep, retire=False)  # Validate decisions even before any copies exist.
         for name in copies:
             file_step("tools/specs/" + name, source=os.path.join(HERE, name))
     if profile == "team":
@@ -1179,14 +1074,21 @@ def apply(root, steps):
         raise ValueError("undecided installed copies: " + ", ".join(undecided))
     written = set()
     for action, rel, payload, _ in steps:
-        if action in ("skip", "info", "diff", "keep", "wiring-record", "file-record"):
+        if action in ("skip", "info", "diff", "keep", "wiring-record", "file-record", "closing"):
+            continue
+        if action == "unline":
+            remove_hooks_line(root, rel)
             continue
         if rel == RULES_NAME:
             rewrite_block(root, *payload)
             continue
         target = os.path.join(root, rel)
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        if action == "wire":
+        if action != "remove":
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+        if action == "remove":
+            if os.path.isfile(target) or os.path.islink(target):
+                os.unlink(target)
+        elif action == "wire":
             with open(target, "w", encoding="utf-8") as handle:
                 handle.write(payload)
         elif action == "create":
@@ -1246,6 +1148,7 @@ def apply(root, steps):
         for name in sorted(set(installed_copies.HOOK_SET + installed_copies.CHECK_SET)):
             path = folder / name
             if not path.is_file():
+                scripts.pop(name, None)         # removed (or never there): no baseline left to keep
                 continue
             current = (Path(HERE) / name).read_bytes()
             installed = path.read_bytes()
@@ -1256,10 +1159,11 @@ def apply(root, steps):
             elif rel in written or installed == current:
                 scripts[name] = {"baseline": installed_copies.fingerprint(current)}
         if wiring_records:
-            wiring = _wiring_by_tool(bundle)
-            for record in wiring_records:
-                wiring[record["tool"]] = record
-            bundle["wiring"] = wiring
+            # Wiring is retired: only an entry kept by decision is remembered, so that it is not asked again.
+            bundle.pop("wiring", None)
+            kept_wiring = {tool: record for records in wiring_records for tool, record in records.items()}
+            if kept_wiring:
+                bundle["wiring"] = kept_wiring
         files = bundle.get("files", {})
         if not isinstance(files, dict):
             files = {}
@@ -1325,19 +1229,17 @@ def main(argv):
     parser.add_argument("--guideline", help="guideline file, relative to the root (default: chosen from AGENTS.md and CLAUDE.md)")
     parser.add_argument("--skip", action="append", default=[], choices=sorted(SKIPPABLE),
                         help="solo profile only: an artifact of the chain the owner decided to leave out (repeatable)")
-    parser.add_argument("--hooks", action="store_true",
-                        help="also copy the gate of the agent hooks and the scripts it calls into tools/specs/")
     parser.add_argument("--pre-push", action="store_true", help="offer a local claims check in the repository hooks folder")
-    parser.add_argument("--tool", choices=hook_profiles.PROFILES[1:], help="generate the chosen tool's project hooks (with --hooks)")
-    parser.add_argument("--update", action="store_true", help="plan an update of installed script copies, the recorded CI workflow and the rules block of the guideline file")
+    parser.add_argument("--update", action="store_true", help="plan an update of installed script copies, the recorded CI workflow and the rules block of the guideline file, and retire the agent wiring of an earlier release")
     parser.add_argument("--replace", action="append", default=[], metavar="NAME", help="replace a customized copy, or with --update an edited rules block (guideline:rules-block) (repeatable)")
     parser.add_argument("--keep", action="append", default=[], metavar="NAME", help="keep a ported customization, or with --update an edited rules block (guideline:rules-block) (repeatable)")
-    parser.add_argument("--reason", action="append", default=[], metavar="TEXT", help="reason for each kept wiring moment, in --keep order (repeatable)")
     parser.add_argument("--no-integration-line", action="store_true", help="decline the integration branch line for this run")
     parser.add_argument("--apply", action="store_true", help="write the files; without it only the plan is printed")
+    for flag in ("--hooks", "--tool", "--reason"):
+        if any(word == flag or word.startswith(flag + "=") for word in argv):
+            parser.error("%s no longer exists: the upspec plugin carries the agent hooks (hooks/ in the plugin), and setup "
+                         "writes none; scaffold_docs.py --update retires the wiring an earlier release installed" % flag)
     args = parser.parse_args(argv)
-    if args.tool and not args.hooks:
-        parser.error("--tool requires --hooks")
     if not args.update and RULES_NAME in args.replace + args.keep:
         parser.error("%s is decided with --update (--update --replace %s or --update --keep %s)" % (RULES_NAME, RULES_NAME, RULES_NAME))
     if args.skip and args.profile != "solo":
@@ -1347,14 +1249,6 @@ def main(argv):
     if not os.path.isdir(root):
         print("no such folder: %s" % args.root, file=sys.stderr)
         return 2
-    tools = [args.tool] if args.tool else []
-    if args.update and not args.hooks and not tools:
-        tools = list(_wiring_by_tool(installed_copies.read_bundle(Path(root) / "tools/specs")))
-    wiring_decisions = args.reason or any(name.startswith("wiring:") for name in args.replace + args.keep)
-    if wiring_decisions and not tools:
-        parser.error("wiring decisions and --reason require --hooks --tool, or --update with a recorded tool")
-    if wiring_decisions and len(tools) > 1:
-        parser.error("wiring decisions for several recorded tools need --hooks --tool to select one")
     folder = (args.specs_folder or spec_model.docs_default(root)).rstrip("/")
     inside = "--specs-folder must be a folder inside the project, such as docs, specs or documentation/specs"
     if folder.startswith("/") or not re.fullmatch(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*", folder) \
@@ -1405,23 +1299,15 @@ def main(argv):
             return 2
         if args.update:
             steps, undecided = update_plan(root, args.replace, args.keep,
-                                            requested=("hook",) if args.hooks else (),
                                             no_integration_line=args.no_integration_line, pre_push=args.pre_push)
         else:
             steps = plan(root, args.profile, args.host, guideline, [SKIPPABLE[name] for name in sorted(set(args.skip))],
-                         args.hooks, folder=folder, replace=args.replace, keep=args.keep,
+                         folder=folder, replace=args.replace, keep=args.keep,
                          no_integration_line=args.no_integration_line, pre_push=args.pre_push)
             undecided = [rel.rsplit("/", 1)[-1] for action, rel, _, _ in steps if action == "changed"]
         # Optional hook offers are informational too; only a branch note resolves this question.
         branch_info = any(action == "info" and "integration branch" in note
                           for action, _, _, note in steps)
-        if tools:
-            for tool in tools:
-                steps.extend(wiring_plan(root, tool, args.replace, args.keep, args.reason, _use_case_dir(root, folder)))
-        elif args.update and not args.hooks:
-            steps.extend(("info", "", None, note) for note in unrecorded_wiring_notes(root))
-        elif args.hooks:
-            steps.append(("info", "", None, "Scripts only; add --tool claude|codex|antigravity|kiro to plan wiring."))
         undecided = [rel if rel.startswith("wiring:") or action == "refused" else
                      "ci:specifications" if rel == HOST_FILES["github"]["ci-github.yml"] else rel.rsplit("/", 1)[-1]
                      for action, rel, _, _ in steps if action in ("changed", "refused")]
@@ -1447,6 +1333,8 @@ def main(argv):
     for action, rel, payload, note in steps:
         if action == "info":
             print(note)
+        elif action == "closing":
+            continue
         elif action == "file-record":
             continue
         elif action == "diff":
@@ -1462,7 +1350,7 @@ def main(argv):
                 if RULES_HEADING in text:
                     for added in add_branch_line(root, text.split(RULES_HEADING, 1)[1], payload)[1]:
                         print("    + %s" % added)
-    pending = sum(1 for step in steps if step[0] in ("create", "replace", "append", "join", "line", "keep", "wire"))
+    pending = sum(1 for step in steps if step[0] in ("create", "replace", "append", "join", "line", "keep", "wire", "remove", "unline"))
     print("%d to write, %d left as they are" % (pending, sum(step[0] == "skip" for step in steps)))
     if refused:
         for name in undecided:
@@ -1477,10 +1365,6 @@ def main(argv):
         print(note)
     if not args.update and args.profile == "team" and args.host != "github":
         print("note: no pipeline job was planned for host '%s'; run the two commands from the team instruments reference in its pipeline" % args.host)
-    if args.hooks:
-        print("note: let the person turn the hooks on in the tool, prove each moment, and commit the wiring on its own"
-              if args.tool else "note: wire the hooks into the agent's tool as references/agent-hooks.md says, let the person turn them on, "
-              "prove each one, and commit them on their own")
     for path, what in other_specs(root, folder):
         print("note: specifications found in %s (%s): ask whether to align them fully (into %s/) or keep them; "
               "see references/existing-structure.md" % (path, what, folder))
@@ -1499,7 +1383,10 @@ def main(argv):
         print("vision: %s" % ("every section is written" if not gaps else "%d section(s) still to write" % len(gaps)))
         for gap in gaps:
             print("  %s" % gap)
-    print("Next: commit tools/specs/ and the wiring on their own (setup step 6).")
+    print("Next: commit what setup wrote, tools/specs/ included, on its own (setup step 6).")
+    for action, _, _, note in steps:
+        if action == "closing":
+            print(note)
     return 1 if refused else 0
 
 

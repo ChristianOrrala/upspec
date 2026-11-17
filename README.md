@@ -9,7 +9,7 @@ the tests against what was approved. The skills cover the whole path: vision,
 requirements, entity model, use cases, review, implementation, tests, change
 and coverage. They also bring an existing codebase under specifications.
 
-**Version 1.8.2.** Fifteen skills. Their scripts are tested against fixture
+**Version 2.0.0.** Fifteen skills. Their scripts are tested against fixture
 projects, and each skill is evaluated against sessions without it.
 
 ## Install
@@ -17,20 +17,28 @@ projects, and each skill is evaluated against sessions without it.
 Claude Code:
 
 ```text
-/plugin marketplace add ChristianOrrala/plugins
-/plugin install upspec@christian-orrala
+/plugin marketplace add ChristianOrrala/agents
+/plugin install upspec@christianorrala
 ```
 
 Codex:
 
 ```text
-codex plugin marketplace add ChristianOrrala/plugins
-codex plugin add upspec@christian-orrala
+codex plugin marketplace add ChristianOrrala/agents
+codex plugin add upspec@christianorrala
 ```
 
 Other agents: copy the folders under `skills/` into the folder where your
 agent finds skills, for example `.agents/skills/` in the project. Each skill
 folder carries its own references, templates and scripts.
+
+**Agent hooks.** The plugin carries four hooks that run the checks in the
+agent's own tool: the state at session start, open work per prompt, the
+validator after an edit and the finish check at the end of a turn. They act only
+in a project whose guideline file carries the rules block, and stay silent
+elsewhere. Claude Code: install the plugin. Codex: approve each hook once in
+`/hooks`. Kiro CLI and OpenCode: place the files the manual names. A project
+wired by an earlier release is cleaned up by `scaffold_docs.py --update`.
 
 **Requirements:** Python 3.9 or later (the scripts use the standard library
 only) and git.
