@@ -1,15 +1,11 @@
 ---
 name: up-2-cataloging-requirements
 description: >-
-  Turns a vision, workshop transcripts, notes or an interview into a requirements catalog
-  (docs/requirements.md) with functional requirements as role and need (FR), measurable non-functional
-  requirements (NFR) with a verification method, and constraints (C) under stable identifiers, and
-  returns a conflict ledger of contradictions, duplicates and open decisions for the human review
-  gate. Runs an elicitation interview when there is no workshop material. Use when the user asks to
-  gather, write, extract, classify or update requirements, user stories, NFRs or constraints for a
-  spec-driven or use-case-driven project, adds, defers or drops a requirement in the catalog, or hands
-  over meeting notes to consolidate. Not for the detailed behavior of one feature (that is a use case
-  specification) and not for brainstorming a design.
+  Use when the user asks to gather, write, extract, classify or update requirements, user stories,
+  NFRs or constraints, adds, defers or drops a requirement, hands over workshop transcripts or meeting
+  notes, or has only an idea and wants an interview. Writes the requirements catalog
+  (docs/requirements.md: FR, measurable NFR, constraints) and a conflict ledger. Not for one feature's
+  detailed behavior (a use case specification) or brainstorming a design.
 ---
 
 # Cataloging requirements

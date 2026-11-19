@@ -1,17 +1,12 @@
 ---
 name: up-0-navigating-spec-driven-work
 description: >-
-  Reads the state of a spec-driven repository (vision, requirements catalog, entity model, use case
-  diagram, use case specifications with their Status, journey test cases, code and tests) and names
-  the single next step and the skill that performs it, following the artifact chain from vision to
-  tests. Also classifies work that is not a change: new behavior before any use case is approved,
-  recovery of an existing system, throwaway, and picks the rigor profile (throwaway, solo, team). Use
-  when the user asks where the project stands, what comes next, which step follows the entity model or
-  an approved use case, whether to go ahead with a step now, whether a piece of work needs use cases
-  or specifications at all, how to start spec-driven development or use-case-driven work on an idea or
-  an existing codebase, to clean the specs, or names spec-driven development without naming an
-  artifact. For a fix, change or feature, use up-1-triaging-change-requests. Routes only; writes no
-  artifact.
+  Use when the user asks where a spec-driven project stands or what comes next, which step follows an
+  approved use case or the entity model, whether work needs use cases at all, how to start spec-driven
+  or use-case-driven work on an idea or an existing codebase, to clean the specs, or names spec-driven
+  development without naming an artifact. Reads the repository and names the single next step and its
+  skill; picks the rigor profile. Routes only, writes nothing. For a fix, change or feature, use
+  up-1-triaging-change-requests.
 ---
 
 # Navigating spec-driven work

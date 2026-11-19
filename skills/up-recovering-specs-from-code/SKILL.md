@@ -1,16 +1,11 @@
 ---
 name: up-recovering-specs-from-code
 description: >-
-  Recovers the specifications of an existing system from its code and running behavior: actors from
-  authorization, a use case map from server, front-end and hosted-service entry points grouped by user
-  goal, an entity model from the schema in the project's own words, and use case specifications at the
-  depth the owner chooses, at business level with implementation detail kept out by check. Keeps an
-  evidence ledger and a list of suspect behavior instead of correcting anything, prepares the two-role
-  baseline review (what it does versus what it was meant to do) and its change log, and pins current
-  behavior with tests before the first change. Use when the user wants to reverse-engineer, document,
-  baseline or onboard a legacy, inherited or brownfield codebase into use cases, bring an existing
-  project under spec-driven development, extract the business rules from existing code, even from a
-  single class or service, or carry the items a baseline review left for later forward.
+  Use when the user wants to reverse-engineer, document, baseline or onboard a legacy, inherited or
+  brownfield codebase into use cases, bring an existing project under spec-driven development, extract
+  the business rules from existing code, even one class or service, or carry forward what a baseline
+  review left for later. Recovers use cases, an entity model and specifications with an evidence
+  ledger, correcting nothing.
 ---
 
 # Recovering specifications from code

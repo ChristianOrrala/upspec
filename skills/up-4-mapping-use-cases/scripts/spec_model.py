@@ -24,7 +24,7 @@ import unicodedata
 from typing import NamedTuple, Optional
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "2.1.1"
+UPSPEC_VERSION = "2.1.2"
 
 # --- vocabulary -------------------------------------------------------------
 
@@ -407,7 +407,7 @@ def _read_subset(lines):
     """
     clean = [line.rstrip("\r") for line in lines]
     if clean:
-        clean[0] = clean[0].lstrip("﻿")
+        clean[0] = clean[0].lstrip("\ufeff")   # a byte-order mark at the start of the file
     if not clean or clean[0].strip() != "---":
         return {}, 0, [], {}
     data, problems, refused = {}, [], {}

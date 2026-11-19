@@ -1,16 +1,11 @@
 ---
 name: up-splitting-bounded-contexts
 description: >-
-  Splits a specification set that has outgrown review into bounded contexts, each owning its own
-  requirements catalog, entity model, use cases, guideline file and pipeline: measures the
-  specification core, clusters use cases by shared entities and actors, proposes contexts named after
-  business capabilities, assigns every requirement, entity and use case to exactly one context, turns
-  shared data into explicit contracts, moves the files keeping identifiers and history, and sets
-  ownership and the cross-context rule review. Use when the user says the specs are too big to review,
-  several teams or agents collide in docs, asks how to scale spec-driven development to multiple
-  teams, wants to split a monolith's specifications, or asks which use cases, entities or requirements
-  belong to which context, such as Billing or Order Management. Not for splitting code into services
-  without specifications.
+  Use when the user says the specs are too big to review, several teams or agents collide in docs,
+  asks how to scale spec-driven development to multiple teams, wants to split a monolith's
+  specifications, or asks which use cases, entities or requirements belong to which context, such as
+  Billing or Order Management. Splits the specification set into bounded contexts with explicit
+  contracts. Not for splitting code into services without specifications.
 ---
 
 # Splitting bounded contexts

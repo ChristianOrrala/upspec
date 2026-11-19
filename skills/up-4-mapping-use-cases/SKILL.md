@@ -1,14 +1,10 @@
 ---
 name: up-4-mapping-use-cases
 description: >-
-  Finds the use cases a system needs and records them as the use case overview (docs/use_cases.md: a
-  scope list and delivery order written by people, and an actor-goal table and Mermaid diagram
-  generated from the use case files), creating a stub for each mapped use case. Tests user-goal level,
-  aggregates or splits Manage-X goals, moves multi-role or waiting flows to BPMN, and checks
-  functional requirement coverage. Use when the user asks which use cases exist or are missing,
-  whether a goal is a use case, for a diagram or actor-goal list, to split or merge use cases, to
-  decide scope, or to check requirement coverage. Not for writing one use case's steps, bounded
-  contexts or draw.io.
+  Use when the user asks which use cases exist or are missing, whether a goal is a use case, for a use
+  case diagram or actor-goal list, to split or merge use cases such as Manage-X, to decide scope, or
+  to check requirement coverage. Writes the use case overview (docs/use_cases.md) and a stub per use
+  case. Not for one use case's steps, bounded contexts or draw.io diagrams.
 ---
 
 # Mapping use cases

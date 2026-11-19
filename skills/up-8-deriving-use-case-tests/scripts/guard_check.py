@@ -107,7 +107,8 @@ def run(command, timeout):
     # otherwise be read from a cache compiled before it.
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1", COLUMNS=OUTPUT_COLUMNS)
     try:
-        done = subprocess.run(command, shell=True, timeout=timeout, env=env, stdout=subprocess.PIPE,
+        # The command is the project's own test command, as the person gives it (--test); it needs a shell.
+        done = subprocess.run(command, shell=True, timeout=timeout, env=env, stdout=subprocess.PIPE,  # nosec B602
                               stderr=subprocess.STDOUT)
         return done.returncode, done.stdout.decode("utf-8", "replace")
     except subprocess.TimeoutExpired as exc:

@@ -2,6 +2,13 @@
 
 All notable changes to upspec. Versions follow semantic versioning.
 
+## 2.1.2 (2026-11-19)
+
+Fixes found by a static check of the skills (NVIDIA SkillEvaluator, Tier 1).
+
+- **Descriptions that fit.** The 15 descriptions held 12,462 characters, more than Claude Code's and Codex's skill lists fit (about 8,000), so the agents shortened them or left skills out. They now hold 6,302: each opens with when to use the skill, keeps the phrasings the trigger evaluations needed, and leaves the procedure to the skill's body.
+- **Readable scripts.** The shared specification model writes the byte-order mark it strips as `\ufeff` instead of an invisible character; the guard check says why it runs the project's test command through a shell.
+
 ## 2.1.1 (2026-11-19)
 
 Fixes found by the review of 2.1.0.

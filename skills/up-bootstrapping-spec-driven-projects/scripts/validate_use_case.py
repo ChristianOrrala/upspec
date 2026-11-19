@@ -35,7 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "2.1.1"
+UPSPEC_VERSION = "2.1.2"
 
 REQUIRED_SECTIONS = ("Main Success Scenario", "Alternative Flows", "Postconditions")
 EXPECTED_SECTIONS = ("Preconditions", "Business Rules")

@@ -1,13 +1,10 @@
 ---
 name: up-6-reviewing-specifications
 description: >-
-  Reviews specification artifacts without editing them. Runs structural lint and an independent
-  three-reader review: stakeholder clarity, engineer testability and the literal implementer's
-  invention list. Reports severity, file, line and element, readiness for Reviewed or Approved, and a
-  traceability matrix. Use when the user asks to review, lint, check, validate or approve
-  specifications, find contradictions or gaps, request a traceability matrix from requirements to use
-  cases, rules and journey tests, or create a specification quality gate. Not for code or pull request
-  review.
+  Use when the user asks to review, lint, check, validate or approve specifications, whether a use
+  case is ready for approval, to find contradictions or gaps, for a traceability matrix from
+  requirements to use cases, rules and journey tests, or for a specification quality gate. Reviews
+  without editing and reports findings and readiness. Not for code or pull request review.
 ---
 
 # Reviewing specifications

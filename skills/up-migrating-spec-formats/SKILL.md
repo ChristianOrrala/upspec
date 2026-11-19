@@ -1,12 +1,10 @@
 ---
 name: up-migrating-spec-formats
 description: >-
-  Moves a specification set in upspec's earlier formats (bold Overview fields, use_cases.puml, user
-  stories, database types in the entity model, journey tables, the long change record), or in other
-  formats, and the project's installed checks to the current ones: a dry-run plan, a judgment pass
-  with an invention list, the owner's yes, one or two commits, and a check that no format error is
-  left. Use when a script reports OLD_FORMAT, the router names the migration, or the user asks to
-  migrate specifications to the current formats.
+  Use when a script reports OLD_FORMAT, the router names the migration, or the user asks to migrate or
+  convert specifications, in upspec's earlier formats or another format, to the current ones. Plans a
+  dry run, lists judgment calls, waits for the owner's yes, then moves the specifications and
+  installed checks.
 ---
 
 # Migrate specification formats

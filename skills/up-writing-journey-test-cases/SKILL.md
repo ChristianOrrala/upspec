@@ -1,14 +1,10 @@
 ---
 name: up-writing-journey-test-cases
 description: >-
-  Writes a journey test case document (docs/test_cases/TC-XXX-name.md) that chains several use cases
-  into one end-to-end story a stakeholder recognizes: roles, preconditions with their data source, one
-  gherkin block with a Scenario, literal test data and UC identifier comments, verification steps at
-  the seams, closing Then steps and a cleanup inventory. Selects journeys by risk or derives one per
-  path of a BPMN business process, and keeps per-use-case detail out. Use when the user asks for an
-  end-to-end scenario, a user journey, a test case across use cases, TC-XXX, asks which journeys or
-  paths to test end to end, or wants test cases derived from a business process or .bpmn file. Not for
-  the tests of a single use case and not for writing browser automation code.
+  Use when the user asks for an end-to-end scenario, a user journey, a test case across use cases or
+  TC-XXX, which journeys or paths to test end to end, or test cases derived from a business process or
+  .bpmn file. Writes one journey test case (docs/test_cases/TC-XXX-name.md) chaining several use
+  cases. Not for the tests of a single use case or browser automation code.
 ---
 
 # Writing journey test cases

@@ -1,16 +1,11 @@
 ---
 name: up-7-implementing-use-cases
 description: >-
-  Implements or synchronizes exactly one approved use case in code, in any stack: checks the Status
-  gate, reads only the use case, its linked requirement rows, the entity model and the guideline file,
-  shows an element-to-code plan with the list of decisions the specification leaves open, then
-  generates a new slice or applies only the behavioral difference between the previous and the current
-  specification, marks rule-enforcing code with the rule identifier, audits the diff for out-of-scope
-  changes and handles schema changes as a guarded sub-procedure. Use when the user says implement,
-  build, generate, sync or synchronize UC-XXX, asks to bring code in line with a changed use case, or
-  asks for a database migration or schema change after the entity model changed, or for an index or
-  partitioning that changes no behavior. Also for behavior the owner explicitly requests in the
-  session that no use case covers; not for deciding whether a report is a bug or a change.
+  Use when the user says implement, build, generate, sync or synchronize UC-XXX, asks to bring code in
+  line with a changed use case, asks for a database migration or schema change after the entity model
+  changed, or for an index or partitioning that changes no behavior; also for behavior the owner
+  requests in the session that no use case covers. Implements one approved use case in any stack, with
+  a plan first. Not for deciding whether a report is a bug or a change.
 ---
 
 # Implementing use cases

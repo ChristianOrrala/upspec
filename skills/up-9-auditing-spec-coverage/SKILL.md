@@ -1,15 +1,10 @@
 ---
 name: up-9-auditing-spec-coverage
 description: >-
-  Audits whether code and tests realize the specifications and reports without fixing: for one use
-  case, a matrix of every step, alternative flow, business rule, postcondition and linked NFR against
-  code evidence and test evidence, with gaps, drift and the Status the evidence justifies; for the
-  project, the spec dashboard in Markdown (requirements and use cases complete, in progress, not
-  started; per use case code, unit, end-to-end, regression, integrity) generated from Status fields,
-  identifiers in code and tests, and the test report. Use when the user asks whether UC-XXX is fully
-  implemented or tested, which rules lack tests, whether a Status may move to Tested or Done, for
-  specification coverage, progress, a spec dashboard, or drift between code and specs. Not for line
-  coverage, charts, or reviewing the specs themselves.
+  Use when the user asks whether UC-XXX is fully implemented or tested, which rules lack tests,
+  whether a Status may move to Tested or Done, for specification coverage, progress, a spec dashboard,
+  or drift between code and specs. Reports the evidence matrix or the project dashboard without
+  fixing. Not for line coverage, charts, or reviewing the specs themselves.
 ---
 
 # Auditing spec coverage

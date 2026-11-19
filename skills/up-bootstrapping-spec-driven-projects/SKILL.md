@@ -1,17 +1,11 @@
 ---
 name: up-bootstrapping-spec-driven-projects
 description: >-
-  Sets a repository up for specification-first development with use cases: chooses a rigor profile
-  (throwaway, solo, team), creates the docs tree and a vision skeleton, adds the spec-first rules to
-  the guideline file (CLAUDE.md or AGENTS.md), for teams adds spec ownership, a pull request template
-  with the specification-first review order, and a CI job that runs the specification lint and a
-  spec-first guard, and tells how to turn on the agent hooks the plugin carries, which run the checks
-  in the agent's own tool. Use when the user wants to adopt, introduce or set up spec-driven
-  development or use-case-driven work in a new or existing repository, asks which artifacts and gates
-  a solo developer or a team needs, asks whether spec discipline is worth it for a prototype or a
-  short-lived project, wants agent guideline rules for working from use cases, or wants hooks that
-  make an agent run the specification checks without being asked. Not for writing a general CLAUDE.md
-  and not for task boards.
+  Use when the user wants to adopt, introduce or set up spec-driven development or use-case-driven
+  work in a new or existing repository, asks which artifacts and gates a solo developer or a team
+  needs, whether spec discipline is worth it for a prototype, wants guideline rules for working from
+  use cases, or hooks that make an agent run the specification checks. Sets up the docs tree, rules,
+  PR template and CI. Not for a general CLAUDE.md or task boards.
 ---
 
 # Bootstrapping spec-driven projects

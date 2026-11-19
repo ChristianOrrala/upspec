@@ -1,16 +1,11 @@
 ---
 name: up-8-deriving-use-case-tests
 description: >-
-  Derives and maintains the tests of one use case from its specification, in any stack: lists the
-  coverage units (main success scenario, each alternative flow, each business rule with its
-  boundaries, success postconditions, failure guarantees, guarded preconditions, linked testable
-  NFRs), picks the test layer from the use case's interface, writes one traceable test per unit
-  asserting postconditions rather than internals, proves each rule test fails against a deliberately
-  broken rule, and on a specification change updates, deletes or keeps tests according to the
-  difference. Use when the user asks to write, generate, update or review tests for UC-XXX, asks which
-  tests a use case needs, wants spec-based acceptance tests, asks whether the tests really guard a
-  business rule, or suspects generated tests assert the wrong thing. Not for end-to-end journeys
-  across several use cases and not for test-first design of code that has no use case.
+  Use when the user asks to write, generate, update or review tests for UC-XXX, which tests a use case
+  needs, for spec-based acceptance tests, whether tests really guard a business rule, or suspects
+  generated tests assert the wrong thing. Derives one traceable test per flow, rule and postcondition
+  of one use case, in any stack. Not for end-to-end journeys across use cases or test-first design of
+  code without a use case.
 ---
 
 # Deriving use case tests

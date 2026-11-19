@@ -1,12 +1,10 @@
 ---
 name: up-3-modeling-domain-entities
 description: >-
-  Creates or updates docs/entity_model.md: a Mermaid erDiagram of entities and relationships,
-  attribute tables with business meanings, types and rules, lifecycle states and avoided words. Checks
-  specification nouns and lists use cases affected by a model change. Use when the user asks for an
-  entity, domain or data model or glossary, changes an entity or attribute, asks to resolve
-  conflicting vocabulary, or a specification names a missing concept. Not for database migrations or
-  ORM code.
+  Use when the user asks for an entity, domain or data model or a glossary, changes an entity or
+  attribute, asks to resolve conflicting vocabulary, or a specification names a missing concept.
+  Writes docs/entity_model.md (Mermaid erDiagram, attribute tables, lifecycles) and lists the use
+  cases a change affects. Not for database migrations or ORM code.
 ---
 
 # Modeling domain entities

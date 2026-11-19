@@ -1,17 +1,12 @@
 ---
 name: up-1-triaging-change-requests
 description: >-
-  Turns an incoming bug report, feature or change request, or production hotfix into a
-  specification-first change: classifies it with the sign-off test (code wrong, specification wrong,
-  test wrong, ambiguous specification, enhancement, new use case, or no behavior change), lists the
-  affected requirements, use cases, rules, entities, journey test cases and tests, prepares the
-  specification change first, resets the use case Status, and hands over to implementation and tests.
-  Use when the user reports a bug or relays that users report something fails and asks to fix it, in a
-  project that has use case specifications; forwards a stakeholder change such as a new limit, period
-  or policy, asks whether something is a bug or a feature, wants an urgent fix or a production hotfix,
-  says to patch the code now and fix the specification later, or asks what a change affects; it comes
-  first, before any code is read. Not for diagnosing the technical root cause of a failure, not for
-  projects without use case specifications.
+  Use when the user reports a bug or relays that users report something fails and asks to fix it,
+  forwards a stakeholder change (a new limit, period or policy), asks whether something is a bug or a
+  feature, wants an urgent fix or production hotfix, says to patch the code now and fix the spec
+  later, or asks what a change affects, in a project with use case specifications. Comes first, before
+  any code is read: classifies the change, lists what it affects and prepares the specification
+  change. Not for diagnosing a technical root cause.
 ---
 
 # Triaging change requests
