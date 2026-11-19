@@ -145,7 +145,7 @@ in the order the script tries them. Evidence and edge cases for each row:
 | 6 | Entity model missing | Model the entities, before any use case | `up-3-modeling-domain-entities` |
 | 7 | A use case has no ID, an ID is used twice, or a Status is not a Status (`FIX`) | Repair the specification files first | `up-6-reviewing-specifications` (the specification lint) |
 | 8 | Use case diagram missing or stale | Map the use cases | `up-4-mapping-use-cases` |
-| 9 | With the A-files: a use case the current work names has a next step (only when `ACTIVE.md` has no current work, AHEAD's first Next up item) | That use case's own step, from rows 10 to 14 or row 18, tried in the order of those rows | Its row's skill or actor |
+| 9 | With the A-files: a use case the current work names has a next step (only when `ACTIVE.md` has no current work and no work section, AHEAD's first Next up item) | That use case's own step, from rows 10 to 14 or row 18, tried in the order of those rows | Its row's skill or actor |
 | 10 | A use case is `Implemented` | Test the built slice, then audit it | `up-8-deriving-use-case-tests`, `up-9-auditing-spec-coverage` |
 | 11 | A use case is `Approved` | Implement it | `up-7-implementing-use-cases` |
 | 12 | A use case is `Reviewed` | A person approves it | A person |

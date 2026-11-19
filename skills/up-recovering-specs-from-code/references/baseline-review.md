@@ -130,7 +130,8 @@ case:
 - title "Align UC-XXX <name> with the code"; Kind `proposal`; State `open`;
   Ability: the one whose `Specs` line names the use case, or empty;
 - **What:** the entries by number ("change log #3, #9"), not their content;
-- **Why:** the baseline review and its date; **Write-up:** the change log.
+- **Why:** the baseline review and its date; **Write-up:** the change log;
+  **Entered:** the date of the owner's yes and his words.
 
 Show every draft at once and write nothing until the owner says yes; the
 owner may edit or merge drafts first. On the yes, write the items and put

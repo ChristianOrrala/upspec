@@ -24,7 +24,7 @@ import unicodedata
 from typing import NamedTuple, Optional
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "2.0.1"
+UPSPEC_VERSION = "2.1.0"
 
 # --- vocabulary -------------------------------------------------------------
 
@@ -700,13 +700,12 @@ TRACKED_A_FILES = ("ACTIVE.md", "ABILITIES.md", "AHEAD.md", "ATLAS.md")
 
 
 def a_files_listed(agents_lines):
-    """The A-files the index of AGENTS.md lists, read as the A-files' check reads it: the rows of the tables in
-    its first 100 lines whose first cell is an A-file's name (in backticks, as a link, or after ./); fenced
-    blocks are examples. An AGENTS.md with no such row names its files in prose, and every A-file named in
-    those lines is listed."""
-    lines = agents_lines[:A_FILES_INDEX_LINES]
+    """The A-files the index of AGENTS.md lists, read as the A-files' check reads it: the rows of its tables,
+    wherever they sit in the file, whose first cell is an A-file's name (in backticks, as a link, or after ./);
+    fenced blocks are examples. An AGENTS.md with no such row names its files in prose, and every A-file named in
+    its first 100 lines is listed: a passing mention further down lists nothing."""
     found = set()
-    for table in read_tables(lines):
+    for table in read_tables(agents_lines):
         if table["separator"] is None:
             continue
         for _, row, _ in table["rows"]:
@@ -715,7 +714,7 @@ def a_files_listed(agents_lines):
     found &= set(TRACKED_A_FILES)
     if found:
         return found
-    prose = "\n".join(line for _, line in outside_fences(lines))
+    prose = "\n".join(line for _, line in outside_fences(agents_lines[:A_FILES_INDEX_LINES]))
     return {name for name in TRACKED_A_FILES if name in prose}
 
 
@@ -844,6 +843,19 @@ def _debt(hot):
             and re.search(r"[^\W_]", re.sub(r"<[^<>]*>", "", bullet))]
 
 
+ACTIVE_SECTIONS = ("now", "pending", "debt", "next new work")
+
+
+def _work_section(hot):
+    """The heading of a work section in ACTIVE's hot zone: a `## ` section other than the four the file always has.
+    It names work the owner committed to; while it is there the desk is not clear (pairing contract, row P3)."""
+    for _, line in outside_fences(hot):
+        match = re.match(r"^##\s+(.+?)\s*$", line)
+        if match and match.group(1).lower() not in ACTIVE_SECTIONS:
+            return match.group(1)
+    return ""
+
+
 def _next_new_work(hot):
     """The text under `## Next new work` in ACTIVE's hot zone, its lines joined by spaces, up to the next heading or
     the `Below:` line; '' when it is empty, says none, or holds only the template's `<...>` placeholder."""
@@ -886,7 +898,7 @@ def read_tracking(root):
     ahead_items: {AH id: {title, kind, state, abilities, belongs_to, section, line}}: each row of an AHEAD table with
     the columns ID and Ability (the index and the history), with the `## ` heading it sits under and its line, and
     the entry's Belongs to line as written (None without one); an entry with no row has kind, state, section and line
-    None; debt: the bullets under ACTIVE's `## Debt`, empty when ACTIVE names another home for the current work."""
+    None; work_section: the heading of a work section in ACTIVE's hot zone, '' without one; debt: the bullets under ACTIVE's `## Debt`, empty when ACTIVE names another home for the current work."""
     if not a_files_present(root):
         return None
     hot = _hot_zone(_optional_file(root, "ACTIVE.md").lines)
@@ -901,7 +913,8 @@ def read_tracking(root):
                 "abilities_present": abilities_file.present,
                 "active_home": active_home, "abilities_home": _home(root, _hot_zone(abilities_lines)),
                 "ahead_home": _home(root, _hot_zone(ahead)),
-                "next_step": _field(hot, "Next step", whole=True), "next_new_work": _next_new_work(hot), "ahead_items": {}}
+                "next_step": _field(hot, "Next step", whole=True), "next_new_work": _next_new_work(hot), "ahead_items": {},
+                "work_section": _work_section(hot)}
 
     def ability(identifier, name):
         """The ability's record, made the first time an entry heading or an index row names it."""

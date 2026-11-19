@@ -2,6 +2,18 @@
 
 All notable changes to upspec. Versions follow semantic versioning.
 
+## 2.1.0 (2026-11-19)
+
+Released with a-files 2.2.0, whose pairing text this plugin shares. "Later" no longer writes `AHEAD.md`, and setup reads `AGENTS.md` with or without an end of hot zone.
+
+- **"Later" goes to upspec's own list.** A drift answered "later", attended or unattended, is recorded as a line in `up-deferred.txt` in the git folder and shown with the open work at session start. It never becomes an item in `AHEAD.md`, which the owner decides, and the record no longer says a person chose when nobody was asked. The question says where "later" records.
+- **A missing use case noted while implementing** goes to the same list where the hooks are installed; without them it is named in the report and in the commit message.
+- **Still items, on the person's word:** a change request accepted for later and a recovery entry written on a yes become AHEAD items and carry the `**Entered:**` line.
+- **Setup joins an `AGENTS.md` in both forms.** With an end of hot zone, as before. Without one, the two keep-in-step rows are added and nothing is named in a hot zone; the rules section stands at the end of the file. The scripts find the A-files' index table anywhere in the file.
+- **Pairing rows P1, P4 and P9** are reworded on both sides.
+
+**What an upgrade asks of you:** update the plugin, then in each project run `scaffold_docs.py --update` from the new plugin and apply its plan: the rules block in your `AGENTS.md` or `CLAUDE.md` is the project's own copy, and until it is replaced it still tells agents to file a missing use case in `AHEAD.md`. A project wired by 1.x follows the update of 2.0.0 first. Items that earlier releases wrote into `AHEAD.md` on a "later" stay where they are; a-files 2.2.0's *Sort a full AHEAD* removes the ones you never chose.
+
 ## 2.0.1 (2026-11-17)
 
 A text release: the install and upgrade steps are complete enough to follow without help. No script behaves differently; only the version lines change.

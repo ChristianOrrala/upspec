@@ -110,10 +110,7 @@ Ask about a behavior decision that changes an outcome that the request or specif
 
 A goal no existing use case covers. When the owner explicitly requests the behavior
 in this session, say no use case covers it, record the missing use case to write
-as open work (with the A-files, an item in `AHEAD.md`; otherwise, where
-upspec's hooks are installed, the deferred list through the hook's `later`
-command; with neither, name the missing use case in the report and in the
-commit message), and do the requested work. Agents set `Implemented` and `Tested`
+as open work (where upspec's hooks are installed, the deferred list through the hook's `later` command; without them, name the missing use case in the report and in the commit message; never an item in `AHEAD.md`, which the owner decides), and do the requested work. Agents set `Implemented` and `Tested`
 when evidence exists; only a person sets `Approved` and `Done`. The usual
 specification steps below remain open work; they do not block this request.
 

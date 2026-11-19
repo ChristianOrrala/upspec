@@ -205,11 +205,10 @@ Each new decision asks the person once: align now, at the end of the session,
 or later. Now means align it in this session; end of the session means leave
 it and remind the person once at session end; later runs the item's
 `hook_gate.py later TEXT` command, which the message gives with the plugin's
-path. That command adds an `AHEAD.md` item
-(kind `idea`, state `open`, with its entry under Items) when the A-files
-index and Items section are present; otherwise it appends to
-`up-deferred.txt` in the git folder, shown as open work at session start.
-A drift recorded before is not recorded again.
+path. That command appends to `up-deferred.txt` in the git folder, shown as
+open work at session start. It never writes `AHEAD.md`: with the A-files,
+that file is entered on the owner's decision, and he may make an item of a
+deferred line when he sees it. A drift recorded before is not recorded again.
 
 Notes go to the agent as one list: the records out of step and what aligns
 each. It explicitly says none needs the owner, and asks the agent to align
@@ -265,7 +264,7 @@ specification content.
 A session with nobody present cannot answer a question. With
 `CLAUDE_CODE_SESSION_ATTENDED=0`, or `UP_UNATTENDED=1` set for any tool, the
 stop does not ask. It records each owner decision as later, the way the `later`
-command does (an `AHEAD.md` item, or a line of the deferred list), once per
+command does (a line of the deferred list, never an `AHEAD.md` item), once per
 session through the same memory, and sends only the notes for the agent with one
 line naming what it recorded. With no notes it sends nothing. Other tools are not
 guessed: set `UP_UNATTENDED=1` where a tool runs without a person.

@@ -71,7 +71,7 @@ import use_case_map
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "2.0.1"
+UPSPEC_VERSION = "2.1.0"
 
 PLACEHOLDER = re.compile(r"\[[^\]\n]+\](?!\()")
 SOURCE_SUFFIXES = (".py", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".java", ".kt", ".kts", ".go", ".rb", ".php",
@@ -238,7 +238,8 @@ def unique(items):
 
 
 def focus_of(tracking):
-    """The use cases the current work names (directly or through its abilities), else those of Next up's first item."""
+    """The use cases the current work names (directly or through its abilities), else those of Next up's first item
+    when the desk is clear: with a work section in ACTIVE.md, committed work waits and nothing else is proposed."""
     abilities = tracking["abilities"]
     current = tracking["current_work"]
     if tracking["active_home"]:
@@ -248,6 +249,8 @@ def focus_of(tracking):
         for ability in model.RE_AB_ID.findall(current):
             ids += abilities.get(ability, {}).get("specs", [])
         return unique(ids), "ACTIVE.md current work"
+    if tracking.get("work_section"):
+        return [], None                    # committed work waits on the desk: Next up is not the next step
     for item in tracking["next_up"][:1]:
         ids = [uc for ability in tracking["items"].get(item, []) for uc in abilities.get(ability, {}).get("specs", [])]
         if ids:

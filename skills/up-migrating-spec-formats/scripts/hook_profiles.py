@@ -13,7 +13,7 @@ import re
 from typing import NamedTuple, Optional
 
 # The release these copies belong to; the gate rejects siblings of another release.
-UPSPEC_VERSION = "2.0.1"
+UPSPEC_VERSION = "2.1.0"
 
 # Explicit names prevent guessing the calling tool from an unreliable environment.
 PROFILES = ("raw", "claude", "codex", "kiro")

@@ -15,7 +15,8 @@ release installed for them: its entries in the tool's hook files, its hook-only 
 **Hooks:** line of the rules block.
 
 When the project tracks its work in the A-files (ACTIVE.md with a hot zone), the
-plan also joins them: the rules section is named in the hot zone of AGENTS.md,
+plan also joins them: the rules section is named in the hot zone of an AGENTS.md
+that has one (one without the marker needs no naming),
 the keep-in-step list gains two rows when the project keeps ABILITIES.md (the
 file exists or the index of AGENTS.md lists it), and ATLAS.md, when it exists,
 gains a row for the specifications. Specifications found outside the specification folder (this
@@ -277,16 +278,16 @@ def keeps_abilities(root, agents_text):
 
 
 def join_agents(text, name_rules, abilities):
-    """P1: name the rules section in the hot zone's Below: line; add the two keep-in-step rows when the project
-    keeps ABILITIES.md (abilities).
+    """P1: add the two keep-in-step rows when the project keeps ABILITIES.md (abilities), and, in an AGENTS.md that
+    has a hot zone, name the rules section in its Below: line. An AGENTS.md without the marker has no zone to name
+    anything in: the rules section stands at the end of the file, where setup writes it, and only the rows are added.
 
     Returns (the new text, or None when nothing changes; notes for the person)."""
     lines = text.split("\n")
     end = next((i for i, line in enumerate(lines) if line.strip() == MARKER), None)
-    if end is None:
-        return None, ["AGENTS.md has no hot zone; nothing joined"]
+    zone = len(lines) if end is None else end       # where the keep-in-step list is looked for
     changed, notes, title = False, [], RULES_HEADING[3:]
-    if name_rules:
+    if name_rules and end is not None:
         below = [i for i in range(end) if lines[i].startswith("Below:")]
         if below and title.lower() not in lines[below[-1]].lower():
             listed = lines[below[-1]][len("Below:"):].strip().rstrip(".")
@@ -294,14 +295,14 @@ def join_agents(text, name_rules, abilities):
             changed = True
         elif not below:
             lines[end:end] = ["Below: %s." % title, ""]
-            end += 2
+            zone = end = end + 2
             changed = True
-    if abilities and "`Specs` line" not in "\n".join(lines[:end]):
-        keep = next((i for i in range(end) if lines[i].strip().lower() == "## keep in step"), None)
+    if abilities and "`Specs` line" not in "\n".join(lines[:zone]):
+        keep = next((i for i in range(zone) if lines[i].strip().lower() == "## keep in step"), None)
         starts = []
         if keep is not None:
             j = keep + 1
-            while j < end and not lines[j].startswith("## "):
+            while j < zone and not lines[j].startswith("## "):
                 if lines[j].startswith("- "):
                     starts.append(j)
                 elif starts and lines[j].strip() and not lines[j].startswith((" ", "\t")):
@@ -312,9 +313,10 @@ def join_agents(text, name_rules, abilities):
             changed = True
         else:
             notes.append("AGENTS.md has no Keep in step list: add its two rows by hand (references/existing-structure.md)")
-    hot = next(i for i, line in enumerate(lines) if line.strip() == MARKER)
-    if changed and hot > HOT_CAP:
-        return None, ["joining would take the hot zone of AGENTS.md to %d lines (cap %d): shorten it, then run setup again" % (hot, HOT_CAP)]
+    if end is not None:
+        hot = next(i for i, line in enumerate(lines) if line.strip() == MARKER)
+        if changed and hot > HOT_CAP:
+            return None, ["joining would take the hot zone of AGENTS.md to %d lines (cap %d): shorten it, then run setup again" % (hot, HOT_CAP)]
     return ("\n".join(lines) if changed else None), notes
 
 
@@ -1010,7 +1012,10 @@ def plan(root, profile, host, guideline, skipped=(), folder="docs", replace=(), 
             if new is None:
                 steps.append(("skip", "AGENTS.md", None, "; ".join(notes) or "already joined to the A-files"))
             else:
-                done = "the rules named in the hot zone, two keep-in-step rows" if abilities else "the rules named in the hot zone"
+                marker = any(line.strip() == MARKER for line in text.split("\n"))
+                done = " and ".join(part for part in (
+                    "the rules named in the hot zone" if marker and guideline == "AGENTS.md" else "",
+                    "two keep-in-step rows" if abilities else "") if part)
                 steps.append(("join", "AGENTS.md", (guideline == "AGENTS.md", abilities),
                               "; ".join([done + " (A-files)"] + notes)))
         atlas = os.path.join(root, "ATLAS.md")

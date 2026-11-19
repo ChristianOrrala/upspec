@@ -55,7 +55,7 @@ Then apply the sign-off test:
 | 6 | New use case | A goal no use case covers | Requirement, diagram, new specification | New file starts `Draft` | `up-2-cataloging-requirements`, `up-4-mapping-use-cases`, `up-5-writing-use-case-specs` |
 | 7 | No behavior change | Refactoring, a dependency update, performance inside an existing threshold, infrastructure | Nothing | Unchanged | Proceed; the change carries the line `No behavior change: UC-012`, naming the use case it stays in |
 
-A request authorizes what it asks to happen now, under its stated conditions; preparing for approval authorizes preparation only. A reserved approval requires an owner reply granting the named slice; record its date and words. An agent-written record, tests, a review verdict, a status label or an answer to another question cannot grant it. If a reply is unclear or approves one slice and defers another, work on the approved slice, do as much as it allows, state your reading and say what still waits. A missing specification, format or lint warning, or an open technical name adds no condition. For outcome 6, when the owner explicitly requests the uncovered behavior in this session, say no use case covers it, record the missing use case to write as open work (with the A-files, an item in `AHEAD.md`; otherwise, where upspec's hooks are installed, the deferred list through the hook's `later` command; with neither, name the missing use case in the report and in the commit message), and do the requested work. Agents set `Implemented` and `Tested` when the evidence exists; only a person sets `Approved` and `Done`.
+A request authorizes what it asks to happen now, under its stated conditions; preparing for approval authorizes preparation only. A reserved approval requires an owner reply granting the named slice; record its date and words. An agent-written record, tests, a review verdict, a status label or an answer to another question cannot grant it. If a reply is unclear or approves one slice and defers another, work on the approved slice, do as much as it allows, state your reading and say what still waits. A missing specification, format or lint warning, or an open technical name adds no condition. For outcome 6, when the owner explicitly requests the uncovered behavior in this session, say no use case covers it, record the missing use case to write as open work (where upspec's hooks are installed, the deferred list through the hook's `later` command; without them, name the missing use case in the report and in the commit message; never an item in `AHEAD.md`, which the owner decides), and do the requested work. Agents set `Implemented` and `Tested` when the evidence exists; only a person sets `Approved` and `Done`.
 
 A name or signature the specification leaves open (function, module, file or parameter) is a technical choice (rule 8): pick one, list it in the invention list and go on. Where the specification names an interface, its names bind. Ask about a behavior decision that changes an outcome that the request or specification names; otherwise record the closest reading as an assumption and name it in the handoff.
 
@@ -261,7 +261,8 @@ foreign-key exception), however urgent the fix.
    never copies a use case's Status; it names the reset (or none).
 8. When the owner defers the change and the project uses the A-files, name the
    AHEAD item it becomes: a proposal that links the change record, without
-   copying it (the pairing contract in the conventions).
+   copying it, and carries its **Entered** line with the date and the owner's
+   words (the pairing contract in the conventions).
 
 ## Validation
 

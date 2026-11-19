@@ -47,8 +47,10 @@ present when `ACTIVE.md` holds the line `<!-- hot zone ends -->`.
 **When they are present**, the scaffold's dry run adds the joining edits, P1
 and P5 of the pairing contract in the conventions:
 
-- `AGENTS.md`: the rules section is named in the hot zone's `Below:` line (a
-  `Below:` line is added above the marker when there is none). When the
+- `AGENTS.md`: where the file has an end of hot zone, the rules section is
+  named in the hot zone's `Below:` line (a `Below:` line is added above the
+  marker when there is none); a file without the marker needs no naming, and
+  the section stands at its end. When the
   project keeps `ABILITIES.md` (the file exists or the index of `AGENTS.md`
   lists it), the keep-in-step list gains two rows: a use case that changes
   Status is followed by the ability whose `Specs` line names it; a newly

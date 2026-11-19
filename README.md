@@ -9,7 +9,7 @@ the tests against what was approved. The skills cover the whole path: vision,
 requirements, entity model, use cases, review, implementation, tests, change
 and coverage. They also bring an existing codebase under specifications.
 
-**Version 2.0.1.** Fifteen skills. Their scripts are tested against fixture
+**Version 2.1.0.** Fifteen skills. Their scripts are tested against fixture
 projects, and each skill is evaluated against sessions without it.
 
 ## Install
@@ -33,7 +33,7 @@ Then approve each hook once in Codex's `/hooks`.
 Kiro CLI and OpenCode run the plugin from a full copy, kept in one place:
 
 ```sh
-git clone --branch v2.0.1 https://github.com/ChristianOrrala/upspec.git ~/.local/share/agent-plugins/upspec
+git clone --branch v2.1.0 https://github.com/ChristianOrrala/upspec.git ~/.local/share/agent-plugins/upspec
 ```
 
 - **Kiro CLI:** link each folder under the copy's `skills/` into

@@ -1,6 +1,6 @@
 # upspec: User Manual
 
-Version 2.0.1
+Version 2.1.0
 
 This manual explains how to install the `upspec` skills, how the work
 they support is organized, and how to carry a piece of work from an idea, a
@@ -178,10 +178,7 @@ markers and test names keep the bare identifier.
 
 **An explicit request outside the specifications.** When you explicitly ask in
 the session for behavior no use case covers, the agent says so, records the
-missing use case to write as open work (with the A-files, an item in `AHEAD.md`; otherwise, where
-upspec's hooks are installed, the deferred list through the hook's `later`
-command; with neither, name the missing use case in the report and in the
-commit message), and does the work. A behavior decision goes back to you when it changes an outcome named by the request or specification. Agents set Implemented
+missing use case to write as open work (where upspec's hooks are installed, the deferred list through the hook's `later` command; without them, name the missing use case in the report and in the commit message; never an item in `AHEAD.md`, which the owner decides), and does the work. A behavior decision goes back to you when it changes an outcome named by the request or specification. Agents set Implemented
 and Tested when evidence exists; only a person sets Approved and Done. A reserved approval still holds until you grant it.
 
 **A fix, a change or a feature.** Just ask for it:
@@ -346,9 +343,10 @@ works). Every script reads it, and `--docs DIR` overrides it for one run.
 When the project also tracks its work in the A-files, the two join by files,
 and neither moves the other's:
 
-- `AGENTS.md` names the specification rules in its hot zone and, when the
-  project keeps `ABILITIES.md`, keeps two rows in step with the use cases
-  (P1).
+- `AGENTS.md` holds the specification rules, named in its hot zone where the
+  file has one, and, when the project keeps `ABILITIES.md`, keeps two rows in
+  step with the use cases (P1). An `AGENTS.md` with no end of hot zone is
+  joined the same way.
 - An ability in `ABILITIES.md` may name its use cases in a `Specs` line. The
   router warns when an ability is done while one of its use cases is not,
   planned while one is built, or in progress while all of them are `Done`,
@@ -361,9 +359,10 @@ and neither moves the other's:
   close-out and the finish check's warning name `ACTIVE.md` alone, setup adds
   no keep-in-step rows about abilities, and the use case map proposes none.
 - The router answers for the current work in `ACTIVE.md` first and says what
-  blocks it; with no current work it takes AHEAD's first Next up item when
-  that item's ability names use cases, and otherwise decides as usual
-  (P3).
+  blocks it; with no current work and no work section in `ACTIVE.md` it takes
+  AHEAD's first Next up item when that item's ability names use cases, and
+  otherwise decides as usual. A work section is work the owner committed to:
+  while it is on the desk, Next up is not proposed (P3).
 - An AHEAD item may cite a requirement deferred in the catalog by its
   identifier (`FR-012`), or link the change record of a change accepted for
   later; the requirement and the record stay where they are, nothing is
@@ -379,12 +378,13 @@ and neither moves the other's:
   goes to up-1 first`. It says the step applies when nothing else is being
   worked on, and that a fix, change or feature on an existing use case starts
   with `up-1-triaging-change-requests`. The migration step has no such line.
-- When you answer "later" to the end-of-turn question, the drift becomes one
-  AHEAD item: an index row with the next free identifier, kind `idea`, state
-  `open`, and an entry with What, Why and Write-up. The same drift is
+- When you answer "later" to the end-of-turn question, the drift goes to the
+  deferred list in the git folder, shown with the open work at session start.
+  It never becomes an AHEAD item by itself: `AHEAD.md` is entered on your
+  decision, and you may make an item of a deferred line. The same drift is
   recorded once (P9).
-- The end-of-turn question runs the A-files check as its command line
-  states (`--strict`, again without it when the check exits 2; exit 0 when
+- The A-files plugin's end-of-turn hook, not this gate, runs the A-files
+  check as its command line states (`--strict`, again without it when the check exits 2; exit 0 when
   the A-files are clean; exit 1 and one `path:line: ERROR CODE: message` line
   per problem), and knows a finding by
   its path, code and subject, never by a count in its message (P10).
@@ -586,7 +586,7 @@ change that takes one up writes `in change: <record>`; the coverage audit's
 report closes it as `aligned: <report>` only when each cited report lists
 the entry on its `Change log` line; a dropped one keeps its reason.
 With the A-files, recovery drafts one AHEAD item per use case and writes
-them on your yes. The router prints `Alignment: N open (...)`, a `ready`
+them on your yes, each with its Entered line. The router prints `Alignment: N open (...)`, a `ready`
 hint when an entry's use cases are Tested or Done and only the audit's
 report is missing, and a warning when an ability is done while its use
 cases still have open entries. The backlog never blocks new work.
@@ -1617,10 +1617,9 @@ notes.
 Each new decision asks once: align now, at the end of the session, or later.
 Now means align in this session; end of the session means remind you once at
 session end; later runs the item's `hook_gate.py later TEXT` command (the
-message gives it with the plugin's path). With the
-A-files, it adds an `AHEAD.md` item (kind `idea`, state `open`, entry under
-Items); otherwise it appends to `up-deferred.txt` in the git folder, shown
-as open work at session start until removed. It never duplicates an item.
+message gives it with the plugin's path). It appends to `up-deferred.txt`
+in the git folder, shown as open work at session start until removed, and
+never writes `AHEAD.md`. It never records the same drift twice.
 
 Notes reach the agent as one list of what is out of step and what aligns
 each item. The message says none needs you and tells the agent to align them
@@ -1890,7 +1889,7 @@ not supported.
 | A hook never writes to `up-hooks.log` | The tool did not run it: check that the plugin is installed and, in Codex, that you approved each hook in `/hooks` (reinstall after an update); that Kiro has the skill folders and hook file in `~/.kiro`; that the project's guideline file carries the rules block (the hooks are silent elsewhere); and that the tool runs hooks in this mode or engine |
 | Every hook seems to fire twice, or session start says to run `--update` | The project still has an earlier release's hooks in `tools/specs/` and its tool settings; run `scaffold_docs.py --update`, review the plan and apply it |
 | The agent was not told what is open | Check that the hook is on, the tool's start-of-turn support and `up-hooks.log`; a tool without a start-of-turn event gets the list at session start only |
-| The stop sent a decision or note once and then said nothing | That is the design: each decision is asked once and each note is sent once per session. A decision's "later" answer is in `AHEAD.md` or in `up-deferred.txt` in the git folder; the open-work list shows the deferred lines at session start |
+| The stop sent a decision or note once and then said nothing | That is the design: each decision is asked once and each note is sent once per session. A decision's "later" answer is in `up-deferred.txt` in the git folder; the open-work list shows the deferred lines at session start |
 | The pipeline passed with findings | Every check reports and exits 0 by default; add `--strict` to a step for a strict pipeline |
 | "unknown revision" from the finish check | Pass the branch or commit the change started from with `--base`, or `HEAD` while nothing is committed |
 | "rests on no source" | Add the flow or rule to the record's sources table: the request, a decision, today, or a listed assumption |

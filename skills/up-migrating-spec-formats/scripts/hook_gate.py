@@ -10,9 +10,9 @@
     hook_gate.py turn-start [--docs DIR]
         changed open-work context, always non-blocking
     hook_gate.py later TEXT
-        record a drift the person chose to align later: an item in AHEAD.md
-        when the project uses the A-files, else a line in up-deferred.txt in
-        the git folder, listed with the open work at session start
+        record a drift to align later: a line in up-deferred.txt in the git
+        folder, listed with the open work at session start. It never writes
+        AHEAD.md: with the A-files, that file is entered on the owner's decision
 
 Every moment accepts --emit raw|claude|codex|kiro|auto (default: raw)
 auto is codex when the environment has PLUGIN_ROOT, else claude.
@@ -37,7 +37,7 @@ at the end of the session, or later. Other drifts are notes for the agent to
 align or list in its handoff, without a question. Both kinds share one stop
 message and the snapshot's asked memory, so neither is sent twice. In an unattended
 session (CLAUDE_CODE_SESSION_ATTENDED=0, or UP_UNATTENDED=1 for any tool; no other tool is
-guessed) nobody can answer: each decision is recorded as 'later' (an AHEAD item or the
+guessed) nobody can answer: each decision is recorded as 'later' (a line of the
 deferred list, once per session) instead of asked, the stop sends the notes for the agent
 and one line naming the decisions recorded for the owner, or nothing when there are no
 notes. Turn start reuses
@@ -87,7 +87,7 @@ import tempfile
 import time
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "2.0.1"
+UPSPEC_VERSION = "2.1.0"
 
 sys.dont_write_bytecode = True   # a __pycache__ folder in tools/specs/ would be an unexplained file in every change
 
@@ -97,7 +97,7 @@ STDIN_WAIT = 1.0                # seconds: hook runners write their JSON at once
 MAX_CONTEXT_LINES = 60          # a longer state report is cut; the full one is one command away
 LOG_LINES = 200                 # a proof session and some days of work; older lines are dropped
 LOG_NAME = "up-hooks.log"
-# Drifts the person chose to align later, when the project keeps no AHEAD.md the gate can add to.
+# Drifts to align later: the gate's own list, in the git folder. The gate never adds to AHEAD.md.
 DEFERRED_NAME = "up-deferred.txt"
 PASS, WARN, ASK, FAILED = 0, 1, 2, 3
 MODES = ("session-start", "after-edit", "before-stop", "turn-start")
@@ -116,6 +116,8 @@ SNAPSHOT_PRUNE_GRACE_SECONDS = 60
 SNAPSHOT_TEMP_MAX_AGE_SECONDS = 24 * 60 * 60
 # Fifteen items fit a glance; a final line counts omitted items.
 OPEN_LINES = 15
+# The newest deferred items shown; the rest are counted, and the last line says where the list is.
+DEFERRED_LINES = 5
 # Three seconds bounds per-prompt work while allowing local git and cached validation.
 TURN_START_SECONDS = 3
 # Four seconds cover interpreter startup, imports, root lookup and other local git bookkeeping.
@@ -164,14 +166,6 @@ class Drift(NamedTuple):
 def classify_drift(item) -> str:
     """Only a person-set Status or reserved approval needs an owner decision."""
     return "decide" if item.status in ("Approved", "Done") or item.owner_reserved else "note"
-
-
-class AheadPlan(NamedTuple):
-    """Where an item goes in AHEAD.md: the line of the new index row, the index header's cells, the line before
-    which the entry goes."""
-    row: int
-    header: list
-    entry: int
 
 
 class DeferredItem(NamedTuple):
@@ -441,11 +435,14 @@ def open_list(view, docs_rel, slot) -> list[str]:
     import status_claims
     import validate_use_case
     lines = ["- Open change record: " + name for name in open_records(view)]
-    deferred = deferred_items(view.root)
-    lines += ["- Deferred: %s (since %s)" % (item.text, item.date) for item in deferred]
+    deferred = deferred_items(view.root)[::-1]              # newest first: what was just deferred is never the one cut
+    tail = ["- Deferred: %s (since %s)" % (item.text, item.date) for item in deferred[:DEFERRED_LINES]]
+    if len(deferred) > DEFERRED_LINES:
+        count = len(deferred) - DEFERRED_LINES
+        tail.append("- ... %d older deferred item%s" % (count, "" if count == 1 else "s"))
     if deferred:
-        lines.append("- Deferred items are lines of %s in the git folder; remove a line once it is aligned."
-                     % DEFERRED_NAME)
+        tail.append("- Deferred items are lines of %s in the git folder; remove a line once it is aligned."
+                    % DEFERRED_NAME)
     current = status_claims.statuses(view.root, docs_rel)
     before = status_claims.statuses(view.root, docs_rel, view.base.commit) if view.base.commit else {}
     raised = {claim.uc: claim for claim in status_claims.find_claims(before, current)}
@@ -510,10 +507,12 @@ def open_list(view, docs_rel, slot) -> list[str]:
             lines.append("- %s: %s -> %s" % (uc, claim.before or "absent", claim.after))
     current_paths = {value[0] for value in current.values()}
     slot["validated"] = {path: value for path, value in cache.items() if path in current_paths}
-    if lines:
+    if lines or tail:
         titles = _titles(view.root, docs_rel)
         lines = [model.with_titles(line, titles) for line in lines]
-    return lines[:OPEN_LINES] + (["... %d more open items" % (len(lines) - OPEN_LINES)] if len(lines) > OPEN_LINES else [])
+        tail = [model.with_titles(line, titles) for line in tail]
+    room = max(OPEN_LINES - len(tail), 0)
+    return lines[:room] + (["... %d more open items" % (len(lines) - room)] if len(lines) > room else []) + tail
 
 
 def _open_context(root, args, event, slot=None):
@@ -919,8 +918,9 @@ def record_decisions(root, decisions, titles) -> str:
             recorded.append(text)
         except (GateError, OSError, UnicodeError):
             failed.append(text)
-    line = "No person is present in this session, so the owner's decisions were not asked; recorded for the owner as later: " \
-           + "; ".join(recorded) + "."
+    line = ("No person is present in this session, so the owner's decisions were not asked; recorded for the owner as later "
+            "(in %s in the git folder, shown with the open work at session start): " % DEFERRED_NAME
+            + "; ".join(recorded) + ".")
     if failed:
         line = ((line if recorded else "No person is present in this session, so the owner's decisions were not asked.")
                 + " Could not record: " + "; ".join(failed) + "; name them in your handoff.")
@@ -932,8 +932,8 @@ def question(root, drifts, titles=None) -> str:
     the bare identifiers; only the text a person reads carries their titles."""
     import spec_model as model
     titles = titles or {}
-    where = ("as an item in AHEAD.md" if later_destination(root) else
-             "as a line in %s in the git folder, listed with the open work at session start" % DEFERRED_NAME)
+    where = ("as a line in %s in the git folder, listed with the open work at session start, never an item in "
+             "AHEAD.md" % DEFERRED_NAME)
     lines = [QUESTION_HEADING,
              "- now: align it in this session, as the item says;",
              "- end of the session: leave it for now and remind the person of it once, when the session ends;",
@@ -1018,85 +1018,12 @@ def deferred_items(root) -> list:
     return items
 
 
-def _ahead_plan(lines) -> Optional[AheadPlan]:
-    """Where an item goes in AHEAD.md, or None when the layout is unknown.
-
-    The index is the table above the hot zone's end whose header has ID and State; the entry goes at the end
-    of the Items section below it."""
-    import spec_model as model
-    marker = next((n for n, line in enumerate(lines) if line.strip() == model.A_FILES_MARKER), None)
-    if marker is None:
-        return None
-    for number in range(marker):
-        cells = [cell.strip() for cell in lines[number].strip().strip("|").split("|")]
-        if (lines[number].lstrip().startswith("|") and "ID" in cells and "State" in cells
-                and number + 1 < marker and re.match(r"^\s*\|[\s:|-]+\|\s*$", lines[number + 1])):
-            row = number + 2
-            while row < marker and lines[row].lstrip().startswith("|"):
-                row += 1
-            items = next((n for n in range(marker, len(lines)) if lines[n].strip() == "## Items"), None)
-            if items is None:
-                return None
-            entry = next((n for n in range(items + 1, len(lines)) if lines[n].startswith("## ")), len(lines))
-            return AheadPlan(row, cells, entry)
-    return None
-
-
-def later_destination(root):
-    """'AHEAD.md' when the project uses the A-files and its AHEAD.md can take an item, else None."""
-    import spec_model as model
-    if not model.a_files_present(root):
-        return None
-    try:
-        lines = model.read_lines(os.path.join(root, "AHEAD.md"))
-    except (OSError, UnicodeDecodeError):
-        return None
-    if model.a_file_home(root, lines) or _ahead_plan(lines) is None:
-        return None
-    return "AHEAD.md"
-
-
-# What 'later' writes into AHEAD.md, as pairing contract row P9 states it: an index row with the next free
-# identifier, the drift as its title, kind idea, state open and a dash in every other column; an entry under
-# Items with What (the drift), Why (the person chose to align it later, with the date) and Write-up none.
-LATER_ROW = {"Kind": "idea", "State": "open"}
-LATER_ENTRY = ("- **What:** {text}",
-               "- **Why:** the person chose to align it later when an agent's turn ended ({date})",
-               "- **Write-up:** none")
-
-
 def record_later(root, text) -> str:
-    """Record the drift where later_destination says; return what was written. A drift recorded before (the same
-    text in an AHEAD entry's What, or a line of the deferred list) is not recorded again."""
-    import spec_model as model
+    """Record the drift in the deferred list; return what was written. A drift recorded before (the same text in a
+    line of the list) is not recorded again. AHEAD.md is never written: with the A-files it is entered on the owner's
+    decision, and nobody decided this (pairing contract, row P9)."""
     text = " ".join(text.split())
     today = datetime.date.today().isoformat()
-    if later_destination(root):
-        path = os.path.join(root, "AHEAD.md")
-        lines = model.read_lines(path)
-        plan = _ahead_plan(lines)
-        what = LATER_ENTRY[0].format(text=text)
-        for number, line in enumerate(lines):
-            if line.strip() == what:
-                heading = next((lines[n] for n in range(number, -1, -1) if lines[n].startswith("### ")), "")
-                found = model.RE_AH_ID.search(heading)
-                return "Recorded already%s in AHEAD.md; nothing added." % (" as " + found.group(0) if found else "")
-        numbers = [int(found[3:]) for found in model.RE_AH_ID.findall("\n".join(lines))]
-        identifier = "AH-%03d" % (max(numbers, default=0) + 1)
-        title = text.replace("|", "/")
-        values = dict(LATER_ROW, ID=identifier, Title=title)
-        new_row = "| " + " | ".join(values.get(cell, "—") for cell in plan.header) + " |"
-        row, entry = plan.row, plan.entry
-        start = entry
-        while start > 0 and not lines[start - 1].strip():
-            start -= 1
-        block = ["", "### %s %s" % (identifier, title), ""] + [field.format(text=text, date=today)
-                                                                for field in LATER_ENTRY]
-        lines = lines[:start] + block + ([""] if start < len(lines) and start == entry else []) + lines[start:]
-        lines = lines[:row] + [new_row] + lines[row:]
-        with open(path, "w", encoding="utf-8") as handle:
-            handle.write("\n".join(lines))
-        return "Recorded as %s in AHEAD.md." % identifier
     path = git_path(root, DEFERRED_NAME)
     if path is None:
         raise GateError("cannot locate the git folder")
