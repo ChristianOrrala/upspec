@@ -2,6 +2,15 @@
 
 All notable changes to upspec. Versions follow semantic versioning.
 
+## 2.1.1 (2026-11-19)
+
+Fixes found by the review of 2.1.0.
+
+- **No lost "later".** In a session nobody attends, a decision whose line could not be written is not marked as asked: the agent hears of it, and the next turn's end tries again.
+- **Setup joins an `AGENTS.md` in more shapes.** One keep-in-step row already there no longer keeps out the other; a sample list inside a fence never receives the rows; a list written with asterisks gets its rows with asterisks. The index of `AGENTS.md` is read as the A-files' check reads it (no closing pipe needed; a File table is the index).
+- **The deferred list keeps its records apart** when its last line has no newline.
+- **Texts.** Setup's existing-structure reference no longer speaks of a length finding the check retired; the pairing contract names `ITEM_WITHOUT_DECISION`.
+
 ## 2.1.0 (2026-11-19)
 
 Released with a-files 2.2.0, whose pairing text this plugin shares. "Later" no longer writes `AHEAD.md`, and setup reads `AGENTS.md` with or without an end of hot zone.

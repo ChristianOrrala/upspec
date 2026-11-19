@@ -87,7 +87,7 @@ import tempfile
 import time
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "2.1.0"
+UPSPEC_VERSION = "2.1.1"
 
 sys.dont_write_bytecode = True   # a __pycache__ folder in tools/specs/ would be an unexplained file in every change
 
@@ -907,10 +907,11 @@ def unattended(environ=None) -> bool:
     return environ.get("CLAUDE_CODE_SESSION_ATTENDED") == "0" or environ.get("UP_UNATTENDED") == "1"
 
 
-def record_decisions(root, decisions, titles) -> str:
-    """Record each decision as 'later' for the owner; one line for the agent saying what was recorded."""
+def record_decisions(root, decisions, titles):
+    """Record each decision as 'later' for the owner: (one line for the agent saying what was recorded, the drifts
+    that could not be recorded)."""
     import spec_model as model
-    recorded, failed = [], []
+    recorded, failed, unrecorded = [], [], []
     for drift in decisions:
         text = model.with_titles(drift.later_text, titles)
         try:
@@ -918,13 +919,14 @@ def record_decisions(root, decisions, titles) -> str:
             recorded.append(text)
         except (GateError, OSError, UnicodeError):
             failed.append(text)
+            unrecorded.append(drift)
     line = ("No person is present in this session, so the owner's decisions were not asked; recorded for the owner as later "
             "(in %s in the git folder, shown with the open work at session start): " % DEFERRED_NAME
             + "; ".join(recorded) + ".")
     if failed:
         line = ((line if recorded else "No person is present in this session, so the owner's decisions were not asked.")
                 + " Could not record: " + "; ".join(failed) + "; name them in your handoff.")
-    return line
+    return line, unrecorded
 
 
 def question(root, drifts, titles=None) -> str:
@@ -982,11 +984,15 @@ def before_stop(view, args, event) -> Verdict:
     titles = _titles(view.root, docs_rel)
     if decisions and unattended():
         # Nobody can answer: the decisions go to the owner as 'later' (record_later does not repeat one), and only the
-        # notes, with one line naming what was recorded, reach the agent.
-        remembered = remember_asked(view.root, session, docs_rel, [key for drift in new for key in drift.keys])
-        line = record_decisions(view.root, decisions, titles)
-        if not notes:
+        # notes, with one line naming what was recorded, reach the agent. A decision that could not be recorded is not
+        # remembered as asked, so the next stop tries it again.
+        line, unrecorded = record_decisions(view.root, decisions, titles)
+        handled = [drift for drift in new if drift not in unrecorded]
+        remembered = remember_asked(view.root, session, docs_rel, [key for drift in handled for key in drift.keys])
+        if not notes and not unrecorded:
             return Verdict(PASS, "", detail + "; unattended: decisions recorded as later")
+        if not notes:
+            return Verdict(WARN, line, detail + "; unattended: some decisions not recorded")
         text = handoff_notes(notes, titles) + "\n\n" + line
         return Verdict(ASK if remembered else WARN, text, detail + "; unattended")
     parts = ([question(view.root, decisions, titles)] if decisions else [])
@@ -1029,8 +1035,14 @@ def record_later(root, text) -> str:
         raise GateError("cannot locate the git folder")
     if any(item.text == text for item in deferred_items(root)):
         return "Recorded already in %s; nothing added." % path
-    with open(path, "a", encoding="utf-8") as handle:
-        handle.write("- %s %s\n" % (today, text))
+    with open(path, "ab+") as handle:
+        # A list whose last line lacks its newline would swallow this record into that line.
+        size = handle.seek(0, os.SEEK_END)
+        ends_cleanly = True
+        if size:
+            handle.seek(size - 1)
+            ends_cleanly = handle.read(1) == b"\n"
+        handle.write((("" if ends_cleanly else "\n") + "- %s %s\n" % (today, text)).encode("utf-8"))
     return "Recorded in %s; it is listed with the open work at session start until its line is removed." % path
 
 

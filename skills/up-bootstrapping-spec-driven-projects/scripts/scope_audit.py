@@ -36,7 +36,7 @@ import spec_model as model  # noqa: E402  (local module, same folder)
 import change_view  # noqa: E402
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "2.1.0"
+UPSPEC_VERSION = "2.1.1"
 
 
 def attribute(view: change_view.ChangeView, uc_ids: set[str], record: str | None = None) -> dict[str, list[dict]]:

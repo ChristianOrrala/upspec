@@ -1,6 +1,6 @@
 # upspec: User Manual
 
-Version 2.1.0
+Version 2.1.1
 
 This manual explains how to install the `upspec` skills, how the work
 they support is organized, and how to carry a piece of work from an idea, a

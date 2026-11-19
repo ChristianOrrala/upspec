@@ -24,7 +24,7 @@ import unicodedata
 from typing import NamedTuple, Optional
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "2.1.0"
+UPSPEC_VERSION = "2.1.1"
 
 # --- vocabulary -------------------------------------------------------------
 
@@ -699,22 +699,63 @@ A_FILES_INDEX_LINES = 100
 TRACKED_A_FILES = ("ACTIVE.md", "ABILITIES.md", "AHEAD.md", "ATLAS.md")
 
 
+A_FILES_INDEX_HEADS = ("file", "files", "path")
+
+
+def blank_fences(lines):
+    """The lines with fenced blocks blanked, as the A-files' check reads them: a fence closes only on a bare run of
+    its own character at least as long as the one that opened it."""
+    out, fence = [], None
+    for line in lines:
+        mark = re.match(r"^\s*(`{3,}|~{3,})(.*)$", line)
+        if fence:
+            out.append("")
+            if mark and mark.group(1)[0] == fence[0] and len(mark.group(1)) >= len(fence) and not mark.group(2).strip():
+                fence = None
+        elif mark:
+            fence = mark.group(1)
+            out.append("")
+        else:
+            out.append(line)
+    return out
+
+
+def _a_files_tables(lines):
+    """Tables as the A-files' check reads them: a header line starting with a pipe, a separator, then every line
+    starting with a pipe; the closing pipe is optional. [(header cells, [{header: cell}])]."""
+    found, i = [], 0
+    while i < len(lines) - 1:
+        line, below = lines[i].strip(), lines[i + 1].strip()
+        if line.startswith("|") and re.match(r"^\|?\s*:?-{3,}", below):
+            header = [c.strip() for c in line.strip("|").split("|")]
+            rows, j = [], i + 2
+            while j < len(lines) and lines[j].strip().startswith("|"):
+                rows.append(dict(zip(header, [c.strip() for c in lines[j].strip().strip("|").split("|")])))
+                j += 1
+            found.append((header, rows))
+            i = j
+        else:
+            i += 1
+    return found
+
+
 def a_files_listed(agents_lines):
-    """The A-files the index of AGENTS.md lists, read as the A-files' check reads it: the rows of its tables,
-    wherever they sit in the file, whose first cell is an A-file's name (in backticks, as a link, or after ./);
-    fenced blocks are examples. An AGENTS.md with no such row names its files in prose, and every A-file named in
-    its first 100 lines is listed: a passing mention further down lists nothing."""
+    """The A-files the index of AGENTS.md lists, read as the A-files' check reads it: the rows of the tables whose
+    header starts with File (or Files, Path), wherever they sit in the file, whose first cell is an A-file's name
+    (in backticks, as a link, or after ./); without such a header, any table's rows. Fenced blocks are examples.
+    An AGENTS.md with no such row names its files in prose, and every A-file named in its first 100 lines is
+    listed: a passing mention further down lists nothing."""
     found = set()
-    for table in read_tables(agents_lines):
-        if table["separator"] is None:
-            continue
-        for _, row, _ in table["rows"]:
-            cell = re.sub(r"\]\([^)]*\)", "", row.get(table["header"][0], "")).strip("[]` ")
+    every = _a_files_tables(blank_fences(agents_lines))
+    index = [t for t in every if t[0] and t[0][0].strip("`* ").lower() in A_FILES_INDEX_HEADS] or every
+    for header, rows in index:
+        for row in rows:
+            cell = re.sub(r"\]\([^)]*\)", "", row.get(header[0], "")).strip("[]` ")
             found.add(cell[2:] if cell.startswith("./") else cell)
     found &= set(TRACKED_A_FILES)
     if found:
         return found
-    prose = "\n".join(line for _, line in outside_fences(agents_lines[:A_FILES_INDEX_LINES]))
+    prose = "\n".join(blank_fences(agents_lines)[:A_FILES_INDEX_LINES])
     return {name for name in TRACKED_A_FILES if name in prose}
 
 

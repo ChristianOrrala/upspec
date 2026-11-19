@@ -61,7 +61,7 @@ and P5 of the pairing contract in the conventions:
 
 A missing Keep in step list or map table is reported as a note; add those
 rows by hand. After `--apply`, run `python3 tools/check_tracking.py` until it
-prints nothing: the rules block may have taken `AGENTS.md` over its cap.
+prints nothing: a new link in the rules block may point at nothing.
 Running setup again changes nothing.
 
 **When they are not present**, ask once whether the owner wants them. On a

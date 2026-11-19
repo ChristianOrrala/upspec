@@ -297,19 +297,23 @@ def join_agents(text, name_rules, abilities):
             lines[end:end] = ["Below: %s." % title, ""]
             zone = end = end + 2
             changed = True
-    if abilities and "`Specs` line" not in "\n".join(lines[:zone]):
-        keep = next((i for i in range(zone) if lines[i].strip().lower() == "## keep in step"), None)
+    # Fenced blocks are examples: a sample list there never receives the rows, and a row there is not one.
+    seen = spec_model.blank_fences(lines)
+    missing = [row for row in KEEP_ROWS if not any("`Specs` line" in line and row[2:] in line for line in seen[:zone])]
+    if abilities and missing:
+        keep = next((i for i in range(zone) if seen[i].strip().lower() == "## keep in step"), None)
         starts = []
         if keep is not None:
             j = keep + 1
-            while j < zone and not lines[j].startswith("## "):
-                if lines[j].startswith("- "):
+            while j < zone and not seen[j].startswith("## "):
+                if seen[j].startswith(("- ", "* ", "+ ")):
                     starts.append(j)
-                elif starts and lines[j].strip() and not lines[j].startswith((" ", "\t")):
+                elif starts and seen[j].strip() and not seen[j].startswith((" ", "\t")):
                     break          # a paragraph after the list ends it; blank lines between items do not
                 j += 1
         if starts:
-            lines[starts[-1]:starts[-1]] = list(KEEP_ROWS)
+            bullet = seen[starts[-1]][:2]          # the rows are written as the list writes its items
+            lines[starts[-1]:starts[-1]] = [bullet + row[2:] for row in missing]
             changed = True
         else:
             notes.append("AGENTS.md has no Keep in step list: add its two rows by hand (references/existing-structure.md)")
