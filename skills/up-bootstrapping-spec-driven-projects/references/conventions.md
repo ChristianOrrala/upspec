@@ -88,6 +88,10 @@ table, with a blank line before the Examples table. Input columns precede
 `result`, the last column. Keep at least two rows for every active rule.
 Fill every cell and include a row on each side of every stated boundary.
 Otherwise the check reports `EXAMPLES_FORM`.
+A note on a rule, such as a future requirement or a pointer, goes after its
+Examples table as a blockquote (`> `). It is not part of the rule: changing
+it needs no new guard check, and the change list reports it as
+`BR-001 (note)`. A blockquote before the table is rule text.
 
 A journey has exactly one fenced `gherkin` block and one named Scenario.
 Steps use Given, When, Then, And or But, with literal test data in quotes.
@@ -100,7 +104,9 @@ remain in the body. `process`, when present, is the relative BPMN path.
 Change records have outcomes 1 through 7 or `migration`, and four required
 sections: Context (report and sign-off test), Decision (owner's decisions
 table with each decision's element), Specification change, Consequences
-(differences from today and impact). Sources of new behavior, Assumptions,
+(differences from today and impact; Today is what the system does now, and a
+row that changes no behavior repeats After, which is how a specification
+catches up to code that is right). Sources of new behavior, Assumptions,
 Reproduction and Urgent path appear only when applicable. `RECORD_FORM`
 reports an unknown outcome or missing required section.
 

@@ -2,6 +2,18 @@
 
 All notable changes to upspec. Versions follow semantic versioning.
 
+## 2.1.3 (2026-11-19)
+
+Fixes found when a project's specification caught up to code that was already right.
+
+- **Pins are tests.** The finish check looks for a cited test in test files only. A change record that cites a test, a guard log or review that names it, or a note kept in a test folder no longer counts as the test existing. A test cited by its location (`test_change.py:10`) matches that file, not one whose name ends the same way.
+- **The pin commit is read whole.** A file moved out of a source folder in the pin's commit counts as a change to that folder.
+- **A pin may share its commit with the A-files.** A pin committed before the code may also change Markdown at the repository's root, such as `ACTIVE.md`. Markdown elsewhere still counts as code.
+- **Escaped quotes in Seen in.** `test "reads \"Checking\" and stops"` names `reads "Checking" and stops`.
+- **Notes after a rule.** A blockquote after a rule's Examples table is a note: it is not the rule's text, changing it needs no new guard check, and the change list reports it as `BR-001 (note)`. A blockquote between the table's rows, or followed by more of the rule, stays rule text. A record row for `UC-012 BR-001 (note)` names no rule. A guard result logged before 2.1.3 stays current until its rule's note changes.
+- **Examples changes are rule changes.** The change list now reports a rule whose Examples table changed, so a changed example can no longer pass unrecorded, alone or next to a changed note.
+- **Today is what the system does.** The change-record template, up-7 and the manual say so, and name how a specification catches up to code that is right: rows that repeat After in Today, each pinned by an existing test. The finish check's "pin the change did not touch" message says the same.
+
 ## 2.1.2 (2026-11-19)
 
 Fixes found by a static check of the skills (NVIDIA SkillEvaluator, Tier 1).

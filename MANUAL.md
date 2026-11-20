@@ -1,6 +1,6 @@
 # upspec: User Manual
 
-Version 2.1.2
+Version 2.1.3
 
 This manual explains how to install the `upspec` skills, how the work
 they support is organized, and how to carry a piece of work from an idea, a
@@ -470,6 +470,10 @@ table, with a blank line before the Examples table. Input columns precede
 `result`, the last column. Keep at least two rows for every active rule.
 Fill every cell and include a row on each side of every stated boundary.
 Otherwise the check reports `EXAMPLES_FORM`.
+A note on a rule, such as a future requirement or a pointer, goes after its
+Examples table as a blockquote (`> `). It is not part of the rule: changing
+it needs no new guard check, and the change list reports it as
+`BR-001 (note)`. A blockquote before the table is rule text.
 
 A journey has exactly one fenced `gherkin` block and one named Scenario.
 Steps use Given, When, Then, And or But, with literal test data in quotes.
@@ -836,6 +840,11 @@ Pinning and other next steps belong with Consequences.
 **Seen in** says how today's behavior is known: `code` (read from the code, so
 it must be pinned by a test before it changes), `test <name>` (pinned by that
 test), or `observed` (seen on the running system with its real services).
+**Today** is what the system does now, never what the specification said.
+When the code is right and no flow or rule says it, the specification
+catches up through a change record whose rows repeat After in Today, each
+pinned by a test that already exists or by one committed before the
+specification changes.
 
 **The seven outcomes of triage:**
 
@@ -959,7 +968,7 @@ implementation is reported. It checks:
 - **Tests named**: every flow and rule in the change is named by a test.
 - **Guard check**: every rule in the change has a logged break that a test
   caught: the newest row of the rule counts, and only when it is `caught`. A
-  row is stale when the rule's text, its Examples table or the enforcing file
+  row is stale when the rule's text, its Examples table (not its notes) or the enforcing file
   changed since it was logged, or when it is in the format before 1.3.0
   (no fingerprints); the report then says
   `the guard check of UC-012 BR-001 (...) is stale: run scripts/guard_check.py again`. A guard-check log it
@@ -969,7 +978,8 @@ implementation is reported. It checks:
 - **Record**: nothing changed in the specification outside the change record.
 - **Pinning**: every row read only from the code is pinned by a test that
   existed before the code changed, and the pin of a row the change alters
-  changed with it.
+  changed with it. The test is looked for in test files only; the commit that
+  holds it may also change documents and Markdown at the repository's root.
 
 Run it with `--base` set to the branch or commit the change started from
 (`HEAD` while nothing is committed). It ends with "ready to report" or with a

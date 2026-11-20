@@ -56,7 +56,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spec_model as model  # noqa: E402  (local module, same folder)
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "2.1.2"
+UPSPEC_VERSION = "2.1.3"
 
 UNIT = re.compile(r"\b(A\d+|BR-\d{3})\b")
 
@@ -78,6 +78,7 @@ def units_for(text, uc_id):
     any use case is named (the cell belongs to the change as a whole). Units after another use case's
     identifier are that use case's."""
     found, owner = set(), None
+    text = model.NOTE_REF.sub("", text)       # a rule's note names no rule
     for token in re.finditer(r"\bUC-\d{3}\b|\bA\d+\b|\bBR-\d{3}\b", text):
         value = token.group(0)
         if value.startswith("UC-"):
@@ -176,6 +177,8 @@ def check(docs_dir, uc_id, record=None, since=None):
     new = model.parse_use_case(path)
     changed = []
     for change in model.compare_use_cases(old, new):
+        if change["element"].endswith("(note)"):
+            continue                               # a note is not a flow or rule
         unit = change["element"].split(" ")[0]
         if UNIT.fullmatch(unit):
             changed.append({"unit": unit, "change": change["change"]})

@@ -25,7 +25,7 @@ Sign-off test: [Would a stakeholder have signed off the specification as it stan
 
 ## Consequences
 
-[Differences from today and the impact. Omit a table when it does not apply.]
+[Differences from today and the impact. Today is what the system does now, as the code, a test or the running system shows it, not what the specification said. A row that changes no behavior repeats After in Today: that is how the specification catches up to code that is right. Omit a table when it does not apply.]
 
 | Element | Today | After the change | Requested by | Seen in |
 |---|---|---|---|---|

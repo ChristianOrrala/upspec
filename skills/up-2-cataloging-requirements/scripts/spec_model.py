@@ -24,7 +24,7 @@ import unicodedata
 from typing import NamedTuple, Optional
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "2.1.2"
+UPSPEC_VERSION = "2.1.3"
 
 # --- vocabulary -------------------------------------------------------------
 
@@ -2057,6 +2057,7 @@ class Rule:
         self.body = []               # (line, text)
         self.examples = None
         self.examples_blank_before = False
+        self.notes = []              # (line, text): blockquotes after the Examples table, not the rule
 
     def text(self):
         return " ".join(text.strip() for _, text in self.body if text.strip() and table_cells(text) is None)
@@ -2257,6 +2258,8 @@ def parse_use_case_lines(lines, path):
                     rule.examples["separator"] = (number, cells)
                 else:
                     rule.examples["rows"].append((number, cells))
+    for rule in uc.rules:
+        split_notes(rule)
     cited = uc.all_step_texts() + [(flow.trigger_line, flow.trigger, flow.label) for flow in uc.flows]
     for line_no, text, where in cited:
         local, external = split_external(text)
@@ -2601,6 +2604,8 @@ def find_markers(root, uc_id, suffixes=None):
 
 # Flow and business-rule labels carried by change-record element cells.
 UNIT = re.compile(r"\b(A\d+|BR-\d{3})\b")
+# A rule's note named in a record (UC-001 BR-001 (note)): it names no flow or rule.
+NOTE_REF = re.compile(r"\bBR-\d{3}\s*\(note\)", re.IGNORECASE)
 
 
 def record_rows_from(lines, uc_id):
@@ -2618,7 +2623,7 @@ def record_rows_from(lines, uc_id):
                 continue
             other = [u for u in RE_UC_ID.findall(cell) if u != uc_id]
             mine = True if uc_id in cell else (False if other else None)
-            units = [] if mine is False else UNIT.findall(cell)
+            units = [] if mine is False else UNIT.findall(NOTE_REF.sub("", cell))
             rows.append((cell, units, row.get(seen_col, "").strip() if seen_col else None, mine))
         return rows
     return None
@@ -3105,10 +3110,36 @@ def _diff_steps(prefix, old, new, changes):
             changes.append({"change": "added", "element": "%s %d" % (prefix, new[j].number), "old": None, "new": new_texts[j]})
 
 
-def rule_text(rule):
+def split_notes(rule):
+    """Move a rule's notes from its body to rule.notes: the blockquote that ends its section, after its Examples
+    table (or anywhere in a rule with no table), with the unmarked lines that continue a quoted line. A blockquote
+    followed by more of the rule, or one between the table's rows, stays rule text."""
+    body, start = rule.body, len(rule.body)
+    while start > 0:
+        number, text = body[start - 1]
+        if text.strip().startswith(">"):
+            start -= 1
+        elif (start > 1 and body[start - 2][1].strip().startswith(">") and body[start - 2][0] == number - 1
+              and table_cells(text) is None):
+            start -= 1                          # a lazy continuation of the quoted line above it
+        else:
+            break
+    if start == len(body) or not body[start][1].strip().startswith(">"):
+        return
+    if rule.examples is not None:
+        table = [rule.examples["line"]] + [n for n, _ in rule.examples["rows"]]
+        if rule.examples["separator"]:
+            table.append(rule.examples["separator"][0])
+        if body[start][0] < max(table):
+            return
+    rule.notes, rule.body = body[start:], body[:start]
+
+
+def rule_text(rule, notes=False):
     """A rule as the guard check fingerprints it: its name, then each line of its body and Examples table, whitespace
-    normalized, one per line."""
-    return "\n".join([norm_text(rule.name)] + [norm_text(text) for _, text in rule.body if text.strip()])
+    normalized, one per line. Its notes are left out; notes=True reads them in place, as releases before 2.1.3 did."""
+    lines = sorted(rule.body + (rule.notes if notes else []))
+    return "\n".join([norm_text(rule.name)] + [norm_text(text) for _, text in lines if text.strip()])
 
 
 def flow_text(flow):
@@ -3157,8 +3188,13 @@ def compare_use_cases(old, new):
             changes.append({"change": "added", "element": rule.id, "old": None, "new": text})
         else:
             before = "%s: %s" % (previous.name, previous.text())
-            if norm_text(before) != norm_text(text):
+            if rule_text(previous) != rule_text(rule):      # its sentence or its Examples table
                 changes.append({"change": "changed", "element": rule.id, "old": before, "new": text})
+        notes_before = norm_text(" ".join(t.strip() for _, t in previous.notes)) if previous else ""
+        notes_now = norm_text(" ".join(t.strip() for _, t in rule.notes))
+        if notes_before != notes_now:              # a note is not the rule: reported apart, it needs no guard check
+            kind = "added" if not notes_before else ("removed" if not notes_now else "changed")
+            changes.append({"change": kind, "element": "%s (note)" % rule.id, "old": notes_before or None, "new": notes_now or None})
     for rule in old_rules.values():
         changes.append({"change": "removed", "element": "%s (was)" % rule.id, "old": "%s: %s" % (rule.name, rule.text()), "new": None})
     return changes

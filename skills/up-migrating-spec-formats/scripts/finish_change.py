@@ -30,9 +30,9 @@ One command for the steps that are easy to skip. It checks:
            since the base while ABILITIES.md and ACTIVE.md stayed unchanged (ACTIVE.md
            alone in a project without ABILITIES.md)
   pinning  every row of the change record whose today's behavior was only read
-           from the code is pinned by a test that was there before the code
-           changed: in the base, or in a commit that changed tests and documents
-           only. A pin written together with the change proves the new code, not
+           from the code is pinned by a test, found in a test file, that was there
+           before the code changed: in the base, or in a commit that changed
+           tests, documents and Markdown at the repository's root only. A pin written together with the change proves the new code, not
            today's behavior; a pin of a row the change alters may since have been
            updated or replaced, and it must have been: a test that pins a behavior
            the change alters fails when it changes, so a cited test the change
@@ -87,7 +87,7 @@ import uc_change_list  # noqa: E402
 import unrecorded_changes  # noqa: E402
 
 # the release these copies belong to; hook_gate.py refuses siblings of another release
-UPSPEC_VERSION = "2.1.2"
+UPSPEC_VERSION = "2.1.3"
 
 # The words of a scope problem: a file of another use case changed in this session (the hook words its headline
 # after them).
@@ -113,8 +113,10 @@ def within_repository(root, top=None):
 def pinning_test(seen):
     """The test a Seen in cell names: the first quoted or backticked part, else the text before a parenthesis."""
     rest = re.sub(r"^test\s*:?\s*", "", seen, flags=re.IGNORECASE).strip()
-    quoted = re.search(r"`([^`]+)`|\"([^\"]+)\"|«([^»]+)»|'([^']+)'", rest)
+    quoted = re.search(r"`([^`]+)`|\"((?:\\.|[^\"\\])+)\"|«([^»]+)»|'([^']+)'", rest)
     if quoted:
+        if quoted.group(2):
+            return quoted.group(2).replace('\\"', '"')     # an escaped quote inside a quoted name is a quote
         return next(group for group in quoted.groups() if group)
     return rest.split(" (")[0].strip()
 
@@ -125,8 +127,26 @@ def test_file_exists(root, reference, files=None):
     if not match or not is_test_path(match.group(1)):
         return False
     tail = match.group(1).replace("\\", "/")
-    return any(path.replace(os.sep, "/").endswith(tail)
+    return any(same_file(path.replace(os.sep, "/"), tail)
                for path in (model.iter_source_files(root) if files is None else files))
+
+
+def same_file(path, tail):
+    """The path is the file the tail names: equal to it, or ending in it after a folder separator, so that
+    test_change.py is not src/latest_change.py."""
+    return path == tail or path.endswith("/" + tail)
+
+
+# Documents a test folder may hold besides tests: they name a test without being one.
+DOCUMENT_SUFFIXES = (".md", ".markdown", ".txt", ".rst", ".adoc")
+
+
+def is_pin_file(path, docs_rel="docs"):
+    """A file that can hold a pinning test: a test by its name or folder, outside the documents folder, and not a
+    document (a note under tests/ or specs/ names a test without being one)."""
+    path = path.replace("\\", "/")
+    return (is_test_path(path) and not path.startswith(docs_rel.rstrip("/") + "/")
+            and not path.lower().endswith(DOCUMENT_SUFFIXES))
 
 
 def record_use_cases(path):
@@ -137,27 +157,36 @@ def record_use_cases(path):
     return ids
 
 
-def present_at(repo, commit, name):
-    """True when the revision holds the test: its name in a file, or a test file at that location."""
+def present_at(repo, commit, name, docs_rel="docs"):
+    """True when the revision holds the test: its name in a test file, or a test file at that location."""
     location = re.fullmatch(r"([\w./-]+\.\w+)(?::\d+)?", name)      # a file, not a bare test name
     if location and is_test_path(location.group(1)):
         code, out = model.git(["ls-tree", "-r", "--name-only", commit], cwd=repo)
-        return code == 0 and any(path.endswith(location.group(1)) for path in out.splitlines())
-    code, _ = model.git(["grep", "-q", "-F", name, commit, "--"], cwd=repo)
-    return code == 0
+        return code == 0 and any(same_file(path, location.group(1)) for path in out.splitlines())
+    # A test file only: the change record that cites the test, or a log, review or note that names it, is not the test.
+    code, out = model.git(["grep", "-l", "-I", "-F", name, commit, "--"], cwd=repo)
+    return code == 0 and any(is_pin_file(entry.split(":", 1)[1] if ":" in entry else entry, docs_rel)
+                             for entry in out.splitlines())
+
+
+def is_document(path, docs_rel):
+    """A file a pin's commit may change besides tests: under the documents folder, or Markdown at
+    the repository's root (the A-files, the README). Markdown elsewhere may be behavior, such as a prompt."""
+    return path.startswith(docs_rel + "/") or ("/" not in path and path.lower().endswith(".md"))
 
 
 def pin_point(repo, base, name, docs_rel):
     """The commit where the pinning test stood before any code of the change: the base, or the first
-    commit after it that has the test and whose changes since the base are tests and documents only.
+    commit after it that has the test and whose changes since the base are tests and documents only (is_document).
     None when there is no such commit."""
-    if present_at(repo, base, name):
+    if present_at(repo, base, name, docs_rel):
         return base
     code, out = model.git(["rev-list", "--reverse", "%s..HEAD" % base], cwd=repo)
     for commit in (out.split() if code == 0 else []):
-        if present_at(repo, commit, name):
-            code, changed = model.git(["diff", "--name-only", base, commit, "--"], cwd=repo)
-            ok = code == 0 and all(is_test_path(path) or path.startswith(docs_rel + "/") for path in changed.splitlines())
+        if present_at(repo, commit, name, docs_rel):
+            # --no-renames: a file moved out of a source folder shows both ends, not only where it went.
+            code, changed = model.git(["diff", "--name-only", "--no-renames", base, commit, "--"], cwd=repo)
+            ok = code == 0 and all(is_test_path(path) or is_document(path, docs_rel) for path in changed.splitlines())
             return commit if ok else None
     return None
 
@@ -220,7 +249,7 @@ def pin_untouched(repo, commit, name, test_root, docs_dir, view=None):
         code, out = model.git(["grep", "-I", "-l", "-F", re.sub(r":\d+$", "", name), commit, "--"], cwd=repo)
         for entry in (out.splitlines() if code == 0 else []):
             path = entry.split(":", 1)[1] if ":" in entry else entry
-            text = show(path) if is_test_path(path) else None
+            text = show(path) if is_pin_file(path) else None
             if text is not None:
                 yield path, text
         location = re.fullmatch(r"([\w./-]+\.\w+)(?::\d+)?", name)
@@ -283,7 +312,11 @@ def guard_staleness(row, uc, element, root):
     if not row.current:
         return "it was logged in the format before upspec 1.3.0, which holds no fingerprints"
     text = element.text(uc)
-    if text is None or model.fingerprint(text) != row.element_fingerprint:
+    logged = {model.fingerprint(text)} if text is not None else set()
+    rule = next((r for r in uc.rules if r.id == element.name), None) if element.kind == "BR-" else None
+    if rule is not None:
+        logged.add(model.fingerprint(model.rule_text(rule, notes=True)))     # a row logged with the rule's notes
+    if text is None or row.element_fingerprint not in logged:
         return "its text or its Examples table changed since it was logged"
     try:
         with open(os.path.join(root, row.file), "rb") as handle:
@@ -771,7 +804,8 @@ def _check_one(args, view: change_view.ChangeView | None = None, covered=None) -
                 if cell in altered and pin_untouched(repo, point, name, test_root, args.docs, test_view):
                     pin["untouched"].append("%s: the change alters this row but leaves %s exactly as it was, so that test does not "
                                             "pin what changes; pin the row with a test that asserts its Today cell, then update "
-                                            "or replace that test with the change" % (cell, name))
+                                            "or replace that test with the change; if this row changes no behavior, write its "
+                                            "Today cell as the system behaves now, the same as After" % (cell, name))
                 continue
             if name in test_text or test_file_exists(test_root, name, pin_files):
                 if repo:

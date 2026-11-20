@@ -1,6 +1,6 @@
 {
   "name": "upspec-opencode-hooks",
-  "version": "2.1.2",
+  "version": "2.1.3",
   "type": "module",
   "main": "index.js",
   "private": true,
